@@ -1,5 +1,5 @@
 # --- 데이터 설정 ---
-DATA_FILE_PATH = "/Users/joomong/Library/CloudStorage/GoogleDrive-jmgo97@gmail.com/내 드라이브/Data/um_1d_all.parquet"
+DATA_FILE_PATH = "Data/um_1d_all.parquet"
 
 # Parquet 파일 내의 실제 컬럼 이름
 TIME_COL = "open_time"
