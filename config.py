@@ -6,7 +6,7 @@ TIME_COL = "open_time"
 SYMBOL_COL = "symbol"
 
 # 슬라이스에 포함할 컬럼들 (없어도 동작은 하지만 캔들/시그널용 권장)
-COLUMNS = ["open", "high", "low", "close", "volume", "quote_volume", "turnover", "value"]
+COLUMNS = ["open", "high", "low", "close", "volume"]
 
 # --- 백테스팅 기간 설정 ---
 START_DATE = "2020-01-01"
