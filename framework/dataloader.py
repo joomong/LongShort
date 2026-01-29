@@ -1,5 +1,6 @@
 # STAR/framework/dataloader.py
 import pandas as pd
+import pyarrow as pa
 import pyarrow.dataset as ds
 from pathlib import Path
 from typing import Optional, Tuple, Iterator, List
@@ -153,19 +154,27 @@ class DataLoader:
             self._emit_timestamps = None
             return
 
-        # 1) carry가 있으면 합치고, 그 타임스탬프의 행을 df에서 제거하여 이중 포함 방지
+        # 1) carry가 있으면 합치기
         if self._carry_last_ts_df is not None and self._carry_last_ts is not None:
             same_ts_rows = df.loc[df.index.get_level_values(0) == self._carry_last_ts]
+            # Rebuild carry_df with proper MultiIndex
+            carry_df = self._carry_last_ts_df.copy()
+            if not isinstance(carry_df.index, pd.MultiIndex):
+                carry_df.index = pd.MultiIndex.from_product(
+                    [[self._carry_last_ts], carry_df.index], names=["timestamp", "instrument"]
+                )
             if not same_ts_rows.empty:
                 # carry + 현재 청크 동일 ts 합치기
-                merged = pd.concat([self._carry_last_ts_df, same_ts_rows])
-                # 정렬 보장
+                merged = pd.concat([carry_df, same_ts_rows])
                 merged = merged.sort_index()
-                # df에서 해당 ts 행 제거 (emit_df에는 carry 합친 걸 사용)
+                # df에서 해당 ts 행 제거
                 df = df.drop(index=self._carry_last_ts, level=0)
-                # 새로운 df로 교체: carry된 ts는 merged로, 나머지는 df 그대로
+                # 새로운 df로 교체
                 df = pd.concat([merged, df]).sort_index()
-            # carry는 일단 해제(아래에서 다시 설정할 수 있음)
+            else:
+                # No same timestamp in new chunk - carry timestamp is complete, prepend it
+                df = pd.concat([carry_df, df]).sort_index()
+            # carry 해제
             self._carry_last_ts_df = None
             self._carry_last_ts = None
 
@@ -220,7 +229,7 @@ class DataLoader:
             return
 
         # batch -> DataFrame 정규화
-        table = batch.to_table()
+        table = pa.Table.from_batches([batch])
         if self._columns is not None:
             # 배치에도 컬럼 선택 적용
             table = table.select(self._columns)
