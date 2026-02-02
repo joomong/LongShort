@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light theme (default) */
+:root {
+  --background: #ffffff;
+  --background-secondary: #f9fafb;
+  --background-tertiary: #f3f4f6;
+  --background-elevated: #e5e7eb;
+
+  --foreground: #111827;
+  --foreground-secondary: #4b5563;
+  --foreground-muted: #9ca3af;
+
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --border-hover: #d1d5db;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+
+  --row-hover: #f3f4f6;
+
+  --chart-background: #f9fafb;
+  --chart-grid: #e5e7eb;
+  --chart-text: #4b5563;
+  --chart-line: #2563eb;
+}
+
+/* Dark theme (true black) */
+.dark {
+  --background: #000000;
+  --background-secondary: #0a0a0a;
+  --background-tertiary: #111111;
+  --background-elevated: #1c1c1c;
+
+  --foreground: #e5e5e5;
+  --foreground-secondary: #a3a3a3;
+  --foreground-muted: #737373;
+
+  --border: #1e1e1e;
+  --border-strong: #333333;
+  --border-hover: #404040;
+
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+
+  --row-hover: #1a1a1a;
+
+  --chart-background: #0a0a0a;
+  --chart-grid: #1a1a1a;
+  --chart-text: #a3a3a3;
+  --chart-line: #3b82f6;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  /* font-family handled by Tailwind font-sans via next/font CSS variables */
+}
+
+/* Scrollbar styling - theme aware */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--foreground-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground-secondary);
+}
+
+/* Input date picker - dark mode only */
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
