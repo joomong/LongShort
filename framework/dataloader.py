@@ -1,9 +1,12 @@
 # STAR/framework/dataloader.py
+import logging
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pathlib import Path
 from typing import Optional, Tuple, Iterator, List
+
+logger = logging.getLogger(__name__)
 
 class DataLoader:
     """
@@ -44,14 +47,36 @@ class DataLoader:
         if not self.file_path.exists():
             raise FileNotFoundError(f"데이터 파일을 찾을 수 없습니다: {self.file_path}")
 
+        # --- 입력 유효성 검증 ---
+        try:
+            _start = pd.Timestamp(start_date, tz="UTC")
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"start_date 형식이 올바르지 않습니다: '{start_date}'. 'YYYY-MM-DD' 형식을 사용하세요."
+            ) from e
+        try:
+            _end = pd.Timestamp(end_date, tz="UTC")
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"end_date 형식이 올바르지 않습니다: '{end_date}'. 'YYYY-MM-DD' 형식을 사용하세요."
+            ) from e
+        if _start > _end:
+            raise ValueError(
+                f"start_date({start_date})가 end_date({end_date})보다 큽니다."
+            )
+        if chunk_row_size is not None and chunk_row_size <= 0:
+            raise ValueError(
+                f"chunk_row_size는 양의 정수여야 합니다. 입력값: {chunk_row_size}"
+            )
+
         self.time_col = time_col
         self.symbol_col = symbol_col
         self.chunk_row_size = chunk_row_size
 
         # --- UTC 경계: 정수 ns → ms 변환으로 float 오차 제거 (inclusive end) ---
-        start_ts_ms = pd.Timestamp(start_date, tz="UTC").value // 1_000_000
+        start_ts_ms = _start.value // 1_000_000
         end_ts_ms = (
-            pd.Timestamp(end_date, tz="UTC")
+            _end
             + pd.Timedelta(days=1)
             - pd.Timedelta(milliseconds=1)
         ).value // 1_000_000
@@ -129,19 +154,19 @@ class DataLoader:
 
     def _load_all_data(self) -> pd.DataFrame:
         """(전체 로딩) PyArrow 필터 적용 후 한 번에 로드."""
-        print("청킹 없이 전체 파일 로딩 중... (PyArrow 필터 적용, UTC 경계)")
+        logger.info("청킹 없이 전체 파일 로딩 중... (PyArrow 필터 적용, UTC 경계)")
         scanner = self.dataset.scanner(
             filter=self.filter_expression, columns=self._columns
         )
         table = scanner.to_table()
         df = self._arrow_table_to_df(table)
         if df.empty:
-            print("경고: 전체 로딩 결과, 해당 기간에 데이터가 없습니다.")
+            logger.warning("전체 로딩 결과, 해당 기간에 데이터가 없습니다.")
         else:
-            print("전체 파일 로딩 및 전처리 완료.")
+            logger.info("전체 파일 로딩 및 전처리 완료.")
         return df
 
-    def _prepare_emit_from_chunk_df(self, df: pd.DataFrame):
+    def _prepare_emit_from_chunk_df(self, df: pd.DataFrame) -> None:
         """
         현재 청크 df를 받아,
         - 이전 청크의 carry(last ts)와 병합
@@ -205,7 +230,7 @@ class DataLoader:
         self._emit_df = emit_df
         self._emit_timestamps = emit_ts
 
-    def _load_next_chunk(self):
+    def _load_next_chunk(self) -> None:
         """(청킹 모드) 다음 청크를 로드하고 emit 준비."""
         try:
             batch = next(self.batch_iterator)
@@ -244,7 +269,7 @@ class DataLoader:
     def __iter__(self) -> "DataLoader":
         self._iter_index = 0
         if self.chunk_row_size is not None:
-            print("DataLoader 이터레이션 시작 (청킹 모드 / UTC 경계 / 안전한 타임스탬프 emit)")
+            logger.info("DataLoader 이터레이션 시작 (청킹 모드 / UTC 경계 / 안전한 타임스탬프 emit)")
             self.batch_iterator = self.dataset.to_batches(
                 filter=self.filter_expression,
                 batch_size=self.chunk_row_size,
@@ -253,7 +278,7 @@ class DataLoader:
             # 첫 청크 로드
             self._load_next_chunk()
         else:
-            print("DataLoader 이터레이션 시작 (전체 로딩 모드 / UTC 경계)")
+            logger.info("DataLoader 이터레이션 시작 (전체 로딩 모드 / UTC 경계)")
         return self
 
     def __next__(self) -> Tuple[pd.Timestamp, pd.DataFrame]:

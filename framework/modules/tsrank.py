@@ -2,9 +2,16 @@ import numpy as np
 import pandas as pd
 from collections import deque
 from ..signal_base import Signal
+from framework.xml_helpers import parse_positive_int
 
 
 class TSRank(Signal):
+    tag = "tsrank"
+
+    @classmethod
+    def from_xml(cls, sig, attrib, registry):
+        return cls(sig, parse_positive_int(attrib, "days"))
+
     """
     Rolling time-series rank of the latest value per symbol.
     - window: number of observations to keep

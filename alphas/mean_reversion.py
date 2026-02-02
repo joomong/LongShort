@@ -1,6 +1,6 @@
 from framework.modules import (
     Price,
-    SMA,
+    TsMean,
     Rank,
     ConstantSignal,
     ZScore,

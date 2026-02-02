@@ -3,6 +3,7 @@ import pandas as pd
 from ..signal_base import Signal
 
 class ZScore(Signal):
+    tag = "zscore"
     """
     시점 t에서 입력 시그널 x(ts, ds) -> 심볼별 Series 를 받아
     크로스섹션 Z-score 로 변환하여 Series 반환.

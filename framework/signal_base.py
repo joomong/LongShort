@@ -1,8 +1,33 @@
 # STAR/framework/signal_base.py
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import ClassVar, Dict, Optional, Type
+
 import pandas as pd
 
 class Signal(ABC):
+    name: str = ""
+    tag: ClassVar[Optional[str]] = None
+
+    _tag_registry: ClassVar[Dict[str, Type["Signal"]]] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls.tag is not None:
+            existing = Signal._tag_registry.get(cls.tag)
+            if existing is not None and existing is not cls:
+                raise ValueError(
+                    f"Duplicate tag registration: '{cls.tag}' "
+                    f"by {cls.__name__} and {existing.__name__}"
+                )
+            Signal._tag_registry[cls.tag] = cls
+
+    @classmethod
+    def from_xml(cls, sig: "Signal", attrib: dict, registry: dict) -> "Signal":
+        """Create Signal instance from XML tag. Default: simple tags that only take a signal."""
+        return cls(sig)
+
     @abstractmethod
     def compute(self, timestamp: pd.Timestamp, data_slice: pd.DataFrame):
         ...

@@ -1,4 +1,4 @@
-from framework.modules import Price, SMA, Rank , ConstantSignal , ZScore
+from framework.modules import Price, TsMean, Rank , ConstantSignal , ZScore
 
 # 1. 기본 재료(시그널) 정의
 # close = Price('close')

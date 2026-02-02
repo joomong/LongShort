@@ -2,9 +2,16 @@ import numpy as np
 import pandas as pd
 from collections import deque
 from ..signal_base import Signal
+from framework.xml_helpers import parse_positive_int
 
 
 class TSZScore(Signal):
+    tag = "tszscore"
+
+    @classmethod
+    def from_xml(cls, sig, attrib, registry):
+        return cls(sig, parse_positive_int(attrib, "days"))
+
     """
     Time-series z-score of an underlying signal per symbol.
     Keeps a rolling window and standardizes the latest value.

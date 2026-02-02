@@ -1,0 +1,33 @@
+# config.yaml (프로젝트 루트)
+datasets:
+  - path: Data/ohlcv/um_1d.parquet
+
+columns:
+  time: open_time
+  symbol: symbol
+  ohlcv: [open, high, low, close, volume]
+
+backtest:
+  start_date: "2020-01-01"
+  end_date: "2025-08-31"
+  initial_capital: 1000000
+  transaction_fee_rate: 0.0010
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - XRPUSDT
+  - SOLUSDT
+  - BNBUSDT
+  - DOGEUSDT
+  - TRXUSDT
+  - ADAUSDT
+  - HYPEUSDT
+  - LINKUSDT
+  - SUIUSDT
+  - AVAXUSDT
+  - SHIBUSDT
+  - DOTUSDT
+  - UNIUSDT
+  - AAVEUSDT
+  - 1000PEPEUSDT
