@@ -489,13 +489,13 @@ class TestDataLoaderRealData:
     """실제 데이터 파일을 사용한 통합 테스트 (선택적)"""
 
     @pytest.mark.skipif(
-        not Path("/home/jgo/qv-project/LongShort/Data/um_1d_all.parquet").exists(),
+        not Path("/home/jgo/qv-project/LongShort/Data/ohlcv/um_1d.parquet").exists(),
         reason="Real data file not found",
     )
     def test_real_data_basic_iteration(self):
         """실제 데이터로 기본 이터레이션 테스트"""
         loader = DataLoader(
-            file_path="/home/jgo/qv-project/LongShort/Data/um_1d_all.parquet",
+            file_path="/home/jgo/qv-project/LongShort/Data/ohlcv/um_1d.parquet",
             start_date="2024-01-01",
             end_date="2024-01-03",
             time_col="open_time",
@@ -511,13 +511,13 @@ class TestDataLoaderRealData:
             assert len(data_slice) > 0
 
     @pytest.mark.skipif(
-        not Path("/home/jgo/qv-project/LongShort/Data/um_1d_all.parquet").exists(),
+        not Path("/home/jgo/qv-project/LongShort/Data/ohlcv/um_1d.parquet").exists(),
         reason="Real data file not found",
     )
     def test_real_data_symbol_filter(self):
         """실제 데이터로 심볼 필터링 테스트"""
         loader = DataLoader(
-            file_path="/home/jgo/qv-project/LongShort/Data/um_1d_all.parquet",
+            file_path="/home/jgo/qv-project/LongShort/Data/ohlcv/um_1d.parquet",
             start_date="2024-01-01",
             end_date="2024-01-03",
             time_col="open_time",

@@ -4,12 +4,49 @@ DataLoader 테스트를 위한 pytest fixtures.
 """
 import pytest
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+import numpy as np
 from pathlib import Path
 
-# 테스트 fixture 디렉토리
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+# =============================================================================
+# Shared Mock classes for backtester tests
+# =============================================================================
+
+class MockAlpha:
+    """테스트용 Mock Alpha."""
+
+    def __init__(self, weights_map: dict = None):
+        """
+        Args:
+            weights_map: {timestamp: {symbol: weight}} 형태의 weight 매핑
+        """
+        self.weights_map = weights_map or {}
+
+    def compute(self, timestamp, data_slice) -> pd.Series:
+        """고정된 weight 반환."""
+        if timestamp in self.weights_map:
+            weights = self.weights_map[timestamp]
+            return pd.Series(weights, index=data_slice.index)
+        # 기본: 균등 배분
+        n = len(data_slice)
+        return pd.Series(1.0 / n, index=data_slice.index)
+
+
+class MockStrategy:
+    """테스트용 Mock Strategy (정규화만 수행)."""
+
+    def generate_weights(self, raw_signals, **kwargs) -> pd.Series:
+        """시그널을 정규화하여 weight 반환."""
+        abs_sum = np.nansum(np.abs(raw_signals))
+        if abs_sum == 0:
+            return raw_signals * 0
+        weights = raw_signals / abs_sum
+        return weights.fillna(0)
+
+
+@pytest.fixture
+def mock_strategy():
+    return MockStrategy()
 
 
 @pytest.fixture(scope="session")
