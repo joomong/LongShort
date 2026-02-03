@@ -17,9 +17,11 @@ const formatNumber = (value: number | undefined) => {
 
 function ResultRow({ item, index }: { item: BacktestAlphaResult; index: number }) {
   const { isMetrics, osMetrics } = item;
-  const { enterDetailView, selectedAlphaIndex, selectedAlphaIndices, toggleAlphaSelection } = useAlphaStore();
-  const isSelected = selectedAlphaIndices.includes(index);
-  const isActiveDetail = selectedAlphaIndex === index;
+  // Granular selectors — only re-render when this row's state changes
+  const isActiveDetail = useAlphaStore(s => s.selectedAlphaIndex === index);
+  const isSelected = useAlphaStore(s => s.selectedAlphaIndices.includes(index));
+  const enterDetailView = useAlphaStore(s => s.enterDetailView);
+  const toggleAlphaSelection = useAlphaStore(s => s.toggleAlphaSelection);
 
   if (!isMetrics || !osMetrics) return null;
 
@@ -68,9 +70,7 @@ function ResultRow({ item, index }: { item: BacktestAlphaResult; index: number }
 }
 
 export default function BacktestMetrics() {
-  const { result } = useAlphaStore();
-
-  const alphas = result?.alphas ?? [];
+  const alphas = useAlphaStore(s => s.result?.alphas ?? []);
 
   return (
     <div className="bg-background-tertiary border-b border-border">
@@ -107,7 +107,6 @@ export default function BacktestMetrics() {
             {alphas.map((item, index) => (
               <ResultRow key={`${item.name}-${index}`} item={item} index={index} />
             ))}
-
           </tbody>
         </table>
       </div>

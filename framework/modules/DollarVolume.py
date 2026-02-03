@@ -1,4 +1,4 @@
-import pandas as pd
+import numpy as np
 from ..signal_base import Signal
 
 class DollarVolume(Signal):
@@ -12,26 +12,22 @@ class DollarVolume(Signal):
         self.price_col = price_col
         self.volume_col = volume_col
 
-    def compute(self, ts, ds: pd.DataFrame):
-        idx = ds.index
-        price = ds[self.price_col].astype(float)
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
+        N = arrays["__n_symbols__"]
+        price = arrays[self.price_col][t_idx].copy()
 
         vol = None
-        if self.volume_col and self.volume_col in ds.columns:
-            vol = ds[self.volume_col].astype(float)
+        if self.volume_col and self.volume_col in arrays:
+            vol = arrays[self.volume_col][t_idx].copy()
         else:
             for cand in ["quote_volume", "quoteVolume", "turnover", "value"]:
-                if cand in ds.columns:
-                    vol = ds[cand].astype(float)
+                if cand in arrays:
+                    vol = arrays[cand][t_idx].copy()
                     break
             if vol is None:
-                # 마지막으로 'volume' (base 수량) * price 로 환산
-                if "volume" in ds.columns:
-                    vol = ds["volume"].astype(float) * price
+                if "volume" in arrays:
+                    vol = arrays["volume"][t_idx] * price
                 else:
-                    # 유효 컬럼이 전혀 없으면 0 반환
-                    return pd.Series(0.0, index=idx)
+                    return np.zeros(N, dtype=np.float64)
 
-        dv = vol.copy()
-        dv = dv.fillna(0.0)
-        return dv
+        return np.nan_to_num(vol, nan=0.0)

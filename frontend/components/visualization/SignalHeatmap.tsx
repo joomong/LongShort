@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
@@ -8,6 +8,14 @@ import { signalToColor } from '@/lib/colorScale';
 
 const MIN_CELL_WIDTH = 1;
 const MIN_CELL_HEIGHT = 2;
+
+// Hoisted static empty-state JSX (rendering-hoist-jsx)
+const EMPTY_HEATMAP = (
+  <div
+    className="w-full border-b border-border bg-chart-background"
+    style={{ height: '128px' }}
+  />
+);
 
 interface TooltipInfo {
   x: number;
@@ -23,19 +31,35 @@ export default function SignalHeatmap() {
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
   // Store computed cell sizes so mouse handlers can use them
   const cellSizeRef = useRef({ w: MIN_CELL_WIDTH, h: MIN_CELL_HEIGHT });
-  const { result, selectedSymbol, selectedTimestamp, setSelectedCell } = useAlphaStore();
+  // Granular selectors — avoid subscribing to the full result object for selection state
+  const heatmap = useAlphaStore(s => s.result?.heatmap);
+  const signalRange = useAlphaStore(s => s.result?.signalRange);
+  const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
+  const selectedTimestamp = useAlphaStore(s => s.selectedTimestamp);
+  const setSelectedCell = useAlphaStore(s => s.setSelectedCell);
   const { theme } = useThemeStore();
+
+  // Build index Maps for O(1) lookup (js-index-maps)
+  const symbolMap = useMemo(() => {
+    if (!heatmap) return new Map<string, number>();
+    return new Map(heatmap.symbols.map((s, i) => [s, i]));
+  }, [heatmap]);
+
+  const timeMap = useMemo(() => {
+    if (!heatmap) return new Map<string, number>();
+    return new Map(heatmap.timestamps.map((t, i) => [t, i]));
+  }, [heatmap]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container || !result?.heatmap || !result.signalRange) return;
+    if (!canvas || !container || !heatmap || !signalRange) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    void theme; // Trigger redraw on theme change (getThemeColors reads CSS variables)
     const colors = getThemeColors();
-    const { heatmap } = result;
     const { timestamps, symbols, values } = heatmap;
     if (timestamps.length === 0 || symbols.length === 0) return;
 
@@ -94,11 +118,11 @@ export default function SignalHeatmap() {
       });
     });
 
-    // Draw selection highlight
+    // Draw selection highlight — O(1) Map lookup instead of indexOf
     if (selectedSymbol && selectedTimestamp) {
-      const symbolIdx = symbols.indexOf(selectedSymbol);
-      const timeIdx = timestamps.indexOf(selectedTimestamp);
-      if (symbolIdx !== -1 && timeIdx !== -1) {
+      const symbolIdx = symbolMap.get(selectedSymbol);
+      const timeIdx = timeMap.get(selectedTimestamp);
+      if (symbolIdx !== undefined && timeIdx !== undefined) {
         const x = Math.floor(timeIdx * cellW);
         const y = Math.floor(symbolIdx * cellH);
         ctx.strokeStyle = colors.accent;
@@ -106,7 +130,7 @@ export default function SignalHeatmap() {
         ctx.strokeRect(x, y, Math.ceil(cellW), Math.ceil(cellH));
       }
     }
-  }, [result, selectedSymbol, selectedTimestamp, theme]);
+  }, [heatmap, signalRange, selectedSymbol, selectedTimestamp, theme, symbolMap, timeMap]);
 
   useEffect(() => {
     draw();
@@ -123,7 +147,7 @@ export default function SignalHeatmap() {
 
   const getCell = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !result?.heatmap) return null;
+    if (!canvas || !heatmap) return null;
 
     const rect = canvas.getBoundingClientRect();
     // Account for CSS scaling (canvas pixel size vs display size)
@@ -135,20 +159,18 @@ export default function SignalHeatmap() {
     const { w, h } = cellSizeRef.current;
     const timeIdx = Math.floor(x / w);
     const symbolIdx = Math.floor(y / h);
-    const { heatmap } = result;
 
     if (timeIdx >= 0 && timeIdx < heatmap.timestamps.length &&
         symbolIdx >= 0 && symbolIdx < heatmap.symbols.length) {
       return { timeIdx, symbolIdx };
     }
     return null;
-  }, [result]);
+  }, [heatmap]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = getCell(e);
-    if (!cell || !result?.heatmap) { setTooltip(null); return; }
+    if (!cell || !heatmap) { setTooltip(null); return; }
 
-    const { heatmap } = result;
     const value = heatmap.values[cell.timeIdx]?.[cell.symbolIdx];
     setTooltip({
       x: e.clientX,
@@ -157,7 +179,7 @@ export default function SignalHeatmap() {
       timestamp: heatmap.timestamps[cell.timeIdx],
       value: typeof value === 'number' ? value : 0,
     });
-  }, [result, getCell]);
+  }, [heatmap, getCell]);
 
   const handleMouseLeave = useCallback(() => {
     setTooltip(null);
@@ -165,10 +187,10 @@ export default function SignalHeatmap() {
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = getCell(e);
-    if (!cell || !result?.heatmap) return;
+    if (!cell || !heatmap) return;
 
-    const symbol = result.heatmap.symbols[cell.symbolIdx];
-    const timestamp = result.heatmap.timestamps[cell.timeIdx];
+    const symbol = heatmap.symbols[cell.symbolIdx];
+    const timestamp = heatmap.timestamps[cell.timeIdx];
 
     if (symbol && timestamp) {
       if (symbol === selectedSymbol && timestamp === selectedTimestamp) {
@@ -177,15 +199,10 @@ export default function SignalHeatmap() {
         setSelectedCell(symbol, timestamp);
       }
     }
-  }, [result, selectedSymbol, selectedTimestamp, setSelectedCell, getCell]);
+  }, [heatmap, selectedSymbol, selectedTimestamp, setSelectedCell, getCell]);
 
-  if (!result) {
-    return (
-      <div
-        className="w-full border-b border-border bg-chart-background"
-        style={{ height: '128px' }}
-      />
-    );
+  if (!heatmap) {
+    return EMPTY_HEATMAP;
   }
 
   return (

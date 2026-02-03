@@ -1,9 +1,11 @@
 """Tests for GA service integration with backtest."""
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from api.services.ga_service import run_ga_search, _make_evaluate_batch
+from framework.backtester import PeriodMetrics, PeriodResult
 from framework.exceptions import XmlCompileError
 
 
@@ -20,14 +22,24 @@ class TestEvaluateBatch:
         mock_signal = MagicMock()
         mock_compile.side_effect = lambda xml: [(mock_signal, xml)]
 
-        # Mock run_multiple_backtest result
-        mock_ar0 = MagicMock()
-        mock_ar0.name = "alpha_0"
-        mock_ar0.is_metrics.sharpe = 1.5
+        # Mock run_multiple_backtest result with real PeriodMetrics
+        def _make_mock_ar(name, sharpe):
+            ar = MagicMock()
+            ar.name = name
+            metrics = PeriodMetrics(pnl=0.1, cagr=0.1, sharpe=sharpe, mdd=-0.01)
+            period = PeriodResult(
+                metrics=metrics,
+                ret_series=pd.Series(dtype=float),
+                turnover_series=pd.Series(dtype=float),
+                min_bet_series=pd.Series(dtype=float),
+                max_weight_series=pd.Series(dtype=float),
+            )
+            ar.is_period = period
+            ar.os_period = period
+            return ar
 
-        mock_ar1 = MagicMock()
-        mock_ar1.name = "alpha_1"
-        mock_ar1.is_metrics.sharpe = 2.3
+        mock_ar0 = _make_mock_ar("alpha_0", 1.5)
+        mock_ar1 = _make_mock_ar("alpha_1", 2.3)
 
         mock_result = MagicMock()
         mock_result.alpha_results = [mock_ar0, mock_ar1]

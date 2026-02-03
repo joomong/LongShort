@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 
+import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -15,14 +16,15 @@ from api.xml_alpha import XmlCompileError
 def _mock_data_cache() -> MagicMock:
     """Create a mock DataCache for testing."""
     mock_cache = MagicMock()
-    mock_cache.is_loaded = True
-    mock_cache.get_timestamps.return_value = pd.DatetimeIndex(
+    mock_cache.arrays = {"close": np.array([[1.0, 2.0]])}
+    mock_cache.timestamps = pd.DatetimeIndex(
         [pd.Timestamp("2020-01-01", tz="UTC"), pd.Timestamp("2025-08-31", tz="UTC")]
     )
-    mock_cache.symbols = ["BTCUSDT", "ETHUSDT"]
+    mock_cache.symbols = np.array(["BTCUSDT", "ETHUSDT"])
     mock_cache.start_date = "2020-01-01"
     mock_cache.end_date = "2025-08-31"
     mock_cache.initial_capital = 1000000
+    mock_cache.transaction_fee_rate = 0.001
     return mock_cache
 
 

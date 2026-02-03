@@ -1,17 +1,20 @@
 # STAR/framework/backtester.py
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, runtime_checkable, Optional
+from dataclasses import dataclass, replace
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+try:
+    import numba
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
 
-SignalLike = pd.Series | Mapping[str, float] | list[float] | np.ndarray
 
 BARS_PER_YEAR = 365
-TRANSACTION_FEE_RATE = 0.0010  # 10 bps round-trip fee
 
 
 # ===========================================================================
@@ -34,345 +37,39 @@ class PeriodMetrics:
     cagr: float
     sharpe: float
     mdd: float
-    turnover: float = 0.0       # average turnover
-    min_bet: float = 0.0        # average absolute position
-    max_weight: float = 0.0     # max single position weight
-    ir: float = float('nan')    # for multi-alpha only
-    corr: float = float('nan')  # for multi-alpha only
+    turnover: float = 0.0
+    min_bet: float = 0.0
+    max_weight: float = 0.0
+    ir: float = float('nan')
+    corr: float = float('nan')
 
 
-# Backward-compatible aliases
-ISMetrics = PeriodMetrics
-OSMetrics = PeriodMetrics
+@dataclass(frozen=True)
+class PeriodResult:
+    """단일 기간(IS 또는 OS) 백테스트 결과."""
+    metrics: PeriodMetrics
+    ret_series: pd.Series
+    turnover_series: pd.Series
+    min_bet_series: pd.Series
+    max_weight_series: pd.Series
+    long_ratio: float = 0.0
+    short_ratio: float = 0.0
 
 
 @dataclass(frozen=True)
 class BacktestPeriodResult:
     """IS/OS 분리 백테스트 결과."""
-    is_metrics: PeriodMetrics
-    os_metrics: PeriodMetrics
-    is_ret_series: pd.Series
-    os_ret_series: pd.Series
-    # Detail view time series (optional for backward compat)
-    is_turnover_series: Optional[pd.Series] = None
-    os_turnover_series: Optional[pd.Series] = None
-    is_min_bet_series: Optional[pd.Series] = None
-    os_min_bet_series: Optional[pd.Series] = None
-    is_max_weight_series: Optional[pd.Series] = None
-    os_max_weight_series: Optional[pd.Series] = None
-    is_long_ratio: float = 0.0
-    is_short_ratio: float = 0.0
+    is_period: PeriodResult
+    os_period: PeriodResult
 
 
-@runtime_checkable
-class AlphaLike(Protocol):
-    def compute(self, timestamp: pd.Timestamp, data_slice: pd.DataFrame) -> SignalLike: ...
-
-
-@runtime_checkable
-class StrategyLike(Protocol):
-    def generate_weights(self, raw_signals: pd.Series, **kwargs: Any) -> pd.Series | Mapping[str, float]: ...
-
-
-def signal_ratio_weights(raw_signals: pd.Series) -> pd.Series:
-    """시그널의 절대값 비율에 따라 자본을 배분. gross=1 정규화."""
-    signals = raw_signals.fillna(0)
-    total_strength = signals.abs().sum()
-    if total_strength == 0:
-        return pd.Series(0.0, index=signals.index)
-    return signals / total_strength
-
-
-class SignalRatioStrategy:
-    """StrategyLike wrapper around signal_ratio_weights."""
-    def generate_weights(self, raw_signals: pd.Series, **kwargs: Any) -> pd.Series:
-        return signal_ratio_weights(raw_signals)
-
-
-@dataclass(frozen=True)
-class BacktestResult:
-    ret_series: pd.Series
-    avg_turnover: float
-    initial_capital: float
-    turnover_series: Optional[pd.Series] = None
-    min_bet_series: Optional[pd.Series] = None
-    max_weight_series: Optional[pd.Series] = None
-    long_weight_series: Optional[pd.Series] = None
-    short_weight_series: Optional[pd.Series] = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "ret_series", pd.Series(self.ret_series).sort_index())
-        object.__setattr__(self, "avg_turnover", float(self.avg_turnover))
-        object.__setattr__(self, "initial_capital", float(self.initial_capital))
-
-    def summary(self) -> str:
-        if self.ret_series.empty:
-            return ("--- 백테스트 결과 요약 ---\n결과 시계열이 비어 있습니다.\n--------------------------")
-        m = _compute_core_metrics(self.ret_series)
-        return (
-            f"--- 백테스트 결과 요약 ---\n"
-            f"총 수익률: {m['total_return']:,.2%}\n"
-            f"연율화 샤프 지수: {m['sharpe']:.2f}\n"
-            f"최대 낙폭 (MDD): {m['mdd']:,.2%}\n"
-            f"평균 턴오버(편도/일): {self.avg_turnover:.2%}\n"
-            f"--------------------------"
-        )
-
-class Backtester:
-    """Backtest engine.
-
-    Key conventions (see simulator_plan.md §2.3):
-    - Portfolio return is always computed with *previous executed* weights to avoid lookahead.
-    - D0: compute weights at bar t close, execute at bar t close → return is realized on bar t+1.
-    - D1: compute weights at bar t close, execute at bar t+1 close → return is realized on bar t+2.
-
-    Notes:
-    - Turnover is defined as Σ|Δw| (no 0.5 factor for L/S; range 0~2 when gross=1).
-    """
-
-    def __init__(
-        self,
-        data_loader,
-        alpha_recipe: AlphaLike,
-        strategy: StrategyLike,
-        capital: float,
-        *,
-        mode: str = "D0",  # "D0" | "D1" | "intraday" (TODO)
-        collect_viz: bool = True,
-        transaction_fee_rate: float = TRANSACTION_FEE_RATE,
-    ):
-        self.loader = data_loader
-        self.alpha = alpha_recipe
-        self.strategy = strategy
-
-        cap = float(capital)
-        if not np.isfinite(cap) or cap <= 0:
-            raise ValueError(f"capital must be a finite positive number, got {capital!r}")
-        self.initial_capital = cap
-
-        self.mode = str(mode)
-        self.collect_viz = bool(collect_viz)
-        self.transaction_fee_rate = float(transaction_fee_rate)
-
-    @staticmethod
-    def _validate_alpha_output(raw, *, timestamp: pd.Timestamp, universe: pd.Index) -> pd.Series:
-        """Validate and align Alpha output.
-
-        Expected contract (simulator_plan.md §2.4):
-        - Return a 1D vector (pd.Series / dict / array-like) representing per-symbol signals.
-        - Symbols must be within current universe (data_slice.index).
-        - Values must be numeric (float-castable). NaN is allowed; +/-inf is not.
-
-        Returns:
-            pd.Series aligned to `universe` (index), dtype=float.
-        """
-        if isinstance(raw, pd.Series):
-            s = raw.copy()
-            if s.index.has_duplicates:
-                raise ValueError(f"Alpha.compute() returned duplicate symbols at {timestamp!s}")
-            extra = s.index.difference(universe)
-            if len(extra) > 0:
-                raise ValueError(
-                    "Alpha.compute() returned symbols not in data_slice.index "
-                    f"at {timestamp!s}: {list(extra)[:5]}"
-                )
-            s = s.reindex(universe)
-        elif isinstance(raw, dict):
-            extra = pd.Index(raw.keys()).difference(universe)
-            if len(extra) > 0:
-                raise ValueError(
-                    "Alpha.compute() returned symbols not in data_slice.index "
-                    f"at {timestamp!s}: {list(extra)[:5]}"
-                )
-            s = pd.Series(raw, index=universe)
-        else:
-            # array-like: must match universe length
-            try:
-                s = pd.Series(raw)
-            except Exception as e:
-                raise TypeError(
-                    f"Alpha.compute() must return pd.Series/dict/array-like, got {type(raw)}"
-                ) from e
-            if len(s) != len(universe):
-                raise ValueError(
-                    "Alpha.compute() returned a vector of length "
-                    f"{len(s)} but universe length is {len(universe)} at {timestamp!s}"
-                )
-            s.index = universe
-
-        # Coerce to float and validate finiteness (NaN ok)
-        try:
-            s = s.astype(float)
-        except Exception as e:
-            raise TypeError(
-                f"Alpha.compute() output values must be numeric (float-castable) at {timestamp!s}"
-            ) from e
-
-        bad_inf = np.isinf(s.to_numpy(dtype=float, na_value=np.nan))
-        if bool(np.any(bad_inf)):
-            raise ValueError(f"Alpha.compute() returned +/-inf values at {timestamp!s}")
-
-        return s
-
-    def run(self) -> BacktestResult:
-        ret_history = {}
-        turnover_history = {}
-        minbet_history = {}
-        max_weight_history = {}
-        long_weight_history = {}
-        short_weight_history = {}
-        viz_rows = []  # 시각화용(심볼 레벨) 프레임 누적
-
-        if self.mode not in {"D0", "D1", "intraday"}:
-            raise ValueError(f"Unknown backtest mode: {self.mode!r}")
-        if self.mode == "intraday":
-            raise NotImplementedError("intraday mode is not implemented yet")
-
-        previous_executed_weights = pd.Series(dtype=float)
-        previous_target_weights = pd.Series(dtype=float)  # used to stage execution for D1
-        previous_close = None
-
-        for timestamp, data_slice in self.loader:
-            # data_slice: index=instrument, columns: ['open','high','low','close', ...]
-            idx_current = data_slice.index
-            # Use the union universe so we can account for liquidations when symbols disappear (delisting / missing bars).
-            idx_all = idx_current if previous_close is None else idx_current.union(previous_close.index)
-
-            previous_executed_weights = previous_executed_weights.reindex(idx_all, fill_value=0.0)
-            previous_target_weights = previous_target_weights.reindex(idx_all, fill_value=0.0)
-
-            # 1) 수익률(자산) 및 포트 r_t
-            # - D0: weights_t are executed at the same bar close, so return is realized on the next bar.
-            # - D1: weights_t are executed on the next bar close, so return is realized one bar later.
-            if previous_close is not None:
-                prev_close_aligned = previous_close.reindex(idx_current)
-
-                # EC-BT-007: close가 0 또는 NaN인 경우 해당 종목 수익률을 0으로 처리
-                cur_close = data_slice["close"].astype(float)
-                prev_close = prev_close_aligned.astype(float)
-                invalid = (
-                    cur_close.isna()
-                    | prev_close.isna()
-                    | (cur_close <= 0)
-                    | (prev_close <= 0)
-                )
-
-                asset_ret = (cur_close / prev_close) - 1.0
-                asset_ret = asset_ret.replace([np.inf, -np.inf], 0.0)
-                asset_ret = asset_ret.mask(invalid, 0.0).fillna(0.0)
-
-                # Compute portfolio return only on instruments with a current close (no lookahead).
-                r_t = float((previous_executed_weights.reindex(idx_current, fill_value=0.0) * asset_ret).sum())
-                ret_history[timestamp] = r_t
-            else:
-                asset_ret = pd.Series(0.0, index=idx_current)  # 첫 바
-
-            # 2) raw signal -> target weights (전략 사용)
-            # raw_signals = self.alpha.compute(timestamp, data_slice)         # pd.Series-like
-            # raw_signals = pd.Series(raw_signals, index=idx).fillna(0.0)
-            # target_weights = self.strategy.generate_weights(raw_signals)    # pd.Series
-            # target_weights = pd.Series(target_weights, index=idx).fillna(0.0)
-
-            raw = self.alpha.compute(timestamp, data_slice)
-            # Keep missing values for visualization (e.g., delay warm-up) so the heatmap can render "no data" correctly.
-            raw_signals_viz = self._validate_alpha_output(raw, timestamp=timestamp, universe=idx_current)
-            # For strategy/weights, treat missing as 0 to stay robust.
-            raw_signals = raw_signals_viz.fillna(0.0)
-
-            try:
-                target_weights = self.strategy.generate_weights(
-                    raw_signals,
-                    timestamp=timestamp,
-                    data_slice=data_slice,
-                    previous_close=previous_close,
-                )
-            except TypeError:
-                # 기존 전략 호환: 추가 인자를 받지 않으면 원래 시그니처로 호출
-                target_weights = self.strategy.generate_weights(raw_signals)
-
-            target_weights = pd.Series(target_weights, index=idx_current).fillna(0.0)
-
-            # Execution weights depend on mode.
-            # - D0: execute today's computed weights at today's close
-            # - D1: execute yesterday's computed weights at today's close
-            executed_weights = target_weights if self.mode == "D0" else previous_target_weights
-            executed_weights = pd.Series(executed_weights, index=idx_current).fillna(0.0)
-
-            # 3) 턴오버/미니멈 베팅 (based on executed positions)
-            # Include liquidations when symbols disappear: executed weight becomes 0 on idx_all.
-            executed_weights_all = executed_weights.reindex(idx_all, fill_value=0.0)
-            turnover = float((executed_weights_all - previous_executed_weights).abs().sum())
-            turnover_history[timestamp] = turnover
-            # Deduct transaction fee from this bar's return
-            if timestamp in ret_history:
-                ret_history[timestamp] -= turnover * self.transaction_fee_rate
-            minbet_history[timestamp] = float(executed_weights_all.abs().mean())
-            max_weight_history[timestamp] = float(executed_weights.abs().max()) if len(executed_weights) > 0 else 0.0
-            long_weight_history[timestamp] = float(executed_weights[executed_weights > 0].sum()) if len(executed_weights) > 0 else 0.0
-            short_weight_history[timestamp] = float(executed_weights[executed_weights < 0].abs().sum()) if len(executed_weights) > 0 else 0.0
-
-            # 4) 시각화용 로우 저장(옵션)
-            if self.collect_viz:
-                df_row = data_slice[['open','high','low','close']].copy()
-                df_row['signal']  = raw_signals_viz
-                df_row['weight']  = executed_weights
-                df_row['ret']     = asset_ret
-                df_row['symbol']  = df_row.index
-                df_row['date']    = pd.Timestamp(timestamp)
-                viz_rows.append(df_row.reset_index(drop=True))
-
-            # 5) 상태 업데이트
-            previous_executed_weights = executed_weights_all
-            previous_target_weights = target_weights.reindex(idx_all, fill_value=0.0)
-            previous_close = data_slice['close']
-
-        # 시계열 정리
-        ret_series = pd.Series(ret_history).fillna(0.0).sort_index()
-        to_series  = pd.Series(turnover_history).fillna(0.0).sort_index()
-        mb_series  = pd.Series(minbet_history).fillna(0.0).sort_index()
-        mw_series  = pd.Series(max_weight_history).fillna(0.0).sort_index()
-        lw_series  = pd.Series(long_weight_history).fillna(0.0).sort_index()
-        sw_series  = pd.Series(short_weight_history).fillna(0.0).sort_index()
-        avg_turnover = float(to_series.mean()) if len(to_series) else 0.0
-
-        result = BacktestResult(ret_series=ret_series,
-                                avg_turnover=avg_turnover,
-                                initial_capital=self.initial_capital,
-                                turnover_series=to_series,
-                                min_bet_series=mb_series,
-                                max_weight_series=mw_series,
-                                long_weight_series=lw_series,
-                                short_weight_series=sw_series)
-
-        viz_bundle = None
-        if self.collect_viz:
-            sym_df = pd.concat(viz_rows, ignore_index=True) if viz_rows else pd.DataFrame()
-            if 'date' in sym_df.columns:
-                sym_df = sym_df.set_index('date')  # 보케에서 datetime 인덱스 사용
-            # 포트폴리오 DF
-            r = ret_series.fillna(0.0)
-            equity = (1.0 + r).cumprod() * self.initial_capital
-            port_df = pd.DataFrame({
-                'equity': equity,
-                'mdd': (equity / equity.cummax() - 1.0),
-                'turnover': to_series.reindex(r.index).fillna(0.0),
-                'min_bet': mb_series.reindex(r.index).fillna(0.0)
-            })
-            viz_bundle = {'symbols': sym_df, 'portfolio': port_df}
-
-        return (result, viz_bundle)
-
-
-# ===========================================================================
-# IS/OS helpers
-# ===========================================================================
-
-def _compute_core_metrics(ret_series: pd.Series) -> dict:
-    """Compute core metrics (sharpe, equity, mdd, cagr, pnl) from a return series.
-
-    Returns dict with keys: sharpe, equity, mdd, cagr, total_return, n_days.
-    """
+def _compute_metrics(ret_series: pd.Series, turnover_series: pd.Series,
+                     min_bet_series: pd.Series, max_weight_series: pd.Series) -> PeriodMetrics:
+    """Compute PeriodMetrics directly from series data."""
     r = ret_series.fillna(0.0)
+    if r.empty:
+        return PeriodMetrics(pnl=0.0, cagr=0.0, sharpe=0.0, mdd=0.0)
+
     vol = r.std()
     sharpe = (r.mean() / (vol + 1e-12)) * np.sqrt(BARS_PER_YEAR) if vol > 0 else 0.0
     equity = (1.0 + r).cumprod()
@@ -381,175 +78,439 @@ def _compute_core_metrics(ret_series: pd.Series) -> dict:
     cagr = float(equity.iloc[-1] ** (BARS_PER_YEAR / max(n_days, 1)) - 1.0)
     dd = equity / (equity.cummax() + 1e-12) - 1.0
     mdd = float(dd.min())
-    return {
-        "sharpe": sharpe,
-        "equity": equity,
-        "mdd": mdd,
-        "cagr": cagr,
-        "total_return": total_return,
-        "n_days": n_days,
-    }
+
+    turnover = float(turnover_series.mean()) if len(turnover_series) > 0 else 0.0
+    min_bet = float(min_bet_series.mean()) if len(min_bet_series) > 0 else 0.0
+    max_weight = float(max_weight_series.max()) if len(max_weight_series) > 0 else 0.0
+
+    return PeriodMetrics(
+        pnl=total_return, cagr=cagr, sharpe=sharpe, mdd=mdd,
+        turnover=turnover, min_bet=min_bet, max_weight=max_weight,
+    )
 
 
-def metrics_to_api_dict(m) -> dict:
-    """PeriodMetrics → API dict with frontend-ready units.
-
-    Unit conversions (decimal → percent, ×100):
-        pnl, cagr, mdd, turnover
-
-    Note on PnL vs CAGR:
-        - Framework ``pnl`` = cumulative return  (equity[-1] - 1).
-        - Framework ``cagr`` = annualised return  (equity[-1]^(365/n) - 1).
-        - Frontend metrics table column labelled "PnL" displays **CAGR** (annualised).
-        - Actual cumulative PnL ($) is computed from ``retSeries`` in the detail page.
-        Therefore this function overwrites the ``pnl`` value with ``cagr`` so that the
-        frontend "PnL" column shows the annualised return.
-    """
+def metrics_to_api_dict(m: PeriodMetrics) -> dict:
+    """PeriodMetrics → API dict with frontend-ready units."""
     d: dict = {}
     for f in m.__dataclass_fields__:
         v = getattr(m, f)
         if isinstance(v, float) and np.isnan(v):
-            continue  # skip NaN fields (ir, corr when single-alpha)
+            continue
         d[f] = v
 
-    # --- percent conversions (decimal → %) ---
     for key in ("pnl", "cagr", "mdd", "turnover"):
         if key in d:
             d[key] *= 100.0
 
-    # Frontend "PnL" column = CAGR (annualised return), not cumulative return.
     if "cagr" in d:
         d["pnl"] = d["cagr"]
 
     return d
 
 
-def _compute_period_metrics(result: BacktestResult) -> PeriodMetrics:
-    """Compute period metrics (IS or OS) from a BacktestResult.
+# ===========================================================================
+# Backtest Loop Kernel (Numba JIT or numpy fallback)
+# ===========================================================================
 
-    Computes ALL fields including turnover, min_bet, max_weight from any BacktestResult.
+def _backtest_loop_numpy(close_2d, signals_2d, fee_rate, mode_int):
+    """Pure numpy backtest loop — fallback when numba is unavailable.
+
+    Parameters
+    ----------
+    close_2d : ndarray (T, N) — close prices
+    signals_2d : ndarray (T, N) — raw alpha signals (pre-normalization)
+    fee_rate : float — round-trip transaction fee rate
+    mode_int : int — 0 = D0, 1 = D1
+
+    Returns
+    -------
+    (ret, turnover, min_bet, max_weight, long_weight, short_weight) — each (T,)
     """
-    r = result.ret_series.fillna(0.0)
-    if r.empty:
-        return PeriodMetrics(
-            pnl=0.0, cagr=0.0, sharpe=0.0, mdd=0.0,
-            turnover=0.0, min_bet=0.0, max_weight=0.0,
+    T, N = close_2d.shape
+    ret = np.zeros(T)
+    turnover = np.zeros(T)
+    min_bet = np.zeros(T)
+    max_weight = np.zeros(T)
+    long_weight = np.zeros(T)
+    short_weight = np.zeros(T)
+
+    prev_weights = np.zeros(N)
+    prev_target = np.zeros(N)
+
+    for t in range(T):
+        cur_close = close_2d[t]
+
+        # Portfolio return from previous weights
+        if t > 0:
+            prev_close = close_2d[t - 1]
+            valid = (prev_close > 0) & (cur_close > 0)
+            asset_ret = np.where(valid, cur_close / prev_close - 1.0, 0.0)
+            ret[t] = np.dot(prev_weights, asset_ret)
+
+        # Normalize signals → target weights (mask NaN close symbols)
+        sig = signals_2d[t]
+        present = np.isfinite(cur_close)
+        masked_sig = sig * present
+        abs_sum = np.abs(masked_sig).sum()
+        if abs_sum > 1e-12:
+            target = masked_sig / abs_sum
+        else:
+            target = np.zeros(N)
+
+        # Execution weights depend on mode
+        exec_w = target if mode_int == 0 else prev_target
+
+        # Turnover
+        to = np.abs(exec_w - prev_weights).sum()
+        turnover[t] = to
+        ret[t] -= to * fee_rate
+
+        # Min bet (mean absolute weight) and max weight
+        abs_w = np.abs(exec_w)
+        min_bet[t] = abs_w.sum() / N if N > 0 else 0.0
+        max_weight[t] = abs_w.max() if N > 0 else 0.0
+
+        # Long/short weight sums
+        long_weight[t] = np.maximum(exec_w, 0.0).sum()
+        short_weight[t] = np.abs(np.minimum(exec_w, 0.0)).sum()
+
+        prev_weights = exec_w.copy()
+        prev_target = target.copy()
+
+    return ret, turnover, min_bet, max_weight, long_weight, short_weight
+
+
+if _HAS_NUMBA:
+    @numba.jit(nopython=True, cache=True)
+    def _backtest_loop_numba(close_2d, signals_2d, fee_rate, mode_int):
+        """Numba-JIT backtest loop kernel."""
+        T, N = close_2d.shape
+        ret = np.zeros(T)
+        turnover = np.zeros(T)
+        min_bet = np.zeros(T)
+        max_weight = np.zeros(T)
+        long_weight = np.zeros(T)
+        short_weight = np.zeros(T)
+
+        prev_weights = np.zeros(N)
+        prev_target = np.zeros(N)
+
+        for t in range(T):
+            cur_close = close_2d[t]
+
+            # Portfolio return from previous weights
+            if t > 0:
+                prev_close = close_2d[t - 1]
+                port_ret = 0.0
+                for i in range(N):
+                    if prev_close[i] > 0.0 and cur_close[i] > 0.0:
+                        port_ret += prev_weights[i] * (cur_close[i] / prev_close[i] - 1.0)
+                ret[t] = port_ret
+
+            # Normalize signals → target weights (mask NaN close symbols)
+            abs_sum = 0.0
+            for i in range(N):
+                c = cur_close[i]
+                if c == c:  # NaN check in numba (NaN != NaN)
+                    abs_sum += abs(signals_2d[t, i])
+
+            target = np.zeros(N)
+            if abs_sum > 1e-12:
+                for i in range(N):
+                    c = cur_close[i]
+                    if c == c:
+                        target[i] = signals_2d[t, i] / abs_sum
+
+            # Execution weights depend on mode
+            if mode_int == 0:
+                exec_w = target
+            else:
+                exec_w = prev_target
+
+            # Turnover
+            to = 0.0
+            for i in range(N):
+                to += abs(exec_w[i] - prev_weights[i])
+            turnover[t] = to
+            ret[t] -= to * fee_rate
+
+            # Min bet (mean absolute weight) and max weight
+            abs_w_sum = 0.0
+            abs_w_max = 0.0
+            lw = 0.0
+            sw = 0.0
+            for i in range(N):
+                aw = abs(exec_w[i])
+                abs_w_sum += aw
+                if aw > abs_w_max:
+                    abs_w_max = aw
+                if exec_w[i] > 0.0:
+                    lw += exec_w[i]
+                elif exec_w[i] < 0.0:
+                    sw += -exec_w[i]
+
+            min_bet[t] = abs_w_sum / N if N > 0 else 0.0
+            max_weight[t] = abs_w_max
+            long_weight[t] = lw
+            short_weight[t] = sw
+
+            prev_weights = exec_w.copy()
+            prev_target = target.copy()
+
+        return ret, turnover, min_bet, max_weight, long_weight, short_weight
+
+    _backtest_loop = _backtest_loop_numba
+else:
+    _backtest_loop = _backtest_loop_numpy
+
+
+class Backtester:
+    """Backtest engine — numpy-native path.
+
+    Key conventions:
+    - Portfolio return is computed with *previous executed* weights to avoid lookahead.
+    - D0: compute weights at bar t close, execute at bar t close → return realized on bar t+1.
+    - D1: compute weights at bar t close, execute at bar t+1 close → return realized on bar t+2.
+    - Turnover = Σ|Δw| (no 0.5 factor; range 0~2 when gross=1).
+
+    Requires cache= DataCache (numpy path).
+    """
+
+    def __init__(
+        self,
+        alpha_recipe=None,
+        capital: float = 0.0,
+        *,
+        cache=None,
+        mode: str = "D0",
+        collect_viz: bool = True,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ):
+        self.cache = cache
+        self.alpha = alpha_recipe
+
+        self.initial_capital = float(capital)
+
+        self.mode = str(mode)
+        self.collect_viz = bool(collect_viz)
+        self.transaction_fee_rate = float(cache.transaction_fee_rate)
+        self.start_date = start_date
+        self.end_date = end_date
+
+    @staticmethod
+    def _validate_alpha_output(raw: np.ndarray, *, t_idx: int, n_symbols: int) -> np.ndarray:
+        """Validate alpha output."""
+        if not isinstance(raw, np.ndarray):
+            raw = np.asarray(raw, dtype=np.float64)
+        if raw.ndim != 1 or len(raw) != n_symbols:
+            raise ValueError(
+                f"Alpha.compute() returned array of shape {raw.shape}, expected ({n_symbols},) at t_idx={t_idx}"
+            )
+        if np.any(np.isinf(raw)):
+            raise ValueError(f"Alpha.compute() returned +/-inf values at t_idx={t_idx}")
+        return raw.astype(np.float64)
+
+    def run(self):
+        """2-pass backtest: signal DAG (Python) → backtest loop (Numba if available)."""
+        cache = self.cache
+        timestamps = cache.timestamps
+        symbols = cache.symbols
+        N = len(symbols)
+        T = len(timestamps)
+
+        # Determine start/end indices
+        ts_pd = pd.DatetimeIndex(timestamps)
+        if ts_pd.tz is None:
+            ts_pd = ts_pd.tz_localize("UTC")
+
+        if self.start_date:
+            start_ts = pd.Timestamp(self.start_date, tz="UTC")
+            start_idx = 0
+            for i, ts in enumerate(ts_pd):
+                if ts >= start_ts:
+                    start_idx = i
+                    break
+        else:
+            start_idx = 0
+
+        if self.end_date:
+            end_ts = pd.Timestamp(self.end_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(milliseconds=1)
+            end_idx = T - 1
+            for i in range(T - 1, -1, -1):
+                if ts_pd[i] <= end_ts:
+                    end_idx = i
+                    break
+        else:
+            end_idx = T - 1
+
+        if self.mode not in {"D0", "D1", "intraday"}:
+            raise ValueError(f"Unknown backtest mode: {self.mode!r}")
+        if self.mode == "intraday":
+            raise NotImplementedError("intraday mode is not implemented yet")
+
+        # Build arrays dict for compute calls
+        arrays_for_compute = dict(cache.arrays)
+        arrays_for_compute["__n_symbols__"] = N
+        arrays_for_compute["__symbols__"] = symbols
+
+        n_bars = end_idx - start_idx + 1
+
+        # === Pass 1: Signal DAG execution (Python) ===
+        signals_2d = np.zeros((n_bars, N), dtype=np.float64)
+        viz_rows = []
+
+        for bar_i, t_idx in enumerate(range(start_idx, end_idx + 1)):
+            raw = self.alpha.compute(t_idx, arrays_for_compute)
+            raw = self._validate_alpha_output(raw, t_idx=t_idx, n_symbols=N)
+            signals_2d[bar_i] = np.nan_to_num(raw, nan=0.0)
+
+            if self.collect_viz:
+                viz_rows.append({
+                    "t_idx": t_idx,
+                    "timestamp": timestamps[t_idx],
+                    "signal": raw.copy(),
+                })
+
+        # === Pass 2: Backtest loop (Numba or numpy fallback) ===
+        close_2d = cache.arrays["close"][start_idx:end_idx + 1]
+        mode_int = 0 if self.mode == "D0" else 1
+
+        ret_arr, to_arr, mb_arr, mw_arr, lw_arr, sw_arr = _backtest_loop(
+            close_2d, signals_2d, self.transaction_fee_rate, mode_int
         )
-    m = _compute_core_metrics(r)
-    turnover = result.avg_turnover
-    min_bet = float(result.min_bet_series.mean()) if result.min_bet_series is not None else 0.0
-    max_weight = float(result.max_weight_series.max()) if result.max_weight_series is not None else 0.0
-    return PeriodMetrics(
-        pnl=m["total_return"], cagr=m["cagr"], sharpe=m["sharpe"], mdd=m["mdd"],
-        turnover=turnover, min_bet=min_bet, max_weight=max_weight,
+
+        # Build pandas result objects
+        ts_arr = timestamps[start_idx:end_idx + 1]
+        ts_pd = pd.DatetimeIndex(ts_arr)
+        if ts_pd.tz is None and len(ts_pd) > 0:
+            ts_pd = ts_pd.tz_localize("UTC")
+        # First bar has no return from prev close — drop only from ret_series
+        ret_series = pd.Series(ret_arr, index=ts_pd).iloc[1:] if len(ts_pd) > 0 else pd.Series(dtype=float)
+        to_series = pd.Series(to_arr, index=ts_pd)
+        mb_series = pd.Series(mb_arr, index=ts_pd)
+        mw_series = pd.Series(mw_arr, index=ts_pd)
+        lw_series = pd.Series(lw_arr, index=ts_pd)
+        sw_series = pd.Series(sw_arr, index=ts_pd)
+
+        viz_bundle = None
+        if self.collect_viz and viz_rows:
+            rows = []
+            for bar_i, vr in enumerate(viz_rows):
+                # Reconstruct weights from signals for viz
+                sig = signals_2d[bar_i]
+                cur_close = close_2d[bar_i]
+                present = np.isfinite(cur_close)
+                masked_sig = sig * present
+                abs_sum = np.abs(masked_sig).sum()
+                weights = masked_sig / abs_sum if abs_sum > 0 else np.zeros_like(masked_sig)
+
+                for s_idx, sym in enumerate(symbols):
+                    rows.append({
+                        "date": pd.Timestamp(vr["timestamp"]),
+                        "symbol": sym,
+                        "open": cache.arrays.get("open", cache.arrays["close"])[vr["t_idx"], s_idx],
+                        "high": cache.arrays.get("high", cache.arrays["close"])[vr["t_idx"], s_idx],
+                        "low": cache.arrays.get("low", cache.arrays["close"])[vr["t_idx"], s_idx],
+                        "close": cache.arrays["close"][vr["t_idx"], s_idx],
+                        "signal": vr["signal"][s_idx],
+                        "weight": weights[s_idx],
+                        "ret": 0.0,
+                    })
+            sym_df = pd.DataFrame(rows)
+            if not sym_df.empty:
+                sym_df = sym_df.set_index("date")
+
+            r = ret_series.fillna(0.0)
+            equity = (1.0 + r).cumprod() * self.initial_capital
+            port_df = pd.DataFrame({
+                'equity': equity,
+                'mdd': (equity / equity.cummax() - 1.0),
+                'turnover': to_series.reindex(r.index).fillna(0.0),
+                'min_bet': mb_series.reindex(r.index).fillna(0.0),
+            })
+            viz_bundle = {'symbols': sym_df, 'portfolio': port_df}
+
+        return (ret_series, to_series, mb_series, mw_series, lw_series, sw_series, viz_bundle)
+
+
+def _build_period_result(ret_series: pd.Series, to_series: pd.Series,
+                         mb_series: pd.Series, mw_series: pd.Series,
+                         lw_series: pd.Series, sw_series: pd.Series) -> PeriodResult:
+    """Build a PeriodResult from raw series data."""
+    metrics = _compute_metrics(ret_series, to_series, mb_series, mw_series)
+
+    long_ratio = 0.0
+    short_ratio = 0.0
+    if len(lw_series) > 0:
+        total_w = lw_series + sw_series
+        safe_total = total_w.replace(0, np.nan)
+        long_ratio = float((lw_series / safe_total).mean())
+        short_ratio = float((sw_series / safe_total).mean())
+        if np.isnan(long_ratio):
+            long_ratio = 0.0
+        if np.isnan(short_ratio):
+            short_ratio = 0.0
+
+    return PeriodResult(
+        metrics=metrics,
+        ret_series=ret_series,
+        turnover_series=to_series,
+        min_bet_series=mb_series,
+        max_weight_series=mw_series,
+        long_ratio=long_ratio,
+        short_ratio=short_ratio,
     )
 
 
-# Backward-compatible aliases
-_compute_is_metrics = _compute_period_metrics
-_compute_os_metrics = _compute_period_metrics
-
-
-def _split_result_by_date(result: BacktestResult, split_date: str) -> tuple[BacktestResult, BacktestResult]:
-    """Split a BacktestResult into IS (< split_date) and OS (>= split_date) portions."""
+def _split_series_by_date(series: pd.Series, split_date: str) -> tuple[pd.Series, pd.Series]:
+    """Split a series into IS (< split_date) and OS (>= split_date) portions."""
     split_ts = pd.Timestamp(split_date, tz="UTC")
-    r = result.ret_series
-
-    is_mask = r.index < split_ts
-    os_mask = ~is_mask
-
-    def _sub_result(mask: pd.Series) -> BacktestResult:
-        sub_r = r[mask]
-        idx = sub_r.index
-        sub_to = result.turnover_series.reindex(idx) if result.turnover_series is not None else None
-        sub_mb = result.min_bet_series.reindex(idx) if result.min_bet_series is not None else None
-        sub_mw = result.max_weight_series.reindex(idx) if result.max_weight_series is not None else None
-        sub_lw = result.long_weight_series.reindex(idx) if result.long_weight_series is not None else None
-        sub_sw = result.short_weight_series.reindex(idx) if result.short_weight_series is not None else None
-        avg_to = float(sub_to.mean()) if sub_to is not None and len(sub_to) > 0 else 0.0
-        return BacktestResult(
-            ret_series=sub_r,
-            avg_turnover=avg_to,
-            initial_capital=result.initial_capital,
-            turnover_series=sub_to,
-            min_bet_series=sub_mb,
-            max_weight_series=sub_mw,
-            long_weight_series=sub_lw,
-            short_weight_series=sub_sw,
-        )
-
-    return _sub_result(is_mask), _sub_result(os_mask)
+    idx = series.index
+    if hasattr(idx, 'tz') and idx.tz is None:
+        series = series.copy()
+        series.index = series.index.tz_localize("UTC")
+        idx = series.index
+    return series[idx < split_ts], series[idx >= split_ts]
 
 
 def run_backtest_with_periods(
-    alpha: AlphaLike,
-    strategy: StrategyLike,
-    settings: PeriodSettings,
-    capital: float,
+    alpha,
+    strategy=None,
+    settings: PeriodSettings = None,
+    capital: float = 0.0,
     *,
-    data_loader_kwargs: Optional[dict] = None,
     data_cache=None,
     mode: str = "D0",
-    transaction_fee_rate: float = TRANSACTION_FEE_RATE,
 ) -> BacktestPeriodResult:
-    """Run IS/OS split backtest and return period results.
+    """Run IS/OS split backtest using cache (numpy path)."""
+    if data_cache is None:
+        raise ValueError("data_cache must be provided")
 
-    Runs a SINGLE continuous backtest from is_start to os_end, then splits
-    the result at os_start.  This ensures OS starts with carried-over weights
-    from the IS period (warm start) rather than fresh zero weights.
-
-    Data source (one required):
-        data_loader_kwargs: dict passed to DataLoader (reads from disk).
-        data_cache: DataCache instance (uses in-memory cache).
-    """
-    if data_cache is not None:
-        from .data_cache import DataCacheIterator
-        full_loader = DataCacheIterator(data_cache, start_date=settings.is_start, end_date=settings.os_end)
-    elif data_loader_kwargs is not None:
-        from .dataloader import DataLoader
-        base_kwargs = dict(data_loader_kwargs)
-        full_kwargs = {**base_kwargs, "start_date": settings.is_start, "end_date": settings.os_end}
-        full_loader = DataLoader(**full_kwargs)
-    else:
-        raise ValueError("Either data_loader_kwargs or data_cache must be provided")
-
-    # --- Single continuous run ---
-    bt = Backtester(full_loader, alpha, strategy, capital, mode=mode, collect_viz=False, transaction_fee_rate=transaction_fee_rate)
-    full_result, _ = bt.run()
-
-    # --- Split at OS start ---
-    is_result, os_result = _split_result_by_date(full_result, settings.os_start)
-
-    is_metrics = _compute_period_metrics(is_result)
-    os_metrics = _compute_period_metrics(os_result)
-
-    # Compute long/short ratios from IS result
-    is_long_ratio = 0.0
-    is_short_ratio = 0.0
-    if is_result.long_weight_series is not None and len(is_result.long_weight_series) > 0:
-        total = is_result.long_weight_series + is_result.short_weight_series
-        safe_total = total.replace(0, np.nan)
-        is_long_ratio = float((is_result.long_weight_series / safe_total).mean())
-        is_short_ratio = float((is_result.short_weight_series / safe_total).mean())
-        if np.isnan(is_long_ratio):
-            is_long_ratio = 0.0
-        if np.isnan(is_short_ratio):
-            is_short_ratio = 0.0
-
-    return BacktestPeriodResult(
-        is_metrics=is_metrics,
-        os_metrics=os_metrics,
-        is_ret_series=is_result.ret_series,
-        os_ret_series=os_result.ret_series,
-        is_turnover_series=is_result.turnover_series,
-        os_turnover_series=os_result.turnover_series,
-        is_min_bet_series=is_result.min_bet_series,
-        os_min_bet_series=os_result.min_bet_series,
-        is_max_weight_series=is_result.max_weight_series,
-        os_max_weight_series=os_result.max_weight_series,
-        is_long_ratio=is_long_ratio,
-        is_short_ratio=is_short_ratio,
+    bt = Backtester(
+        cache=data_cache,
+        alpha_recipe=alpha,
+        capital=capital,
+        mode=mode,
+        collect_viz=False,
+        start_date=settings.is_start,
+        end_date=settings.os_end,
     )
+    ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = bt.run()
+
+    os_start = settings.os_start
+
+    is_ret, os_ret = _split_series_by_date(ret_s, os_start)
+    is_to, os_to = _split_series_by_date(to_s, os_start)
+    is_mb, os_mb = _split_series_by_date(mb_s, os_start)
+    is_mw, os_mw = _split_series_by_date(mw_s, os_start)
+    is_lw, os_lw = _split_series_by_date(lw_s, os_start)
+    is_sw, os_sw = _split_series_by_date(sw_s, os_start)
+
+    is_period = _build_period_result(is_ret, is_to, is_mb, is_mw, is_lw, is_sw)
+    os_period = _build_period_result(os_ret, os_to, os_mb, os_mw, os_lw, os_sw)
+
+    return BacktestPeriodResult(is_period=is_period, os_period=os_period)
 
 
 # ===========================================================================
@@ -557,25 +518,26 @@ def run_backtest_with_periods(
 # ===========================================================================
 
 class CombinedAlpha:
-    """Combines multiple alphas by summing their signals."""
+    """Combines multiple alphas by summing their signals (numpy path)."""
 
     def __init__(self, alphas: list):
         self.alphas = alphas
 
-    def compute(self, timestamp: pd.Timestamp, data_slice: pd.DataFrame) -> pd.Series:
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         combined = None
         for alpha in self.alphas:
             try:
-                s = alpha.compute(timestamp, data_slice)
+                s = alpha.compute(t_idx, arrays)
             except Exception:
-                continue  # skip failing alpha
-            s = pd.Series(s, index=data_slice.index)
+                continue
+            s = np.nan_to_num(np.asarray(s, dtype=np.float64), nan=0.0)
             if combined is None:
                 combined = s.copy()
             else:
-                combined = combined.add(s, fill_value=0)
+                combined = combined + s
         if combined is None:
-            return pd.Series(0.0, index=data_slice.index)
+            N = arrays["__n_symbols__"]
+            return np.zeros(N, dtype=np.float64)
         return combined
 
 
@@ -583,20 +545,9 @@ class CombinedAlpha:
 class AlphaResult:
     """Individual alpha result within a multi-alpha backtest."""
     name: str
-    is_metrics: PeriodMetrics
-    os_metrics: PeriodMetrics
-    is_ret_series: pd.Series
-    os_ret_series: pd.Series
+    is_period: PeriodResult
+    os_period: PeriodResult
     rank: int = 0
-    # Detail view time series
-    is_turnover_series: Optional[pd.Series] = None
-    os_turnover_series: Optional[pd.Series] = None
-    is_min_bet_series: Optional[pd.Series] = None
-    os_min_bet_series: Optional[pd.Series] = None
-    is_max_weight_series: Optional[pd.Series] = None
-    os_max_weight_series: Optional[pd.Series] = None
-    is_long_ratio: float = 0.0
-    is_short_ratio: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -606,54 +557,11 @@ class MultipleBacktestResult:
     combined_result: BacktestPeriodResult
     sorted_by: str = "sharpe"
 
-    def to_dict(self, initial_capital: float = 0) -> dict:
-        """Convert to API response format."""
-        def _series_dict(s):
-            return {str(k): float(v) for k, v in s.items()}
-
-        def _equity_dict(ret_series, cap):
-            if cap <= 0:
-                return None
-            equity = (1 + ret_series).cumprod() * cap
-            return {str(k): float(v) for k, v in equity.items()}
-
-        return {
-            "combined": {
-                "isMetrics": metrics_to_api_dict(self.combined_result.is_metrics),
-                "osMetrics": metrics_to_api_dict(self.combined_result.os_metrics),
-                "isRetSeries": _series_dict(self.combined_result.is_ret_series),
-                "osRetSeries": _series_dict(self.combined_result.os_ret_series),
-            },
-            "initialCapital": initial_capital,
-            "alphas": [
-                {
-                    "name": ar.name,
-                    "rank": ar.rank,
-                    "isMetrics": metrics_to_api_dict(ar.is_metrics),
-                    "osMetrics": metrics_to_api_dict(ar.os_metrics),
-                    "isRetSeries": _series_dict(ar.is_ret_series),
-                    "osRetSeries": _series_dict(ar.os_ret_series),
-                    "isEquitySeries": _equity_dict(ar.is_ret_series, initial_capital),
-                    "osEquitySeries": _equity_dict(ar.os_ret_series, initial_capital),
-                    "isTurnoverSeries": _series_dict(ar.is_turnover_series) if ar.is_turnover_series is not None else None,
-                    "osTurnoverSeries": _series_dict(ar.os_turnover_series) if ar.os_turnover_series is not None else None,
-                    "isMinBetSeries": _series_dict(ar.is_min_bet_series) if ar.is_min_bet_series is not None else None,
-                    "osMinBetSeries": _series_dict(ar.os_min_bet_series) if ar.os_min_bet_series is not None else None,
-                    "isMaxWeightSeries": _series_dict(ar.is_max_weight_series) if ar.is_max_weight_series is not None else None,
-                    "osMaxWeightSeries": _series_dict(ar.os_max_weight_series) if ar.os_max_weight_series is not None else None,
-                    "longRatio": ar.is_long_ratio,
-                    "shortRatio": ar.is_short_ratio,
-                }
-                for ar in self.alpha_results
-            ],
-        }
-
 
 def _compute_ir_corr(
     alpha_ret: pd.Series, combined_ret: pd.Series
 ) -> tuple[float, float]:
     """Compute IR and Corr between alpha and combined returns."""
-    # Align the two series
     a, c = alpha_ret.align(combined_ret, join="inner", fill_value=0.0)
     a = a.fillna(0.0)
     c = c.fillna(0.0)
@@ -661,12 +569,10 @@ def _compute_ir_corr(
     if len(a) < 2:
         return float('nan'), float('nan')
 
-    # IR = mean(excess) / std(excess) * sqrt(365)
     excess = a - c
     excess_std = excess.std()
     ir = (excess.mean() / (excess_std + 1e-12)) * np.sqrt(BARS_PER_YEAR) if excess_std > 0 else 0.0
 
-    # Corr
     corr = float(a.corr(c))
     if np.isnan(corr):
         corr = 0.0
@@ -676,135 +582,78 @@ def _compute_ir_corr(
 
 def run_multiple_backtest(
     alphas: list,
-    strategy,
-    settings: PeriodSettings,
-    capital: float,
+    strategy=None,
+    settings: PeriodSettings = None,
+    capital: float = 0.0,
     *,
-    data_loader_kwargs: Optional[dict] = None,
     data_cache=None,
     mode: str = "D0",
     n_jobs: int = 1,
-    transaction_fee_rate: float = TRANSACTION_FEE_RATE,
 ) -> MultipleBacktestResult:
-    """Run backtest for multiple alphas and a combined portfolio.
-
-    Data source (one required):
-        data_loader_kwargs: dict passed to DataLoader (reads from disk).
-        data_cache: DataCache instance (uses in-memory cache).
-        Note: parallel path (n_jobs>1) requires data_loader_kwargs.
-
-    Args:
-        n_jobs: Number of parallel workers.
-            1  = sequential (default).
-            >1 = that many worker processes.
-            -1 = all CPU cores.
-
-    Steps:
-    1. Run individual alpha backtests (sequential or parallel)
-    2. Run combined alpha backtest
-    3. Compute IR and Corr for each alpha vs combined
-    4. Sort by IS sharpe descending
-    """
-    if data_loader_kwargs is None and data_cache is None:
-        raise ValueError("Either data_loader_kwargs or data_cache must be provided")
+    """Run backtest for multiple alphas and a combined portfolio."""
+    if data_cache is None:
+        raise ValueError("data_cache must be provided")
 
     import os as _os
     effective_jobs = (_os.cpu_count() or 1) if n_jobs == -1 else max(1, n_jobs)
 
-    # Parallel path requires data_loader_kwargs (workers need disk access)
-    if effective_jobs > 1 and data_loader_kwargs is None:
-        effective_jobs = 1
-
     individual_results: list[BacktestPeriodResult | None] = []
 
     if effective_jobs == 1:
-        # Sequential path — supports both data_cache and data_loader_kwargs
         for alpha in alphas:
             period_result = run_backtest_with_periods(
                 alpha=alpha,
                 strategy=strategy,
                 settings=settings,
                 capital=capital,
-                data_loader_kwargs=data_loader_kwargs,
                 data_cache=data_cache,
                 mode=mode,
-                transaction_fee_rate=transaction_fee_rate,
             )
             individual_results.append(period_result)
     else:
-        # Parallel path via shared memory (requires data_loader_kwargs)
         from .parallel import run_parallel_backtests
         par_results = run_parallel_backtests(
             alphas=alphas,
             strategy=strategy,
             settings=settings,
             capital=capital,
-            data_loader_kwargs=data_loader_kwargs,
+            data_cache=data_cache,
             mode=mode,
             n_jobs=effective_jobs,
-            transaction_fee_rate=transaction_fee_rate,
         )
-        # par_results is [(idx, BacktestPeriodResult|None), ...]
         idx_map = {idx: res for idx, res in par_results}
         for i in range(len(alphas)):
             individual_results.append(idx_map.get(i))
 
-    # Step 2: combined alpha backtest
     combined_alpha = CombinedAlpha(alphas)
     combined_result = run_backtest_with_periods(
         alpha=combined_alpha,
         strategy=strategy,
         settings=settings,
         capital=capital,
-        data_loader_kwargs=data_loader_kwargs,
         data_cache=data_cache,
         mode=mode,
-        transaction_fee_rate=transaction_fee_rate,
     )
 
-    # Step 3: compute IR and Corr for each alpha vs combined
     alpha_result_list = []
     for i, (alpha, pr) in enumerate(zip(alphas, individual_results)):
         if pr is None:
-            # Alpha failed during parallel execution; skip it
             continue
 
-        is_ir, is_corr = _compute_ir_corr(pr.is_ret_series, combined_result.is_ret_series)
-        os_ir, os_corr = _compute_ir_corr(pr.os_ret_series, combined_result.os_ret_series)
+        is_ir, is_corr = _compute_ir_corr(pr.is_period.ret_series, combined_result.is_period.ret_series)
+        os_ir, os_corr = _compute_ir_corr(pr.os_period.ret_series, combined_result.os_period.ret_series)
 
-        # Replace ir/corr in metrics (frozen dataclass, need to reconstruct)
-        is_m = pr.is_metrics
-        new_is = PeriodMetrics(
-            pnl=is_m.pnl, cagr=is_m.cagr, sharpe=is_m.sharpe,
-            mdd=is_m.mdd, turnover=is_m.turnover, min_bet=is_m.min_bet,
-            max_weight=is_m.max_weight, ir=is_ir, corr=is_corr,
-        )
-        os_m = pr.os_metrics
-        new_os = PeriodMetrics(
-            pnl=os_m.pnl, cagr=os_m.cagr, sharpe=os_m.sharpe, mdd=os_m.mdd,
-            turnover=os_m.turnover, min_bet=os_m.min_bet, max_weight=os_m.max_weight,
-            ir=os_ir, corr=os_corr,
-        )
+        new_is = replace(pr.is_period.metrics, ir=is_ir, corr=is_corr)
+        new_os = replace(pr.os_period.metrics, ir=os_ir, corr=os_corr)
 
         name = getattr(alpha, 'name', f"alpha_{i}")
         alpha_result_list.append(AlphaResult(
             name=name,
-            is_metrics=new_is,
-            os_metrics=new_os,
-            is_ret_series=pr.is_ret_series,
-            os_ret_series=pr.os_ret_series,
-            is_turnover_series=pr.is_turnover_series,
-            os_turnover_series=pr.os_turnover_series,
-            is_min_bet_series=pr.is_min_bet_series,
-            os_min_bet_series=pr.os_min_bet_series,
-            is_max_weight_series=pr.is_max_weight_series,
-            os_max_weight_series=pr.os_max_weight_series,
-            is_long_ratio=pr.is_long_ratio,
-            is_short_ratio=pr.is_short_ratio,
+            is_period=replace(pr.is_period, metrics=new_is),
+            os_period=replace(pr.os_period, metrics=new_os),
         ))
 
-    # Step 4: sort by IS sharpe descending, assign ranks
-    alpha_result_list.sort(key=lambda ar: ar.is_metrics.sharpe, reverse=True)
+    alpha_result_list.sort(key=lambda ar: ar.is_period.metrics.sharpe, reverse=True)
     for rank, ar in enumerate(alpha_result_list, start=1):
         ar.rank = rank
 

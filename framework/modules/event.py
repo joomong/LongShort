@@ -1,15 +1,55 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict
-
-import pandas as pd
+import numpy as np
 
 from ..signal_base import Signal
 from framework.exceptions import XmlCompileError
 
+try:
+    import numba
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
 
-@dataclass
+
+def _event_kernel_numpy(base, trig, hold, threshold, max_holddays, bet_all):
+    """Numpy fallback: decrement holds, fire triggers, apply mask."""
+    hold[:] = np.maximum(hold - 1, 0)
+    fired = trig > threshold
+    hold[fired] = max_holddays
+    if not bet_all:
+        return base
+    active = hold > 0
+    return np.where(active, base, 0.0)
+
+
+if _HAS_NUMBA:
+    @numba.jit(nopython=True, cache=True)
+    def _event_kernel_numba(base, trig, hold, threshold, max_holddays, bet_all):
+        """Numba kernel: hold decrement + trigger + mask."""
+        N = len(base)
+        out = np.empty(N, dtype=np.float64)
+        for i in range(N):
+            # Decrement hold
+            h = hold[i] - 1
+            if h < 0:
+                h = 0
+            # Fire trigger
+            if trig[i] > threshold:
+                h = max_holddays
+            hold[i] = h
+            # Output
+            if bet_all:
+                out[i] = base[i] if h > 0 else 0.0
+            else:
+                out[i] = base[i]
+        return out
+
+    _event_kernel = _event_kernel_numba
+else:
+    _event_kernel = _event_kernel_numpy
+
+
 class EventSignal(Signal):
     tag = "event"
 
@@ -65,63 +105,50 @@ class EventSignal(Signal):
     - If trigger[t, sym] > threshold, then sym becomes "active" for max_holddays bars,
       including the current bar.
     - If bet_all=True, output is base_signal masked by active set (inactive -> 0).
-
-    Notes:
-    - This Signal is stateful across compute() calls. Backtester calls compute()
-      sequentially in timestamp order.
     """
 
-    signal: Signal
-    trigger: Signal
-    threshold: float
-    max_holddays: int
-    bet_all: bool = True
-
-    def __post_init__(self) -> None:
-        if self.max_holddays <= 0:
+    def __init__(
+        self,
+        signal: Signal,
+        trigger: Signal,
+        threshold: float,
+        max_holddays: int,
+        bet_all: bool = True,
+    ):
+        if max_holddays <= 0:
             raise ValueError("max_holddays must be > 0")
-        # remaining hold days per symbol
-        self._hold: Dict[str, int] = {}
-        self._last_ts: pd.Timestamp | None = None
+        self.signal = signal
+        self.trigger = trigger
+        self.threshold = threshold
+        self.max_holddays = max_holddays
+        self.bet_all = bet_all
+        self._hold: np.ndarray | None = None  # (N,) remaining hold days per symbol
+        self._last_t_idx: int = -1
 
-    def _as_series(self, x, index: pd.Index) -> pd.Series:
-        if isinstance(x, pd.Series):
-            return x.reindex(index)
-        if isinstance(x, dict):
-            return pd.Series(x, index=index, dtype=float)
-        if isinstance(x, (list, tuple)):
-            return pd.Series(list(x), index=index, dtype=float)
-        # scalar
-        return pd.Series(float(x), index=index, dtype=float)
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
+        base = self.signal.compute(t_idx, arrays)
+        trig = self.trigger.compute(t_idx, arrays)
+        N = len(base)
 
-    def compute(self, timestamp: pd.Timestamp, data_slice: pd.DataFrame):
-        base_raw = self.signal.compute(timestamp, data_slice)
-        trig_raw = self.trigger.compute(timestamp, data_slice)
+        # Lazy init hold array
+        if self._hold is None:
+            self._hold = np.zeros(N, dtype=np.int32)
 
-        # Determine symbol index (prefer data_slice index)
-        idx = data_slice.index
+        # Replace NaN with 0 for both
+        base = np.nan_to_num(base, nan=0.0)
+        trig = np.nan_to_num(trig, nan=0.0)
 
-        base = self._as_series(base_raw, idx).fillna(0.0)
-        trig = self._as_series(trig_raw, idx).fillna(0.0)
-
-        # decrement holds once per new timestamp
-        if self._last_ts is None or timestamp != self._last_ts:
-            for k in list(self._hold.keys()):
-                self._hold[k] -= 1
-                if self._hold[k] <= 0:
-                    del self._hold[k]
-            self._last_ts = timestamp
-
-        # apply triggers
-        fired = trig > self.threshold
-        for sym, is_fired in fired.items():
-            if bool(is_fired):
-                self._hold[str(sym)] = self.max_holddays
-
-        if not self.bet_all:
-            # Minimal implementation: if bet_all is false, return base unchanged.
+        # Only process once per new timestamp
+        if t_idx != self._last_t_idx:
+            base = _event_kernel(
+                base, trig, self._hold,
+                self.threshold, self.max_holddays, self.bet_all,
+            )
+            self._last_t_idx = t_idx
             return base
 
-        active_syms = set(self._hold.keys())
-        mask = pd.Series([str(s) in active_syms for s in idx], index=idx)
-        return base.where(mask, 0.0)
+        # Same timestamp: return based on current hold state
+        if not self.bet_all:
+            return base
+        active = self._hold > 0
+        return np.where(active, base, 0.0)

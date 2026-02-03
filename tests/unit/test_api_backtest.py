@@ -14,11 +14,11 @@ from api.services.backtest_service import resolve_mode, range_and_hist
 from api.main import app
 from framework.backtester import (
     BacktestPeriodResult,
-    BacktestResult,
+    PeriodResult,
     PeriodMetrics,
     MultipleBacktestResult,
     AlphaResult,
-    _compute_period_metrics,
+    _compute_metrics,
     metrics_to_api_dict,
 )
 
@@ -53,7 +53,7 @@ class TestRangeAndHist:
     def test_empty_array(self):
         sig_range, dist = range_and_hist(np.array([]))
         assert sig_range == {"min": 0.0, "max": 0.0}
-        assert len(dist) == 1000
+        assert len(dist) == 100
 
     def test_normal_array(self):
         values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -67,7 +67,7 @@ class TestRangeAndHist:
         values = np.array([np.nan, np.nan, np.nan])
         sig_range, dist = range_and_hist(values)
         assert sig_range == {"min": 0.0, "max": 0.0}
-        assert len(dist) == 1000
+        assert len(dist) == 100
 
 
 # ---------------------------------------------------------------------------
@@ -76,12 +76,13 @@ class TestRangeAndHist:
 
 class TestMetricsToApiDict:
     def test_empty_series(self):
-        bt_result = BacktestResult(
-            ret_series=pd.Series([], dtype=float),
-            avg_turnover=0.0,
-            initial_capital=1_000_000.0,
+        m = _compute_metrics(
+            pd.Series([], dtype=float),
+            pd.Series([], dtype=float),
+            pd.Series([], dtype=float),
+            pd.Series([], dtype=float),
         )
-        result = metrics_to_api_dict(_compute_period_metrics(bt_result))
+        result = metrics_to_api_dict(m)
         assert result["pnl"] == 0.0
         assert result["sharpe"] == 0.0
         assert result["mdd"] == 0.0
@@ -90,14 +91,13 @@ class TestMetricsToApiDict:
         assert result["max_weight"] == 0.0
 
     def test_normal_series(self):
-        bt_result = BacktestResult(
-            ret_series=pd.Series([0.01, 0.02, -0.005, 0.03, -0.01]),
-            avg_turnover=0.15,
-            initial_capital=1_000_000.0,
-            min_bet_series=pd.Series([10, 12, 11, 13, 9], dtype=float),
-            max_weight_series=pd.Series([0.15, 0.20, 0.18, 0.22, 0.17], dtype=float),
+        m = _compute_metrics(
+            pd.Series([0.01, 0.02, -0.005, 0.03, -0.01]),
+            pd.Series([0.15, 0.15, 0.15, 0.15, 0.15]),
+            pd.Series([10, 12, 11, 13, 9], dtype=float),
+            pd.Series([0.15, 0.20, 0.18, 0.22, 0.17], dtype=float),
         )
-        result = metrics_to_api_dict(_compute_period_metrics(bt_result))
+        result = metrics_to_api_dict(m)
 
         # pnl = CAGR (annualised), not cumulative return
         assert result["pnl"] != 0.0
@@ -121,19 +121,16 @@ SETTINGS_PAYLOAD = {
 }
 
 
-def _fake_backtest_result() -> BacktestResult:
+def _fake_run_output():
+    """Create a fake 7-tuple return from Backtester.run()."""
     dates = pd.to_datetime(["2023-06-01", "2023-09-01", "2024-03-01"], utc=True)
-    return BacktestResult(
-        ret_series=pd.Series([0.01, -0.005, 0.02], index=dates, dtype=float),
-        avg_turnover=0.10,
-        initial_capital=1_000_000.0,
-        turnover_series=pd.Series([0.1, 0.1, 0.1], index=dates, dtype=float),
-        min_bet_series=pd.Series([10, 12, 11], index=dates, dtype=float),
-        max_weight_series=pd.Series([0.15, 0.20, 0.18], index=dates, dtype=float),
-    )
+    ret_s = pd.Series([0.01, -0.005, 0.02], index=dates, dtype=float)
+    to_s = pd.Series([0.1, 0.1, 0.1], index=dates, dtype=float)
+    mb_s = pd.Series([10, 12, 11], index=dates, dtype=float)
+    mw_s = pd.Series([0.15, 0.20, 0.18], index=dates, dtype=float)
+    lw_s = pd.Series([0.6, 0.7, 0.55], index=dates, dtype=float)
+    sw_s = pd.Series([0.4, 0.3, 0.45], index=dates, dtype=float)
 
-
-def _fake_viz_dict() -> dict:
     idx = pd.MultiIndex.from_tuples(
         [
             (pd.Timestamp("2024-01-01"), "BTCUSDT"),
@@ -142,7 +139,9 @@ def _fake_viz_dict() -> dict:
         names=["date", "symbol"],
     )
     sym_df = pd.DataFrame({"signal": [1.0, -0.5]}, index=idx)
-    return {"symbols": sym_df}
+    viz = {"symbols": sym_df}
+
+    return (ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz)
 
 
 def _fake_multi_result() -> MultipleBacktestResult:
@@ -152,21 +151,29 @@ def _fake_multi_result() -> MultipleBacktestResult:
     )
     os_metrics = PeriodMetrics(pnl=0.08, cagr=0.10, sharpe=1.2, mdd=0.0)
     ret = pd.Series([0.01, 0.02], dtype=float)
+    to = pd.Series([0.1, 0.1], dtype=float)
+    mb = pd.Series([0.0, 0.0], dtype=float)
+    mw = pd.Series([0.0, 0.0], dtype=float)
+
+    is_period = PeriodResult(
+        metrics=is_metrics, ret_series=ret, turnover_series=to,
+        min_bet_series=mb, max_weight_series=mw, long_ratio=0.6, short_ratio=0.4,
+    )
+    os_period = PeriodResult(
+        metrics=os_metrics, ret_series=ret, turnover_series=to,
+        min_bet_series=mb, max_weight_series=mw, long_ratio=0.5, short_ratio=0.5,
+    )
 
     ar = AlphaResult(
         name="alpha_0",
-        is_metrics=is_metrics,
-        os_metrics=os_metrics,
-        is_ret_series=ret,
-        os_ret_series=ret,
+        is_period=is_period,
+        os_period=os_period,
         rank=1,
     )
 
     combined = BacktestPeriodResult(
-        is_metrics=is_metrics,
-        os_metrics=os_metrics,
-        is_ret_series=ret,
-        os_ret_series=ret,
+        is_period=is_period,
+        os_period=os_period,
     )
 
     return MultipleBacktestResult(
@@ -179,14 +186,15 @@ def _fake_multi_result() -> MultipleBacktestResult:
 def _mock_data_cache() -> MagicMock:
     """Create a mock DataCache for testing."""
     mock_cache = MagicMock()
-    mock_cache.is_loaded = True
-    mock_cache.get_timestamps.return_value = pd.DatetimeIndex(
+    mock_cache.arrays = {"close": np.array([[1.0, 2.0]])}
+    mock_cache.timestamps = pd.DatetimeIndex(
         [pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2024-06-30", tz="UTC")]
     )
-    mock_cache.symbols = ["BTCUSDT", "ETHUSDT"]
+    mock_cache.symbols = np.array(["BTCUSDT", "ETHUSDT"])
     mock_cache.start_date = "2020-01-01"
     mock_cache.end_date = "2025-08-31"
     mock_cache.initial_capital = 1000000
+    mock_cache.transaction_fee_rate = 0.001
     return mock_cache
 
 
@@ -209,7 +217,7 @@ class TestSingleAlphaEndpoint:
         mock_compile_with_sources.return_value = [(mock_signal, '<data expr="close" delay="1"/>')]
 
         mock_bt = MagicMock()
-        mock_bt.run.return_value = (_fake_backtest_result(), _fake_viz_dict())
+        mock_bt.run.return_value = _fake_run_output()
         mock_bt_cls.return_value = mock_bt
 
         resp = client.post("/api/backtest/run", json={

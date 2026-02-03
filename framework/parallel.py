@@ -22,11 +22,23 @@ class SharedResultInfo:
     dtype: str
 
 
+@dataclass
+class SharedDataInfo:
+    """Shared memory metadata for input data (3D array: T x N x C)."""
+    shm_name: str
+    shape: tuple          # (T, N, C)
+    dtype: str
+    timestamps_ns: list   # int64 nanosecond values
+    symbols: list         # symbol strings
+    columns: list         # column names
+    transaction_fee_rate: float
+
+
 class SharedResultManager:
     """Manages backtest result storage in shared memory."""
 
-    N_IS_METRICS = 8  # pnl, cagr, sharpe, mdd, turnover, min_bet, max_weight, (ir placeholder)
-    N_OS_METRICS = 6  # pnl, cagr, sharpe, mdd, (ir placeholder), (corr placeholder)
+    N_IS_METRICS = 8
+    N_OS_METRICS = 6
 
     def __init__(self):
         self.shm: Optional[shared_memory.SharedMemory] = None
@@ -37,8 +49,7 @@ class SharedResultManager:
             n_timestamps_is + n_timestamps_os +
             self.N_IS_METRICS + self.N_OS_METRICS
         )
-        total_bytes = n_alphas * size_per_alpha * 8  # float64
-        # Ensure at least 8 bytes to avoid zero-size allocation
+        total_bytes = n_alphas * size_per_alpha * 8
         total_bytes = max(total_bytes, 8)
 
         self.shm = shared_memory.SharedMemory(create=True, size=total_bytes)
@@ -73,6 +84,74 @@ class SharedResultManager:
             self.shm.close()
             self.shm.unlink()
             self.shm = None
+
+
+class SharedDataManager:
+    """Manages input data in shared memory for parallel workers."""
+
+    def __init__(self):
+        self.shm: Optional[shared_memory.SharedMemory] = None
+
+    def create(self, cache) -> SharedDataInfo:
+        """Convert DataCache's numpy arrays to a 3D array in shared memory."""
+        timestamps = cache.timestamps
+        symbols = cache.symbols
+        columns = sorted(cache.arrays.keys())
+
+        arr = np.stack([cache.arrays[col] for col in columns], axis=2)
+
+        total_bytes = max(arr.nbytes, 8)
+        self.shm = shared_memory.SharedMemory(create=True, size=total_bytes)
+        shared_arr = np.ndarray(arr.shape, dtype=np.float64, buffer=self.shm.buf)
+        shared_arr[:] = arr
+
+        return SharedDataInfo(
+            shm_name=self.shm.name,
+            shape=arr.shape,
+            dtype="float64",
+            timestamps_ns=[int(ts) for ts in timestamps.astype('int64')],
+            symbols=symbols.tolist(),
+            columns=columns,
+            transaction_fee_rate=float(cache.transaction_fee_rate),
+        )
+
+    def cleanup(self):
+        if self.shm:
+            self.shm.close()
+            self.shm.unlink()
+            self.shm = None
+
+
+class SharedCacheProxy:
+    """Worker-side DataCache-compatible interface over shared 3D array."""
+
+    def __init__(self, info: SharedDataInfo):
+        self.info = info
+        self._shm = shared_memory.SharedMemory(name=info.shm_name)
+        self._arr = np.ndarray(info.shape, dtype=info.dtype, buffer=self._shm.buf)
+
+        self.timestamps = np.array(info.timestamps_ns, dtype='datetime64[ns]')
+        self.symbols = np.array(info.symbols, dtype=object)
+        self.sym_index = {s: i for i, s in enumerate(info.symbols)}
+        self._ts_index = {pd.Timestamp(ts): i for i, ts in enumerate(self.timestamps)}
+
+        self.arrays = {}
+        for c_idx, col in enumerate(info.columns):
+            self.arrays[col] = self._arr[:, :, c_idx]
+
+        self.initial_capital = 0
+        self.transaction_fee_rate = info.transaction_fee_rate
+        self.start_date = ""
+        self.end_date = ""
+
+    @property
+    def _loaded(self) -> bool:
+        return True
+
+    def close(self):
+        if self._shm:
+            self._shm.close()
+            self._shm = None
 
 
 def write_result_to_shared(
@@ -110,56 +189,62 @@ def write_result_to_shared(
 def _backtest_worker(
     alpha_idx: int,
     alpha,
-    strategy,
-    settings_tuple: tuple,  # (is_start, is_end, os_start, os_end)
+    settings_tuple: tuple,
     capital: float,
-    data_loader_kwargs: dict,
+    shared_data_info: SharedDataInfo,
     mode: str,
     result_info: SharedResultInfo,
-    transaction_fee_rate: float = 0.0010,
 ) -> Tuple[int, bool, str]:
-    """Worker function for parallel backtest execution.
-
-    Runs a SINGLE continuous backtest from is_start to os_end, then splits
-    the result at os_start so OS starts with carried-over weights.
-
-    Returns: (alpha_idx, success, error_msg)
-    """
+    """Worker function for parallel backtest execution."""
+    proxy = None
     try:
         from .backtester import (
             Backtester, PeriodSettings,
-            _compute_period_metrics, _split_result_by_date,
+            _build_period_result, _split_series_by_date,
         )
-        from .dataloader import DataLoader
 
         settings = PeriodSettings(*settings_tuple)
 
-        # Single continuous run from is_start to os_end
-        full_kwargs = {**data_loader_kwargs, "start_date": settings.is_start, "end_date": settings.os_end}
-        full_loader = DataLoader(**full_kwargs)
-        bt = Backtester(full_loader, alpha, strategy, capital, mode=mode, collect_viz=False, transaction_fee_rate=transaction_fee_rate)
-        full_result, _ = bt.run()
+        proxy = SharedCacheProxy(shared_data_info)
 
-        # Split at OS start
-        is_result, os_result = _split_result_by_date(full_result, settings.os_start)
+        bt = Backtester(
+            cache=proxy,
+            alpha_recipe=alpha,
+            capital=capital,
+            mode=mode,
+            collect_viz=False,
+            start_date=settings.is_start,
+            end_date=settings.os_end,
+        )
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = bt.run()
 
-        is_metrics_obj = _compute_period_metrics(is_result)
-        os_metrics_obj = _compute_period_metrics(os_result)
+        os_start = settings.os_start
+        is_ret, os_ret = _split_series_by_date(ret_s, os_start)
+        is_to, os_to = _split_series_by_date(to_s, os_start)
+        is_mb, os_mb = _split_series_by_date(mb_s, os_start)
+        is_mw, os_mw = _split_series_by_date(mw_s, os_start)
+        is_lw, os_lw = _split_series_by_date(lw_s, os_start)
+        is_sw, os_sw = _split_series_by_date(sw_s, os_start)
 
-        # Write to shared memory
-        is_ret_vals = is_result.ret_series.fillna(0.0).values
-        os_ret_vals = os_result.ret_series.fillna(0.0).values
+        is_period = _build_period_result(is_ret, is_to, is_mb, is_mw, is_lw, is_sw)
+        os_period = _build_period_result(os_ret, os_to, os_mb, os_mw, os_lw, os_sw)
+
+        is_metrics_obj = is_period.metrics
+        os_metrics_obj = os_period.metrics
+
+        is_ret_vals = is_ret.fillna(0.0).values
+        os_ret_vals = os_ret.fillna(0.0).values
 
         is_metrics_list = [
             is_metrics_obj.pnl, is_metrics_obj.cagr,
             is_metrics_obj.sharpe, is_metrics_obj.mdd,
             is_metrics_obj.turnover, is_metrics_obj.min_bet,
-            is_metrics_obj.max_weight, np.nan,  # ir placeholder
+            is_metrics_obj.max_weight, np.nan,
         ]
         os_metrics_list = [
             os_metrics_obj.pnl, os_metrics_obj.cagr,
             os_metrics_obj.sharpe, os_metrics_obj.mdd,
-            np.nan, np.nan,  # ir, corr placeholders
+            np.nan, np.nan,
         ]
 
         write_result_to_shared(
@@ -171,53 +256,40 @@ def _backtest_worker(
 
     except Exception as e:
         return (alpha_idx, False, str(e))
+    finally:
+        if proxy is not None:
+            proxy.close()
 
 
 def run_parallel_backtests(
     alphas: list,
     strategy,
-    settings,  # PeriodSettings
+    settings,
     capital: float,
     *,
-    data_loader_kwargs: dict,
+    data_cache,
     mode: str = "D0",
     n_jobs: int = -1,
-    transaction_fee_rate: float = 0.0010,
 ) -> list:
-    """Run multiple alpha backtests in parallel using ProcessPoolExecutor.
-
-    Returns a list of (alpha_idx, BacktestPeriodResult) for successful alphas,
-    plus (alpha_idx, None) for failed ones.
-    """
+    """Run multiple alpha backtests in parallel using ProcessPoolExecutor."""
     from .backtester import (
-        BacktestPeriodResult, PeriodMetrics,
+        BacktestPeriodResult, PeriodResult, PeriodMetrics,
     )
 
     n_jobs = max(1, n_jobs)
 
-    # We need to know how many IS/OS timestamps to size the shared result memory.
-    # Run a quick probe to count timestamps.
-    # With unified IS/OS (single continuous run + split), the IS period
-    # has (n_ts_is - 1) returns (first bar has no return), and the OS period
-    # has n_ts_os returns (transition bar now has a return from carried-over weights).
-    from .dataloader import DataLoader
-    is_probe = DataLoader(**{**data_loader_kwargs, "start_date": settings.is_start, "end_date": settings.is_end})
-    n_ts_is = 0
-    for _ in is_probe:
-        n_ts_is += 1
-    # IS returns: first bar has no return
+    n_ts_is = data_cache.count_timestamps_in_range(settings.is_start, settings.is_end)
     n_ret_is = max(n_ts_is - 1, 0)
 
-    os_probe = DataLoader(**{**data_loader_kwargs, "start_date": settings.os_start, "end_date": settings.os_end})
-    n_ts_os = 0
-    for _ in os_probe:
-        n_ts_os += 1
-    # OS returns: transition bar now has a return (carried-over weights)
+    n_ts_os = data_cache.count_timestamps_in_range(settings.os_start, settings.os_end)
     n_ret_os = n_ts_os
 
     n_alphas = len(alphas)
     result_manager = SharedResultManager()
     result_info = result_manager.create(n_alphas, n_ret_is, n_ret_os)
+
+    data_manager = SharedDataManager()
+    shared_data_info = data_manager.create(data_cache)
 
     settings_tuple = (settings.is_start, settings.is_end, settings.os_start, settings.os_end)
 
@@ -228,11 +300,10 @@ def run_parallel_backtests(
             for idx, alpha in enumerate(alphas):
                 fut = executor.submit(
                     _backtest_worker,
-                    idx, alpha, strategy,
+                    idx, alpha,
                     settings_tuple, capital,
-                    data_loader_kwargs, mode,
+                    shared_data_info, mode,
                     result_info,
-                    transaction_fee_rate,
                 )
                 futures[fut] = idx
 
@@ -247,7 +318,6 @@ def run_parallel_backtests(
                     success_map[idx] = False
                     print(f"Alpha {idx} worker error: {e}")
 
-        # Read results from shared memory
         results = []
         arr = result_manager.get_result_array()
         for idx in range(n_alphas):
@@ -275,18 +345,32 @@ def run_parallel_backtests(
                 sharpe=os_metrics_vals[2], mdd=os_metrics_vals[3],
             )
 
-            # Reconstruct series (timestamps not stored in shared memory, use index)
             is_ret_series = pd.Series(is_ret_vals, dtype=float)
             os_ret_series = pd.Series(os_ret_vals, dtype=float)
 
+            # Build minimal PeriodResult from shared memory data
+            is_period = PeriodResult(
+                metrics=is_metrics,
+                ret_series=is_ret_series,
+                turnover_series=pd.Series(dtype=float),
+                min_bet_series=pd.Series(dtype=float),
+                max_weight_series=pd.Series(dtype=float),
+            )
+            os_period = PeriodResult(
+                metrics=os_metrics,
+                ret_series=os_ret_series,
+                turnover_series=pd.Series(dtype=float),
+                min_bet_series=pd.Series(dtype=float),
+                max_weight_series=pd.Series(dtype=float),
+            )
+
             results.append((idx, BacktestPeriodResult(
-                is_metrics=is_metrics,
-                os_metrics=os_metrics,
-                is_ret_series=is_ret_series,
-                os_ret_series=os_ret_series,
+                is_period=is_period,
+                os_period=os_period,
             )))
 
         return results
 
     finally:
+        data_manager.cleanup()
         result_manager.cleanup()

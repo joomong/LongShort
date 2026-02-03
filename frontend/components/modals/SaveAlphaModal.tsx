@@ -5,7 +5,13 @@ import { useAlphaStore } from '@/store/alphaStore';
 import { saveAlpha } from '@/lib/api';
 
 export default function SaveAlphaModal() {
-  const { isSaveModalOpen, setIsSaveModalOpen, xmlCode, viewMode, result, selectedAlphaIndices, clearAlphaSelection } = useAlphaStore();
+  const isSaveModalOpen = useAlphaStore(s => s.isSaveModalOpen);
+  const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
+  const xmlCode = useAlphaStore(s => s.xmlCode);
+  const viewMode = useAlphaStore(s => s.viewMode);
+  const result = useAlphaStore(s => s.result);
+  const selectedAlphaIndices = useAlphaStore(s => s.selectedAlphaIndices);
+  const clearAlphaSelection = useAlphaStore(s => s.clearAlphaSelection);
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

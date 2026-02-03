@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from framework.data_cache import DataCache
+from framework.data import DataCache
 
 from api.routers import alphas, backtest, data, ga
 

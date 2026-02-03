@@ -17,11 +17,15 @@ const formatNumber = (value: number | undefined) => {
 
 function RankRow({ item, index }: { item: BacktestAlphaResult; index: number }) {
   const { isMetrics, osMetrics } = item;
-  const { enterDetailView, selectedAlphaIndex, selectedAlphaIndices, toggleAlphaSelection } = useAlphaStore();
-  const isSelected = selectedAlphaIndices.includes(index);
-  const isActiveDetail = selectedAlphaIndex === index;
+  // Granular selectors — only re-render when this row's state changes
+  const isActiveDetail = useAlphaStore(s => s.selectedAlphaIndex === index);
+  const isSelected = useAlphaStore(s => s.selectedAlphaIndices.includes(index));
+  const enterDetailView = useAlphaStore(s => s.enterDetailView);
+  const toggleAlphaSelection = useAlphaStore(s => s.toggleAlphaSelection);
 
   if (!isMetrics || !osMetrics) return null;
+
+  const cellClass = "text-[11px] font-mono tabular-nums text-right px-2.5 py-1";
 
   return (
     <tr
@@ -49,25 +53,27 @@ function RankRow({ item, index }: { item: BacktestAlphaResult; index: number }) 
       <td className="text-[11px] font-mono px-2.5 py-1 truncate max-w-[80px]" title={item.name}>{item.name}</td>
 
       {/* IS Metrics */}
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('pnl', isMetrics.pnl)}`}>{formatPnl(isMetrics.pnl)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('mdd', isMetrics.mdd ?? 0)}`}>{formatPnl(isMetrics.mdd)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('turnover', isMetrics.turnover ?? 0)}`}>{(isMetrics.turnover ?? 0).toFixed(0)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('ir', isMetrics.ir ?? 0)}`}>{formatNumber(isMetrics.ir)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('corr', isMetrics.corr ?? 0)}`}>{formatNumber(isMetrics.corr)}</td>
+      <td className={`${cellClass} ${getMetricColor('pnl', isMetrics.pnl)}`}>{formatPnl(isMetrics.pnl)}</td>
+      <td className={`${cellClass} ${getMetricColor('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
+      <td className={`${cellClass} ${getMetricColor('mdd', isMetrics.mdd ?? 0)}`}>{formatPnl(isMetrics.mdd)}</td>
+      <td className={`${cellClass} ${getMetricColor('turnover', isMetrics.turnover ?? 0)}`}>{(isMetrics.turnover ?? 0).toFixed(0)}</td>
+      <td className={`${cellClass} ${getMetricColor('ir', isMetrics.ir ?? 0)}`}>{formatNumber(isMetrics.ir)}</td>
+      <td className={`${cellClass} ${getMetricColor('corr', isMetrics.corr ?? 0)}`}>{formatNumber(isMetrics.corr)}</td>
 
       {/* OS Metrics */}
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 border-l border-border-strong ${getMetricColor('pnl', osMetrics.pnl)}`}>{formatPnl(osMetrics.pnl)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('ir', osMetrics.ir ?? 0)}`}>{formatNumber(osMetrics.ir)}</td>
-      <td className={`text-[11px] font-mono tabular-nums text-right px-2.5 py-1 ${getMetricColor('corr', osMetrics.corr ?? 0)}`}>{formatNumber(osMetrics.corr)}</td>
+      <td className={`${cellClass} border-l border-border-strong ${getMetricColor('pnl', osMetrics.pnl)}`}>{formatPnl(osMetrics.pnl)}</td>
+      <td className={`${cellClass} ${getMetricColor('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
+      <td className={`${cellClass} ${getMetricColor('ir', osMetrics.ir ?? 0)}`}>{formatNumber(osMetrics.ir)}</td>
+      <td className={`${cellClass} ${getMetricColor('corr', osMetrics.corr ?? 0)}`}>{formatNumber(osMetrics.corr)}</td>
     </tr>
   );
 }
 
 export default function AlphaRankingTable() {
-  const { result, selectedAlphaIndices, clearAlphaSelection } = useAlphaStore();
-  const alphas = result?.alphas ?? [];
+  const alphas = useAlphaStore(s => s.result?.alphas ?? []);
+  const sortedBy = useAlphaStore(s => s.result?.sortedBy);
+  const selectedCount = useAlphaStore(s => s.selectedAlphaIndices.length);
+  const clearAlphaSelection = useAlphaStore(s => s.clearAlphaSelection);
 
   if (alphas.length === 0) return null;
 
@@ -77,17 +83,17 @@ export default function AlphaRankingTable() {
       <div className="flex items-center justify-between px-4 py-1 border-b border-border">
         <span className="text-xs text-foreground-muted">
           Alpha Ranking ({alphas.length})
-          {selectedAlphaIndices.length > 0 && (
+          {selectedCount > 0 && (
             <>
               {' '}&middot;{' '}
-              <span className="text-blue-400">{selectedAlphaIndices.length} selected</span>
+              <span className="text-blue-400">{selectedCount} selected</span>
               {' '}
               <button onClick={clearAlphaSelection} className="text-foreground-muted hover:text-foreground underline">clear</button>
             </>
           )}
         </span>
         <span className="text-xs text-foreground-muted">
-          {result?.sortedBy ? `sortedBy=${result.sortedBy}` : ''}
+          {sortedBy ? `sortedBy=${sortedBy}` : ''}
         </span>
       </div>
 

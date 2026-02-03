@@ -4,16 +4,16 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Tuple
 
 from api.models.schemas import BacktestSettings
-from api.services.backtest_service import build_data_loader_kwargs, resolve_mode, run_multiple_alphas
+from api.services.backtest_service import resolve_mode, run_backtest
 from api.services.ga_engine import (
     GAConfig, GAResult, extract_search_space, run_ga,
 )
 from framework.exceptions import XmlCompileError
 from api.xml_alpha_sources import compile_with_sources
 from framework.backtester import (
-    PeriodSettings, SignalRatioStrategy, run_multiple_backtest,
+    PeriodSettings, run_multiple_backtest, metrics_to_api_dict,
 )
-from framework.data_cache import DataCache
+from framework.data import DataCache
 
 
 def _make_evaluate_batch(
@@ -55,38 +55,29 @@ def _make_evaluate_batch(
             os_end=settings.osEnd,
         )
 
-        data_loader_kwargs = build_data_loader_kwargs(data_cache)
         effective_jobs = n_jobs if n_jobs > 0 else -1
 
         multi_result = run_multiple_backtest(
             alphas=compiled,
-            strategy=SignalRatioStrategy(),
             settings=period_settings,
             capital=data_cache.initial_capital,
             data_cache=data_cache,
-            data_loader_kwargs=data_loader_kwargs,
             mode=mode,
             n_jobs=effective_jobs,
-            transaction_fee_rate=data_cache.transaction_fee_rate,
         )
 
-        # Cache full result dicts and map results back to xml_list indices.
-        result_dicts = multi_result.to_dict(data_cache.initial_capital)
-        alpha_dicts_by_name = {
-            d["name"]: d for d in result_dicts.get("alphas", [])
-        }
         results = [float('nan')] * len(xml_list)
         for ar in multi_result.alpha_results:
             try:
                 compiled_idx = int(ar.name.split("_")[1])
                 orig_idx = xml_index_map[compiled_idx]
-                results[orig_idx] = ar.is_metrics.sharpe
+                results[orig_idx] = ar.is_period.metrics.sharpe
                 # Cache per-alpha dict for streaming
-                alpha_dict = alpha_dicts_by_name.get(ar.name)
-                if alpha_dict:
-                    from api.services.ga_engine import xml_hash as _xml_hash
-                    h = _xml_hash(xml_list[orig_idx])
-                    result_store[h] = alpha_dict
+                from api.services.backtest_service import _serialize_alpha_result
+                alpha_dict = _serialize_alpha_result(ar, data_cache.initial_capital)
+                from api.services.ga_engine import xml_hash as _xml_hash
+                h = _xml_hash(xml_list[orig_idx])
+                result_store[h] = alpha_dict
             except (IndexError, ValueError):
                 pass
 
@@ -103,12 +94,7 @@ def run_ga_search(
     n_jobs: int = 5,
     top_n: int = 10,
 ) -> Dict[str, Any]:
-    """High-level GA search entry point.
-
-    Raises:
-        XmlCompileError: on invalid XML or no variable dimensions.
-        ValueError: on invalid settings.
-    """
+    """High-level GA search entry point."""
     mode = resolve_mode(settings.barInterval)
     space = extract_search_space(xml_template)
     config = GAConfig.from_frontend(ga_population, top_n=top_n)
@@ -125,11 +111,7 @@ def _build_response(
     mode: str,
     data_cache: DataCache,
 ) -> Dict[str, Any]:
-    """Build the API response for GA results.
-
-    Runs full backtests for the top-N individuals via the existing
-    run_multiple_alphas() path.
-    """
+    """Build the API response for GA results."""
     top_xmls = [ind.xml for ind in ga_result.best_individuals]
 
     compiled_with_xml = []
@@ -156,7 +138,7 @@ def _build_response(
             },
         }
 
-    response = run_multiple_alphas(compiled, compiled_xmls, settings, mode, data_cache)
+    response = run_backtest(compiled, compiled_xmls, settings, mode, data_cache)
 
     response["ga"] = {
         "generationsRun": ga_result.generations_run,

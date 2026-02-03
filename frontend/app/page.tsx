@@ -1,28 +1,33 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import MainLayout from '@/components/layout/MainLayout';
-import XmlEditor from '@/components/editor/XmlEditor';
 import ControlButtons from '@/components/editor/ControlButtons';
 import SettingsBar from '@/components/visualization/SettingsBar';
-import BacktestMetrics from '@/components/visualization/BacktestMetrics';
-import SignalDistribution from '@/components/visualization/SignalDistribution';
-import SignalHeatmap from '@/components/visualization/SignalHeatmap';
-import SignalChart from '@/components/visualization/SignalChart';
-import SnapshotManager from '@/components/visualization/SnapshotManager';
-import AlphaDetailView from '@/components/visualization/AlphaDetailView';
-import SummaryMetrics from '@/components/multi-alpha/SummaryMetrics';
-import AlphaRankingTable from '@/components/multi-alpha/AlphaRankingTable';
-import SaveAlphaModal from '@/components/modals/SaveAlphaModal';
-import LoadAlphaModal from '@/components/modals/LoadAlphaModal';
 import { useBacktest } from '@/hooks/useBacktest';
 import { useAlphaStore } from '@/store/alphaStore';
 
-function LeftPanel() {
-  const { viewMode, result } = useAlphaStore();
+// Heavy components: lazy-loaded (Recharts ~200KB, Monaco ~300KB)
+const XmlEditor = dynamic(() => import('@/components/editor/XmlEditor'));
+const BacktestMetrics = dynamic(() => import('@/components/visualization/BacktestMetrics'));
+const SignalDistribution = dynamic(() => import('@/components/visualization/SignalDistribution'));
+const SignalHeatmap = dynamic(() => import('@/components/visualization/SignalHeatmap'));
+const SignalChart = dynamic(() => import('@/components/visualization/SignalChart'));
+const SnapshotManager = dynamic(() => import('@/components/visualization/SnapshotManager'));
+const AlphaDetailView = dynamic(() => import('@/components/visualization/AlphaDetailView'));
+const SummaryMetrics = dynamic(() => import('@/components/multi-alpha/SummaryMetrics'));
+const AlphaRankingTable = dynamic(() => import('@/components/multi-alpha/AlphaRankingTable'));
+const SaveAlphaModal = dynamic(() => import('@/components/modals/SaveAlphaModal'));
+const LoadAlphaModal = dynamic(() => import('@/components/modals/LoadAlphaModal'));
 
-  // Multi-alpha mode (including GA partial results without combined)
-  if (result?.combined || (result?.alphas && result.alphas.length > 1)) {
+function LeftPanel() {
+  const viewMode = useAlphaStore(s => s.viewMode);
+  const isMulti = useAlphaStore(s =>
+    !!(s.result?.combined || (s.result?.alphas && s.result.alphas.length > 1))
+  );
+
+  if (isMulti) {
     return (
       <div className="flex flex-col h-full">
         <SettingsBar />
@@ -61,7 +66,9 @@ function LeftPanel() {
 
 function RightPanel() {
   const { run, stop } = useBacktest();
-  const { backtestError, setBacktestError, isRunning } = useAlphaStore();
+  const backtestError = useAlphaStore(s => s.backtestError);
+  const setBacktestError = useAlphaStore(s => s.setBacktestError);
+  const isRunning = useAlphaStore(s => s.isRunning);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.shiftKey && e.key === 'Enter' && !isRunning) {

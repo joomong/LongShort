@@ -3,7 +3,7 @@
 Alpha Detail View feature tests.
 
 Tests for the new long/short weight tracking, turnover/min_bet/max_weight
-time series, and long/short ratio fields added to BacktestResult,
+time series, and long/short ratio fields added to PeriodResult,
 BacktestPeriodResult, AlphaResult, and the API layer.
 
 Test ID convention:
@@ -12,17 +12,38 @@ Test ID convention:
 import pytest
 import pandas as pd
 import numpy as np
+import yaml
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from framework.backtester import (
-    Backtester, BacktestResult, BacktestPeriodResult,
-    PeriodMetrics, PeriodSettings,
+    Backtester, BacktestPeriodResult,
+    PeriodMetrics, PeriodSettings, PeriodResult,
     run_backtest_with_periods, AlphaResult, MultipleBacktestResult,
-    run_multiple_backtest,
+    run_multiple_backtest, _split_series_by_date,
 )
-from framework.dataloader import DataLoader
-from tests.conftest import MockAlpha, MockStrategy
+from framework.data import DataCache
+from tests.conftest import MockAlpha
+
+
+# =============================================================================
+# Helper function for creating DataCache
+# =============================================================================
+
+def _make_cache(parquet_path, start_date, end_date, tmp_path):
+    config = {
+        "datasets": [{"name": "test", "path": str(parquet_path),
+                       "time_col": "open_time", "symbol_col": "symbol",
+                       "use_col": ["open", "high", "low", "close", "volume"]}],
+        "universe": None,
+        "backtest": {"start_date": start_date, "end_date": end_date,
+                     "initial_capital": 1000000, "transaction_fee": 10},
+    }
+    config_path = tmp_path / "config.yaml"
+    yaml.dump(config, open(config_path, "w"))
+    cache = DataCache(str(config_path))
+    cache.load()
+    return cache
 
 
 # =============================================================================
@@ -109,41 +130,33 @@ def five_symbol_data_path(tmp_path) -> Path:
 
 
 # =============================================================================
-# TC-ADV-001: BacktestResult long/short weight fields populated
+# TC-ADV-001: Long/short weight series populated from bt.run()
 # =============================================================================
 
 class TestBacktestResultLongShortFields:
     """TC-ADV-001: Verify long_weight_series and short_weight_series are populated."""
 
-    def test_fields_populated_after_run(self, basic_data_path, mock_strategy):
-        """long_weight_series and short_weight_series should not be None after run()."""
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
+    def test_fields_populated_after_run(self, basic_data_path, tmp_path):
+        """lw_series and sw_series should not be empty after run()."""
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        assert result.long_weight_series is not None
-        assert result.short_weight_series is not None
-        assert len(result.long_weight_series) == 3  # one entry per timestamp
-        assert len(result.short_weight_series) == 3
+        assert lw_s is not None
+        assert sw_s is not None
+        assert len(lw_s) == 3  # one entry per timestamp
+        assert len(sw_s) == 3
 
-    def test_fields_are_pd_series(self, basic_data_path, mock_strategy):
+    def test_fields_are_pd_series(self, basic_data_path, tmp_path):
         """The weight series should be pandas Series."""
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        assert isinstance(result.long_weight_series, pd.Series)
-        assert isinstance(result.short_weight_series, pd.Series)
+        assert isinstance(lw_s, pd.Series)
+        assert isinstance(sw_s, pd.Series)
 
 
 # =============================================================================
@@ -153,7 +166,7 @@ class TestBacktestResultLongShortFields:
 class TestLongShortWeightCorrectness:
     """TC-ADV-002: With known signals, verify long/short weight sums."""
 
-    def test_mixed_signals(self, five_symbol_data_path, mock_strategy):
+    def test_mixed_signals(self, five_symbol_data_path, tmp_path):
         """3 positive + 2 negative signals: verify long and short weight sums.
 
         Alpha signals: A=+0.3, B=+0.2, C=+0.1, D=-0.2, E=-0.2
@@ -162,42 +175,34 @@ class TestLongShortWeightCorrectness:
         Long sum = 0.3 + 0.2 + 0.1 = 0.6
         Short sum = |(-0.2)| + |(-0.2)| = 0.4
         """
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-
+        # Symbols sorted: A, B, C, D, E -> indices 0, 1, 2, 3, 4
+        sig = np.array([0.3, 0.2, 0.1, -0.2, -0.2])
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.3, "B": 0.2, "C": 0.1, "D": -0.2, "E": -0.2},
+            0: sig, 1: sig, 2: sig,
         })
 
-        loader = DataLoader(
-            file_path=str(five_symbol_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
+        cache = _make_cache(five_symbol_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        # Day1 executed weights after normalization: same as input (abs_sum=1.0)
-        assert abs(result.long_weight_series.iloc[0] - 0.6) < 1e-9
-        assert abs(result.short_weight_series.iloc[0] - 0.4) < 1e-9
+        # Executed weights after normalization: same as input (abs_sum=1.0)
+        # lw_s.iloc[0] is bar 1 (bar 0 is dropped)
+        assert abs(lw_s.iloc[0] - 0.6) < 1e-9
+        assert abs(sw_s.iloc[0] - 0.4) < 1e-9
 
-    def test_all_positive_signals(self, basic_data_path, mock_strategy):
+    def test_all_positive_signals(self, basic_data_path, tmp_path):
         """All positive signals: long_weight should equal 1.0, short_weight should be 0.0."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        alpha = MockAlpha(weights_map={
-            day1: {"A": 0.6, "B": 0.4},
-        })
+        # Symbols sorted: A, B -> indices 0, 1
+        sig = np.array([0.6, 0.4])
+        alpha = MockAlpha(weights_map={0: sig, 1: sig, 2: sig})
 
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        assert abs(result.long_weight_series.iloc[0] - 1.0) < 1e-9
-        assert abs(result.short_weight_series.iloc[0] - 0.0) < 1e-9
+        assert abs(lw_s.iloc[0] - 1.0) < 1e-9
+        assert abs(sw_s.iloc[0] - 0.0) < 1e-9
 
 
 # =============================================================================
@@ -207,49 +212,47 @@ class TestLongShortWeightCorrectness:
 class TestBacktestPeriodResultFields:
     """TC-ADV-003: run_backtest_with_periods populates all new time series fields."""
 
-    def test_new_fields_not_none(self, isos_data_path):
+    def test_new_fields_not_none(self, isos_data_path, tmp_path):
         """All new optional fields should be populated (not None)."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
 
-        assert result.is_turnover_series is not None
-        assert result.os_turnover_series is not None
-        assert result.is_min_bet_series is not None
-        assert result.os_min_bet_series is not None
-        assert result.is_max_weight_series is not None
-        assert result.os_max_weight_series is not None
+        assert result.is_period.turnover_series is not None
+        assert result.os_period.turnover_series is not None
+        assert result.is_period.min_bet_series is not None
+        assert result.os_period.min_bet_series is not None
+        assert result.is_period.max_weight_series is not None
+        assert result.os_period.max_weight_series is not None
 
-    def test_time_series_lengths(self, isos_data_path):
+    def test_time_series_lengths(self, isos_data_path, tmp_path):
         """IS/OS time series should have expected lengths (3 bars each)."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
 
-        # IS: 3 bars, first bar has no return -> 2 time series entries
-        # OS: 3 bars, transition bar has return (warm start) -> 3 time series entries
-        assert len(result.is_turnover_series) == 2
-        assert len(result.os_turnover_series) == 3
-        assert len(result.is_min_bet_series) == 2
-        assert len(result.os_min_bet_series) == 3
+        # IS: 3 bars → ret_series has 2 entries (first bar no return),
+        #   turnover/min_bet have 3 entries (all bars including bar 0)
+        # OS: 3 bars → 3 entries for all series
+        assert len(result.is_period.ret_series) == 2
+        assert len(result.is_period.turnover_series) == 3
+        assert len(result.os_period.turnover_series) == 3
+        assert len(result.is_period.min_bet_series) == 3
+        assert len(result.os_period.min_bet_series) == 3
 
 
 # =============================================================================
@@ -259,57 +262,51 @@ class TestBacktestPeriodResultFields:
 class TestLongShortRatio:
     """TC-ADV-004: Verify is_long_ratio and is_short_ratio."""
 
-    def test_ratios_sum_to_one(self, isos_data_path):
+    def test_ratios_sum_to_one(self, isos_data_path, tmp_path):
         """is_long_ratio + is_short_ratio should sum to ~1.0."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        total = result.is_long_ratio + result.is_short_ratio
+        total = result.is_period.long_ratio + result.is_period.short_ratio
         assert abs(total - 1.0) < 1e-6
 
-    def test_ratios_in_range(self, isos_data_path):
+    def test_ratios_in_range(self, isos_data_path, tmp_path):
         """Both ratios should be in [0, 1]."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        assert 0.0 <= result.is_long_ratio <= 1.0
-        assert 0.0 <= result.is_short_ratio <= 1.0
+        assert 0.0 <= result.is_period.long_ratio <= 1.0
+        assert 0.0 <= result.is_period.short_ratio <= 1.0
 
-    def test_all_long_ratio(self, isos_data_path):
+    def test_all_long_ratio(self, isos_data_path, tmp_path):
         """With all-positive signals, is_long_ratio ~ 1.0, is_short_ratio ~ 0.0."""
         # MockAlpha default: all equal positive weights -> all long
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        assert abs(result.is_long_ratio - 1.0) < 1e-6
-        assert abs(result.is_short_ratio - 0.0) < 1e-6
+        assert abs(result.is_period.long_ratio - 1.0) < 1e-6
+        assert abs(result.is_period.short_ratio - 0.0) < 1e-6
 
 
 # =============================================================================
@@ -319,7 +316,7 @@ class TestLongShortRatio:
 class TestAlphaResultMultiAlpha:
     """TC-ADV-005: run_multiple_backtest propagates new fields to AlphaResult."""
 
-    def test_alpha_result_has_new_fields(self, isos_data_path):
+    def test_alpha_result_has_new_fields(self, isos_data_path, tmp_path):
         """Each AlphaResult should have the new detail view fields."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
@@ -330,27 +327,25 @@ class TestAlphaResultMultiAlpha:
         alpha2 = MockAlpha()
         alpha2.name = "alpha_2"
 
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
 
         for ar in result.alpha_results:
-            assert ar.is_turnover_series is not None
-            assert ar.os_turnover_series is not None
-            assert ar.is_min_bet_series is not None
-            assert ar.os_min_bet_series is not None
-            assert ar.is_max_weight_series is not None
-            assert ar.os_max_weight_series is not None
-            assert isinstance(ar.is_long_ratio, float)
-            assert isinstance(ar.is_short_ratio, float)
+            assert ar.is_period.turnover_series is not None
+            assert ar.os_period.turnover_series is not None
+            assert ar.is_period.min_bet_series is not None
+            assert ar.os_period.min_bet_series is not None
+            assert ar.is_period.max_weight_series is not None
+            assert ar.os_period.max_weight_series is not None
+            assert isinstance(ar.is_period.long_ratio, float)
+            assert isinstance(ar.is_period.short_ratio, float)
 
-    def test_alpha_result_ratios_valid(self, isos_data_path):
+    def test_alpha_result_ratios_valid(self, isos_data_path, tmp_path):
         """AlphaResult ratios should be in [0,1] and sum to ~1."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
@@ -359,252 +354,56 @@ class TestAlphaResultMultiAlpha:
         alpha1 = MockAlpha()
         alpha1.name = "a1"
 
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_multiple_backtest(
             alphas=[alpha1],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
 
         ar = result.alpha_results[0]
-        assert 0.0 <= ar.is_long_ratio <= 1.0
-        assert 0.0 <= ar.is_short_ratio <= 1.0
-        assert abs(ar.is_long_ratio + ar.is_short_ratio - 1.0) < 1e-6
+        assert 0.0 <= ar.is_period.long_ratio <= 1.0
+        assert 0.0 <= ar.is_period.short_ratio <= 1.0
+        assert abs(ar.is_period.long_ratio + ar.is_period.short_ratio - 1.0) < 1e-6
 
 
 # =============================================================================
-# TC-ADV-006: to_dict() serialization
+# TC-ADV-007: _split_series_by_date preserves series on both sides
 # =============================================================================
 
-class TestToDictSerialization:
-    """TC-ADV-006: MultipleBacktestResult.to_dict() includes new fields."""
-
-    def test_to_dict_has_new_fields(self, isos_data_path):
-        """Each alpha entry in to_dict() should contain the new fields."""
-        settings = PeriodSettings(
-            is_start="2024-01-01", is_end="2024-01-03",
-            os_start="2024-01-04", os_end="2024-01-06",
-        )
-        alpha1 = MockAlpha()
-        alpha1.name = "test_alpha"
-
-        result = run_multiple_backtest(
-            alphas=[alpha1],
-            strategy=MockStrategy(),
-            settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
-        )
-
-        d = result.to_dict()
-        alpha_entry = d["alphas"][0]
-
-        # Check all new fields present
-        assert "isTurnoverSeries" in alpha_entry
-        assert "osTurnoverSeries" in alpha_entry
-        assert "isMinBetSeries" in alpha_entry
-        assert "osMinBetSeries" in alpha_entry
-        assert "isMaxWeightSeries" in alpha_entry
-        assert "osMaxWeightSeries" in alpha_entry
-        assert "longRatio" in alpha_entry
-        assert "shortRatio" in alpha_entry
-
-    def test_to_dict_series_values_are_dicts(self, isos_data_path):
-        """Serialized time series should be dicts of {str: float}."""
-        settings = PeriodSettings(
-            is_start="2024-01-01", is_end="2024-01-03",
-            os_start="2024-01-04", os_end="2024-01-06",
-        )
-        alpha1 = MockAlpha()
-        alpha1.name = "test_alpha"
-
-        result = run_multiple_backtest(
-            alphas=[alpha1],
-            strategy=MockStrategy(),
-            settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
-        )
-
-        d = result.to_dict()
-        alpha_entry = d["alphas"][0]
-
-        # Time series fields should be dicts (not None, since we have data)
-        assert isinstance(alpha_entry["isTurnoverSeries"], dict)
-        assert isinstance(alpha_entry["osTurnoverSeries"], dict)
-        assert len(alpha_entry["isTurnoverSeries"]) > 0
-        assert len(alpha_entry["osTurnoverSeries"]) > 0
-
-    def test_to_dict_ratio_values(self, isos_data_path):
-        """longRatio and shortRatio should be floats in [0, 1]."""
-        settings = PeriodSettings(
-            is_start="2024-01-01", is_end="2024-01-03",
-            os_start="2024-01-04", os_end="2024-01-06",
-        )
-        alpha1 = MockAlpha()
-        alpha1.name = "test_alpha"
-
-        result = run_multiple_backtest(
-            alphas=[alpha1],
-            strategy=MockStrategy(),
-            settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
-        )
-
-        d = result.to_dict()
-        alpha_entry = d["alphas"][0]
-
-        assert isinstance(alpha_entry["longRatio"], float)
-        assert isinstance(alpha_entry["shortRatio"], float)
-        assert 0.0 <= alpha_entry["longRatio"] <= 1.0
-        assert 0.0 <= alpha_entry["shortRatio"] <= 1.0
-
-
-# =============================================================================
-# TC-ADV-007: API _split_result_by_date preserves long/short weight series
-# =============================================================================
-
-class TestSplitResultByDate:
-    """TC-ADV-007: _split_result_by_date preserves new fields on both sides."""
+class TestSplitSeriesByDate:
+    """TC-ADV-007: _split_series_by_date splits series correctly."""
 
     def test_split_preserves_long_short_series(self):
-        """Both IS and OS sub-results should have long/short weight series."""
-        from framework.backtester import _split_result_by_date
-
+        """Both IS and OS sub-series should be split correctly."""
         dates = pd.to_datetime(
             ["2024-01-01", "2024-01-02", "2024-03-01", "2024-03-02"], utc=True
         )
-        result = BacktestResult(
-            ret_series=pd.Series([0.01, -0.005, 0.02, 0.01], index=dates),
-            avg_turnover=0.10,
-            initial_capital=1_000_000,
-            turnover_series=pd.Series([0.1, 0.15, 0.12, 0.08], index=dates),
-            min_bet_series=pd.Series([10, 12, 11, 9], index=dates),
-            max_weight_series=pd.Series([0.15, 0.20, 0.18, 0.14], index=dates),
-            long_weight_series=pd.Series([0.6, 0.7, 0.55, 0.65], index=dates),
-            short_weight_series=pd.Series([0.4, 0.3, 0.45, 0.35], index=dates),
-        )
+        lw_series = pd.Series([0.6, 0.7, 0.55, 0.65], index=dates)
+        sw_series = pd.Series([0.4, 0.3, 0.45, 0.35], index=dates)
 
-        is_result, os_result = _split_result_by_date(result, "2024-03-01")
+        is_lw, os_lw = _split_series_by_date(lw_series, "2024-03-01")
+        is_sw, os_sw = _split_series_by_date(sw_series, "2024-03-01")
 
         # IS side
-        assert is_result.long_weight_series is not None
-        assert is_result.short_weight_series is not None
-        assert len(is_result.long_weight_series) == 2
-        assert len(is_result.short_weight_series) == 2
-        assert abs(is_result.long_weight_series.iloc[0] - 0.6) < 1e-9
-        assert abs(is_result.short_weight_series.iloc[0] - 0.4) < 1e-9
+        assert len(is_lw) == 2
+        assert len(is_sw) == 2
+        assert abs(is_lw.iloc[0] - 0.6) < 1e-9
+        assert abs(is_sw.iloc[0] - 0.4) < 1e-9
 
         # OS side
-        assert os_result.long_weight_series is not None
-        assert os_result.short_weight_series is not None
-        assert len(os_result.long_weight_series) == 2
-        assert len(os_result.short_weight_series) == 2
-        assert abs(os_result.long_weight_series.iloc[0] - 0.55) < 1e-9
-        assert abs(os_result.short_weight_series.iloc[0] - 0.45) < 1e-9
+        assert len(os_lw) == 2
+        assert len(os_sw) == 2
+        assert abs(os_lw.iloc[0] - 0.55) < 1e-9
+        assert abs(os_sw.iloc[0] - 0.45) < 1e-9
 
-    def test_split_with_none_series(self):
-        """If long/short series are None, split should handle gracefully."""
-        from framework.backtester import _split_result_by_date
-
-        dates = pd.to_datetime(["2024-01-01", "2024-03-01"], utc=True)
-        result = BacktestResult(
-            ret_series=pd.Series([0.01, 0.02], index=dates),
-            avg_turnover=0.10,
-            initial_capital=1_000_000,
-            long_weight_series=None,
-            short_weight_series=None,
-        )
-
-        is_result, os_result = _split_result_by_date(result, "2024-03-01")
-        assert is_result.long_weight_series is None
-        assert os_result.long_weight_series is None
-        assert is_result.short_weight_series is None
-        assert os_result.short_weight_series is None
-
-
-# =============================================================================
-# TC-ADV-008: API run_single_alpha response includes new fields
-# =============================================================================
-
-class TestRunSingleAlphaResponse:
-    """TC-ADV-008: run_single_alpha response dict includes new fields."""
-
-    def test_response_has_new_fields(self):
-        """The single-alpha response should include all new detail view fields."""
-        from api.services.backtest_service import run_single_alpha
-        from framework.backtester import _split_result_by_date
-
-        # We test the structure by mocking the Backtester and DataCache
-        dates = pd.to_datetime(
-            ["2023-06-01", "2023-09-01", "2024-03-01", "2024-05-01"], utc=True
-        )
-        fake_result = BacktestResult(
-            ret_series=pd.Series([0.01, -0.005, 0.02, 0.01], index=dates),
-            avg_turnover=0.10,
-            initial_capital=1_000_000,
-            turnover_series=pd.Series([0.1, 0.15, 0.12, 0.08], index=dates),
-            min_bet_series=pd.Series([10, 12, 11, 9], index=dates),
-            max_weight_series=pd.Series([0.15, 0.20, 0.18, 0.14], index=dates),
-            long_weight_series=pd.Series([0.6, 0.7, 0.55, 0.65], index=dates),
-            short_weight_series=pd.Series([0.4, 0.3, 0.45, 0.35], index=dates),
-        )
-
-        idx = pd.MultiIndex.from_tuples(
-            [(pd.Timestamp("2024-01-01"), "SYM1")],
-            names=["date", "symbol"],
-        )
-        fake_viz = {
-            "symbols": pd.DataFrame({"signal": [1.0]}, index=idx),
-        }
-
-        mock_data_cache = MagicMock()
-        mock_data_cache.get_timestamps.return_value = pd.DatetimeIndex(
-            [pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")]
-        )
-        mock_data_cache.initial_capital = 1_000_000
-
-        mock_settings = MagicMock()
-        mock_settings.isStart = "2023-01-01"
-        mock_settings.isEnd = "2023-12-31"
-        mock_settings.osStart = "2024-01-01"
-        mock_settings.osEnd = "2024-06-30"
-
-        mock_signal = MagicMock()
-
-        with patch("api.services.backtest_service.Backtester") as mock_bt_cls, \
-             patch("api.services.backtest_service._validate_data_cache"):
-            mock_bt_instance = MagicMock()
-            mock_bt_instance.run.return_value = (fake_result, fake_viz)
-            mock_bt_cls.return_value = mock_bt_instance
-
-            response = run_single_alpha(mock_signal, mock_settings, "D0", mock_data_cache)
-
-        alpha_entry = response["alphas"][0]
-        assert "isTurnoverSeries" in alpha_entry
-        assert "osTurnoverSeries" in alpha_entry
-        assert "isMinBetSeries" in alpha_entry
-        assert "osMinBetSeries" in alpha_entry
-        assert "isMaxWeightSeries" in alpha_entry
-        assert "osMaxWeightSeries" in alpha_entry
-        assert "longRatio" in alpha_entry
-        assert "shortRatio" in alpha_entry
-
-        # Verify values are reasonable
-        assert isinstance(alpha_entry["longRatio"], float)
-        assert isinstance(alpha_entry["shortRatio"], float)
-        assert 0.0 <= alpha_entry["longRatio"] <= 1.0
-        assert 0.0 <= alpha_entry["shortRatio"] <= 1.0
+    def test_split_empty_series(self):
+        """Empty series should split into two empty series without error."""
+        empty = pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))
+        is_part, os_part = _split_series_by_date(empty, "2024-03-01")
+        assert len(is_part) == 0
+        assert len(os_part) == 0
 
 
 # =============================================================================
@@ -614,49 +413,42 @@ class TestRunSingleAlphaResponse:
 class TestEdgeCaseAllLong:
     """TC-ADV-009: All-long signals edge case."""
 
-    def test_all_long_short_weight_zero(self, basic_data_path, mock_strategy):
-        """With all-positive signals, short_weight_series should be all zeros."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        # Both symbols get positive weights on all days
+    def test_all_long_short_weight_zero(self, basic_data_path, tmp_path):
+        """With all-positive signals, sw_series should be all zeros."""
+        # Symbols sorted: A, B -> indices 0, 1
+        # t_idx 0 = day1, t_idx 1 = day2
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.7, "B": 0.3},
-            day2: {"A": 0.5, "B": 0.5},
+            0: np.array([0.7, 0.3]),
+            1: np.array([0.5, 0.5]),
         })
 
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # All short weights should be zero
-        for val in result.short_weight_series.values:
+        for val in sw_s.values:
             assert abs(val) < 1e-9, f"Expected 0.0, got {val}"
 
         # All long weights should be 1.0 (gross=1 normalized)
-        for val in result.long_weight_series.values:
+        for val in lw_s.values:
             assert abs(val - 1.0) < 1e-9, f"Expected 1.0, got {val}"
 
-    def test_all_long_ratio_one(self, isos_data_path):
+    def test_all_long_ratio_one(self, isos_data_path, tmp_path):
         """All-long signals: is_long_ratio ~ 1.0."""
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         # Default MockAlpha returns equal positive weights
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        assert abs(result.is_long_ratio - 1.0) < 1e-6
-        assert abs(result.is_short_ratio - 0.0) < 1e-6
+        assert abs(result.is_period.long_ratio - 1.0) < 1e-6
+        assert abs(result.is_period.short_ratio - 0.0) < 1e-6
 
 
 # =============================================================================
@@ -666,58 +458,52 @@ class TestEdgeCaseAllLong:
 class TestEdgeCaseAllShort:
     """TC-ADV-009b: All-short (all-negative) signals edge case."""
 
-    def test_all_short_long_weight_zero(self, basic_data_path, mock_strategy):
-        """With all-negative signals, long_weight_series should be all zeros."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        day3 = pd.Timestamp("2024-01-03", tz="UTC")
+    def test_all_short_long_weight_zero(self, basic_data_path, tmp_path):
+        """With all-negative signals, lw_series should be all zeros."""
+        # Symbols sorted: A, B -> indices 0, 1
+        # t_idx 0 = day1, t_idx 1 = day2, t_idx 2 = day3
         alpha = MockAlpha(weights_map={
-            day1: {"A": -0.6, "B": -0.4},
-            day2: {"A": -0.5, "B": -0.5},
-            day3: {"A": -0.7, "B": -0.3},
+            0: np.array([-0.6, -0.4]),
+            1: np.array([-0.5, -0.5]),
+            2: np.array([-0.7, -0.3]),
         })
 
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # All long weights should be zero
-        for val in result.long_weight_series.values:
+        for val in lw_s.values:
             assert abs(val) < 1e-9, f"Expected 0.0, got {val}"
 
         # All short weights should be 1.0 (gross=1 normalized)
-        for val in result.short_weight_series.values:
+        for val in sw_s.values:
             assert abs(val - 1.0) < 1e-9, f"Expected 1.0, got {val}"
 
-    def test_all_short_ratio_one(self, isos_data_path):
+    def test_all_short_ratio_one(self, isos_data_path, tmp_path):
         """All-short signals: is_short_ratio ~ 1.0, is_long_ratio ~ 0.0."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        day3 = pd.Timestamp("2024-01-03", tz="UTC")
+        # 6 days total: IS covers t_idx 0-2, OS covers t_idx 3-5
         alpha = MockAlpha(weights_map={
-            day1: {"A": -0.6, "B": -0.4},
-            day2: {"A": -0.5, "B": -0.5},
-            day3: {"A": -0.7, "B": -0.3},
+            0: np.array([-0.6, -0.4]),
+            1: np.array([-0.5, -0.5]),
+            2: np.array([-0.7, -0.3]),
+            3: np.array([-0.6, -0.4]),
+            4: np.array([-0.5, -0.5]),
+            5: np.array([-0.7, -0.3]),
         })
 
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=alpha, strategy=MockStrategy(),
+            alpha=alpha,
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        assert abs(result.is_short_ratio - 1.0) < 1e-6
-        assert abs(result.is_long_ratio - 0.0) < 1e-6
+        assert abs(result.is_period.short_ratio - 1.0) < 1e-6
+        assert abs(result.is_period.long_ratio - 0.0) < 1e-6
 
 
 # =============================================================================
@@ -727,40 +513,35 @@ class TestEdgeCaseAllShort:
 class TestEdgeCaseAllZero:
     """TC-ADV-010: All-zero signals -> no division error, ratios = 0."""
 
-    def test_all_zero_no_error(self, basic_data_path, mock_strategy):
+    def test_all_zero_no_error(self, basic_data_path, tmp_path):
         """All-zero signals should not cause division errors."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        day3 = pd.Timestamp("2024-01-03", tz="UTC")
+        # t_idx 0, 1, 2 for 3-day data
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.0, "B": 0.0},
-            day2: {"A": 0.0, "B": 0.0},
-            day3: {"A": 0.0, "B": 0.0},
+            0: np.array([0.0, 0.0]),
+            1: np.array([0.0, 0.0]),
+            2: np.array([0.0, 0.0]),
         })
 
-        loader = DataLoader(
-            file_path=str(basic_data_path),
-            start_date="2024-01-01", end_date="2024-01-03",
-            time_col="open_time", symbol_col="symbol",
-        )
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # Both series should be all zeros, no NaN
-        for val in result.long_weight_series.values:
+        for val in lw_s.values:
             assert val == 0.0
-        for val in result.short_weight_series.values:
+        for val in sw_s.values:
             assert val == 0.0
 
-    def test_all_zero_ratio_zero(self, isos_data_path):
+    def test_all_zero_ratio_zero(self, isos_data_path, tmp_path):
         """All-zero signals: both ratios should be 0.0 (not NaN)."""
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        day3 = pd.Timestamp("2024-01-03", tz="UTC")
+        # 6 days total, t_idx 0-5
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.0, "B": 0.0},
-            day2: {"A": 0.0, "B": 0.0},
-            day3: {"A": 0.0, "B": 0.0},
+            0: np.array([0.0, 0.0]),
+            1: np.array([0.0, 0.0]),
+            2: np.array([0.0, 0.0]),
+            3: np.array([0.0, 0.0]),
+            4: np.array([0.0, 0.0]),
+            5: np.array([0.0, 0.0]),
         })
 
         settings = PeriodSettings(
@@ -768,17 +549,15 @@ class TestEdgeCaseAllZero:
             os_start="2024-01-04", os_end="2024-01-06",
         )
 
+        cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
         result = run_backtest_with_periods(
-            alpha=alpha, strategy=MockStrategy(),
+            alpha=alpha,
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time", "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
 
-        assert result.is_long_ratio == 0.0
-        assert result.is_short_ratio == 0.0
+        assert result.is_period.long_ratio == 0.0
+        assert result.is_period.short_ratio == 0.0
         # Ensure no NaN
-        assert not np.isnan(result.is_long_ratio)
-        assert not np.isnan(result.is_short_ratio)
+        assert not np.isnan(result.is_period.long_ratio)
+        assert not np.isnan(result.is_period.short_ratio)

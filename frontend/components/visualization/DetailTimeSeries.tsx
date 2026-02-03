@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
+import { useThemeStore } from '@/store/themeStore';
+import { getThemeColors } from '@/lib/themeColors';
 import type { BacktestAlphaResult } from '@/types';
 
 export type DetailMetricKey = 'pnl' | 'mdd' | 'minBet' | 'maxWeight' | 'nonZero';
@@ -25,6 +27,9 @@ function BigChart({ title, data, color, formatValue }: {
   formatValue?: (v: number) => string;
 }) {
   const fmt = formatValue ?? ((v: number) => v.toFixed(4));
+  const { theme } = useThemeStore();
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  const colors = useMemo(() => { void theme; return getThemeColors(); }, [theme]);
 
   // Build monthly tick indices for XAxis
   const monthlyTicks = useMemo(() => {
@@ -64,7 +69,7 @@ function BigChart({ title, data, color, formatValue }: {
               dataKey="date"
               ticks={monthlyTicks.map((i) => data[i]?.date).filter(Boolean)}
               tickFormatter={(d: string) => d.slice(0, 7)}
-              tick={{ fontSize: 10, fill: '#666' }}
+              tick={{ fontSize: 10, fill: colors.chartText }}
               axisLine={false}
               tickLine={false}
               interval={0}
@@ -74,8 +79,13 @@ function BigChart({ title, data, color, formatValue }: {
             />
             <YAxis hide domain={['auto', 'auto']} />
             <Tooltip
-              contentStyle={{ background: '#1a1a2e', border: '1px solid #333', fontSize: 12 }}
-              labelStyle={{ color: '#888', fontSize: 11 }}
+              contentStyle={{
+                backgroundColor: colors.chartBackground,
+                border: `1px solid ${colors.chartGrid}`,
+                fontSize: 12,
+                color: colors.chartText,
+              }}
+              labelStyle={{ color: colors.chartText, fontSize: 11 }}
               formatter={(value) => [fmt(Number(value) || 0), title]}
               labelFormatter={(_label, payload) => {
                 const entry = payload?.[0]?.payload;

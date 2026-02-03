@@ -9,7 +9,11 @@ import dynamic from 'next/dynamic';
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 export default function XmlEditor() {
-  const { xmlCode, setXmlCode, viewMode, selectedAlphaIndex, result } = useAlphaStore();
+  const xmlCode = useAlphaStore(s => s.xmlCode);
+  const setXmlCode = useAlphaStore(s => s.setXmlCode);
+  const viewMode = useAlphaStore(s => s.viewMode);
+  const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
+  const result = useAlphaStore(s => s.result);
   const { theme } = useThemeStore();
 
   const selectedAlphaXml = useMemo(() => {

@@ -11,12 +11,13 @@ function formatSignalValue(v: number): string {
 }
 
 export default function SignalDistribution() {
-  const { result } = useAlphaStore();
+  const signalRange = useAlphaStore(s => s.result?.signalRange);
+  const distribution = useAlphaStore(s => s.result?.distribution);
 
-  const min = result?.signalRange?.min;
-  const max = result?.signalRange?.max;
-  const distribution = result?.distribution;
-  const maxCount = distribution ? Math.max(...distribution) : 0;
+  const min = signalRange?.min;
+  const max = signalRange?.max;
+  // Use reduce instead of Math.max(...arr) to avoid stack overflow on large arrays
+  const maxCount = distribution ? distribution.reduce((a, b) => a > b ? a : b, 0) : 0;
 
   return (
     <div className="px-4 py-2 bg-background-tertiary border-b border-border">

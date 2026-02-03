@@ -1,10 +1,11 @@
 # tests/conftest.py
 """
-DataLoader 테스트를 위한 pytest fixtures.
+데이터 테스트를 위한 pytest fixtures.
 """
 import pytest
 import pandas as pd
 import numpy as np
+import yaml
 from pathlib import Path
 
 
@@ -13,23 +14,25 @@ from pathlib import Path
 # =============================================================================
 
 class MockAlpha:
-    """테스트용 Mock Alpha."""
+    """테스트용 Mock Alpha (numpy signature)."""
 
     def __init__(self, weights_map: dict = None):
         """
         Args:
-            weights_map: {timestamp: {symbol: weight}} 형태의 weight 매핑
+            weights_map: {t_idx: ndarray} or {timestamp: {symbol: weight}} for legacy
         """
         self.weights_map = weights_map or {}
 
-    def compute(self, timestamp, data_slice) -> pd.Series:
-        """고정된 weight 반환."""
-        if timestamp in self.weights_map:
-            weights = self.weights_map[timestamp]
-            return pd.Series(weights, index=data_slice.index)
+    def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+        """고정된 weight 반환 (numpy)."""
+        N = arrays["__n_symbols__"]
+        if t_idx in self.weights_map:
+            w = self.weights_map[t_idx]
+            if isinstance(w, np.ndarray):
+                return w
+            return np.array(w, dtype=np.float64)
         # 기본: 균등 배분
-        n = len(data_slice)
-        return pd.Series(1.0 / n, index=data_slice.index)
+        return np.full(N, 1.0 / N, dtype=np.float64)
 
 
 class MockStrategy:
@@ -158,15 +161,19 @@ def real_parquet_path() -> Path:
     return path
 
 
-@pytest.fixture
-def dataloader_params(sample_parquet_path):
-    """
-    DataLoader 기본 파라미터.
-    """
-    return {
-        "file_path": str(sample_parquet_path),
-        "start_date": "2024-01-01",
-        "end_date": "2024-01-03",
-        "time_col": "open_time",
-        "symbol_col": "symbol",
+def make_test_cache(parquet_path, start_date, end_date, tmp_path, use_col=None, symbols=None, fee=10):
+    """Create a loaded DataCache from a parquet file for testing."""
+    config = {
+        "datasets": [{"name": "test", "path": str(parquet_path),
+                       "time_col": "open_time", "symbol_col": "symbol",
+                       "use_col": use_col or ["open", "high", "low", "close", "volume"]}],
+        "universe": symbols,
+        "backtest": {"start_date": start_date, "end_date": end_date,
+                     "initial_capital": 1000000, "transaction_fee": fee},
     }
+    config_path = tmp_path / "config.yaml"
+    yaml.dump(config, open(config_path, "w"))
+    from framework.data import DataCache
+    cache = DataCache(str(config_path))
+    cache.load()
+    return cache

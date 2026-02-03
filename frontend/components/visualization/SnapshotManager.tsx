@@ -3,7 +3,9 @@
 import { useAlphaStore } from '@/store/alphaStore';
 
 export default function SnapshotManager() {
-  const { pinnedSnapshots, removeSnapshot, updateSnapshotName } = useAlphaStore();
+  const pinnedSnapshots = useAlphaStore(s => s.pinnedSnapshots);
+  const removeSnapshot = useAlphaStore(s => s.removeSnapshot);
+  const updateSnapshotName = useAlphaStore(s => s.updateSnapshotName);
 
   if (pinnedSnapshots.length === 0) return null;
 

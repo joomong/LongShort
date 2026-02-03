@@ -9,16 +9,18 @@ import pandas as pd
 
 from api.models.schemas import BacktestSettings
 from framework.backtester import (
-    BacktestResult,
     Backtester,
     PeriodSettings,
-    SignalRatioStrategy,
-    _compute_period_metrics,
-    _split_result_by_date,
+    PeriodResult,
+    BacktestPeriodResult,
+    AlphaResult,
+    MultipleBacktestResult,
     metrics_to_api_dict,
     run_multiple_backtest,
+    _build_period_result,
+    _split_series_by_date,
 )
-from framework.data_cache import DataCache, DataCacheIterator
+from framework.data import DataCache
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +42,6 @@ def heatmap_from_viz_symbols(sym_df: pd.DataFrame) -> Dict[str, Any]:
     piv = df.pivot_table(index="timestamp", columns="symbol", values="signal", aggfunc="first")
     piv = piv.reindex(index=timestamps, columns=symbols)
 
-    # Per-symbol time-series z-score
     col_mean = piv.mean(axis=0)
     col_std = piv.std(axis=0).replace(0, np.nan)
     piv = (piv - col_mean) / col_std
@@ -59,11 +60,7 @@ def heatmap_from_viz_symbols(sym_df: pd.DataFrame) -> Dict[str, Any]:
 
 
 def range_and_hist(values: np.ndarray, bins: int = 100) -> tuple[Dict[str, float], List[int]]:
-    """Compute signal range and histogram from raw signal values.
-
-    No transformation is applied — the histogram represents the raw
-    distribution of signal values as-is.
-    """
+    """Compute signal range and histogram from raw signal values."""
     flat = values.flatten()
     flat = flat[np.isfinite(flat)]
     if flat.size == 0:
@@ -91,26 +88,11 @@ def resolve_mode(bar_interval: str) -> str:
     raise ValueError(f"Unknown barInterval: {bar_interval!r}")
 
 
-def build_data_loader_kwargs(cache: DataCache) -> dict:
-    """Common DataLoader kwargs derived from DataCache config."""
-    return dict(
-        file_path=cache.dataset_paths[0],
-        time_col=cache.time_col,
-        symbol_col=cache.symbol_col,
-        chunk_row_size=None,
-        select_columns=cache.ohlcv_columns,
-        select_symbols=cache.symbols,
-    )
-
-
-
-# ---------------------------------------------------------------------------
-# Single alpha: heatmap + distribution + metrics
-# ---------------------------------------------------------------------------
-
 def _validate_data_cache(data_cache: DataCache) -> None:
     """Raise if DataCache has no data."""
-    if len(data_cache.get_timestamps()) == 0:
+    if not hasattr(data_cache, 'arrays') or data_cache.arrays is None:
+        raise ValueError("DataCache is empty — no data loaded. Check config.yaml and data paths.")
+    if len(data_cache.timestamps) == 0:
         raise ValueError("DataCache is empty — no data loaded. Check config.yaml and data paths.")
 
 
@@ -125,72 +107,101 @@ def _equity_series_to_dict(ret_series: pd.Series, initial_capital: float) -> Dic
     return {str(k): float(v) for k, v in equity.items()}
 
 
-def run_single_alpha(compiled_signal, settings: BacktestSettings, mode: str, data_cache: DataCache, compiled_xml: str | None = None) -> Dict[str, Any]:
+def _serialize_period(period: PeriodResult, initial_capital: float) -> Dict[str, Any]:
+    """Serialize a PeriodResult to API dict."""
+    return {
+        "metrics": metrics_to_api_dict(period.metrics),
+        "retSeries": _ret_series_to_dict(period.ret_series),
+        "equitySeries": _equity_series_to_dict(period.ret_series, initial_capital),
+        "turnoverSeries": _ret_series_to_dict(period.turnover_series),
+        "minBetSeries": _ret_series_to_dict(period.min_bet_series),
+        "maxWeightSeries": _ret_series_to_dict(period.max_weight_series),
+        "longRatio": period.long_ratio,
+        "shortRatio": period.short_ratio,
+    }
+
+
+def _serialize_alpha_result(ar: AlphaResult, initial_capital: float, xml: str | None = None) -> Dict[str, Any]:
+    """Serialize an AlphaResult to API dict."""
+    return {
+        "name": ar.name,
+        "rank": ar.rank,
+        "xml": xml,
+        "isMetrics": metrics_to_api_dict(ar.is_period.metrics),
+        "osMetrics": metrics_to_api_dict(ar.os_period.metrics),
+        "isRetSeries": _ret_series_to_dict(ar.is_period.ret_series),
+        "osRetSeries": _ret_series_to_dict(ar.os_period.ret_series),
+        "isEquitySeries": _equity_series_to_dict(ar.is_period.ret_series, initial_capital),
+        "osEquitySeries": _equity_series_to_dict(ar.os_period.ret_series, initial_capital),
+        "isTurnoverSeries": _ret_series_to_dict(ar.is_period.turnover_series),
+        "osTurnoverSeries": _ret_series_to_dict(ar.os_period.turnover_series),
+        "isMinBetSeries": _ret_series_to_dict(ar.is_period.min_bet_series),
+        "osMinBetSeries": _ret_series_to_dict(ar.os_period.min_bet_series),
+        "isMaxWeightSeries": _ret_series_to_dict(ar.is_period.max_weight_series),
+        "osMaxWeightSeries": _ret_series_to_dict(ar.os_period.max_weight_series),
+        "longRatio": ar.is_period.long_ratio,
+        "shortRatio": ar.is_period.short_ratio,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Unified backtest entry point
+# ---------------------------------------------------------------------------
+
+def run_backtest(
+    compiled: list,
+    compiled_xmls: list[str] | None,
+    settings: BacktestSettings,
+    mode: str,
+    data_cache: DataCache,
+) -> Dict[str, Any]:
+    """Unified backtest execution for both single and multi alpha."""
     _validate_data_cache(data_cache)
-    # Run on full range (IS+OS) for heatmap viz
-    iterator = DataCacheIterator(data_cache, start_date=settings.isStart, end_date=settings.osEnd)
-
-    bt = Backtester(
-        data_loader=iterator,
-        alpha_recipe=compiled_signal,
-        strategy=SignalRatioStrategy(),
-        capital=data_cache.initial_capital,
-        mode=mode,
-        transaction_fee_rate=data_cache.transaction_fee_rate,
-    )
-
-    result, viz = bt.run()
-
-    heatmap = heatmap_from_viz_symbols(viz["symbols"])
-
-    # Histogram uses raw signal values (no z-score transformation)
-    raw_signals = viz["symbols"]["signal"].to_numpy(dtype=float) if not viz["symbols"].empty else np.array([])
-    signal_range, distribution = range_and_hist(raw_signals)
-
-    # Split result into IS and OS by osStart date
-    is_result, os_result = _split_result_by_date(result, settings.osStart)
-    is_metrics = metrics_to_api_dict(_compute_period_metrics(is_result))
-    os_metrics = metrics_to_api_dict(_compute_period_metrics(os_result))
-
-    # Compute long/short ratios from IS result
-    long_ratio = 0.0
-    short_ratio = 0.0
-    if is_result.long_weight_series is not None and len(is_result.long_weight_series) > 0:
-        total = is_result.long_weight_series + is_result.short_weight_series
-        safe_total = total.replace(0, np.nan)
-        long_ratio = float((is_result.long_weight_series / safe_total).mean())
-        short_ratio = float((is_result.short_weight_series / safe_total).mean())
-        if np.isnan(long_ratio):
-            long_ratio = 0.0
-        if np.isnan(short_ratio):
-            short_ratio = 0.0
 
     capital = data_cache.initial_capital
+    is_single = len(compiled) == 1
+
+    if is_single:
+        return _run_single(compiled[0], compiled_xmls[0] if compiled_xmls else None, settings, mode, data_cache)
+
+    return _run_multiple(compiled, compiled_xmls, settings, mode, data_cache)
+
+
+def _run_single(compiled_signal, compiled_xml: str | None, settings: BacktestSettings, mode: str, data_cache: DataCache) -> Dict[str, Any]:
+    """Single alpha: heatmap + distribution + metrics."""
+    capital = data_cache.initial_capital
+
+    bt = Backtester(
+        cache=data_cache,
+        alpha_recipe=compiled_signal,
+        capital=capital,
+        mode=mode,
+        start_date=settings.isStart,
+        end_date=settings.osEnd,
+    )
+
+    ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+
+    heatmap = heatmap_from_viz_symbols(viz["symbols"]) if viz else {"timestamps": [], "symbols": [], "values": []}
+    raw_signals = viz["symbols"]["signal"].to_numpy(dtype=float) if viz and not viz["symbols"].empty else np.array([])
+    signal_range, distribution = range_and_hist(raw_signals)
+
+    is_ret, os_ret = _split_series_by_date(ret_s, settings.osStart)
+    is_to, os_to = _split_series_by_date(to_s, settings.osStart)
+    is_mb, os_mb = _split_series_by_date(mb_s, settings.osStart)
+    is_mw, os_mw = _split_series_by_date(mw_s, settings.osStart)
+    is_lw, os_lw = _split_series_by_date(lw_s, settings.osStart)
+    is_sw, os_sw = _split_series_by_date(sw_s, settings.osStart)
+
+    is_period = _build_period_result(is_ret, is_to, is_mb, is_mw, is_lw, is_sw)
+    os_period = _build_period_result(os_ret, os_to, os_mb, os_mw, os_lw, os_sw)
+
+    alpha_result = AlphaResult(name="alpha_0", is_period=is_period, os_period=os_period, rank=1)
 
     return {
         "combined": None,
         "initialCapital": capital,
-        "alphas": [
-            {
-                "name": "alpha_0",
-                "rank": 1,
-                "xml": compiled_xml,
-                "isMetrics": is_metrics,
-                "osMetrics": os_metrics,
-                "isRetSeries": _ret_series_to_dict(is_result.ret_series),
-                "osRetSeries": _ret_series_to_dict(os_result.ret_series),
-                "isEquitySeries": _equity_series_to_dict(is_result.ret_series, capital),
-                "osEquitySeries": _equity_series_to_dict(os_result.ret_series, capital),
-                "isTurnoverSeries": _ret_series_to_dict(is_result.turnover_series) if is_result.turnover_series is not None else None,
-                "osTurnoverSeries": _ret_series_to_dict(os_result.turnover_series) if os_result.turnover_series is not None else None,
-                "isMinBetSeries": _ret_series_to_dict(is_result.min_bet_series) if is_result.min_bet_series is not None else None,
-                "osMinBetSeries": _ret_series_to_dict(os_result.min_bet_series) if os_result.min_bet_series is not None else None,
-                "isMaxWeightSeries": _ret_series_to_dict(is_result.max_weight_series) if is_result.max_weight_series is not None else None,
-                "osMaxWeightSeries": _ret_series_to_dict(os_result.max_weight_series) if os_result.max_weight_series is not None else None,
-                "longRatio": long_ratio,
-                "shortRatio": short_ratio,
-            }
-        ],
+        "alphas": [_serialize_alpha_result(alpha_result, capital, compiled_xml)],
         "heatmap": heatmap,
         "signalRange": signal_range,
         "distribution": distribution,
@@ -198,19 +209,10 @@ def run_single_alpha(compiled_signal, settings: BacktestSettings, mode: str, dat
     }
 
 
-# ---------------------------------------------------------------------------
-# Multiple alphas: metrics + combined (no heatmap/distribution)
-# Future-ready: called when XML compiler returns multiple alphas.
-# ---------------------------------------------------------------------------
+def _run_multiple(compiled_alphas: list, compiled_xmls: list[str] | None, settings: BacktestSettings, mode: str, data_cache: DataCache) -> Dict[str, Any]:
+    """Multiple alphas: metrics + combined."""
+    capital = data_cache.initial_capital
 
-def run_multiple_alphas(
-    compiled_alphas: list,
-    compiled_xmls: list[str] | None,
-    settings: BacktestSettings,
-    mode: str,
-    data_cache: DataCache,
-) -> Dict[str, Any]:
-    _validate_data_cache(data_cache)
     period_settings = PeriodSettings(
         is_start=settings.isStart,
         is_end=settings.isEnd,
@@ -221,24 +223,30 @@ def run_multiple_alphas(
     n_jobs = -1 if len(compiled_alphas) > 2 else 1
     multi_result = run_multiple_backtest(
         alphas=compiled_alphas,
-        strategy=SignalRatioStrategy(),
         settings=period_settings,
-        capital=data_cache.initial_capital,
+        capital=capital,
         data_cache=data_cache,
-        data_loader_kwargs=build_data_loader_kwargs(data_cache) if n_jobs != 1 else None,
         mode=mode,
         n_jobs=n_jobs,
-        transaction_fee_rate=data_cache.transaction_fee_rate,
     )
 
-    capital = data_cache.initial_capital
-    response = multi_result.to_dict(initial_capital=capital)
+    combined = multi_result.combined_result
+    response = {
+        "combined": {
+            "isMetrics": metrics_to_api_dict(combined.is_period.metrics),
+            "osMetrics": metrics_to_api_dict(combined.os_period.metrics),
+            "isRetSeries": _ret_series_to_dict(combined.is_period.ret_series),
+            "osRetSeries": _ret_series_to_dict(combined.os_period.ret_series),
+        },
+        "initialCapital": capital,
+        "alphas": [
+            _serialize_alpha_result(
+                ar, capital,
+                compiled_xmls[i] if compiled_xmls and i < len(compiled_xmls) else None,
+            )
+            for i, ar in enumerate(multi_result.alpha_results)
+        ],
+        "sortedBy": multi_result.sorted_by,
+    }
 
-    # Attach per-alpha expanded XML by index (best-effort).
-    if compiled_xmls:
-        for i, ar in enumerate(response.get("alphas", [])):
-            if i < len(compiled_xmls):
-                ar["xml"] = compiled_xmls[i]
-
-    response["sortedBy"] = multi_result.sorted_by
     return response

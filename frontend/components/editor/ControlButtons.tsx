@@ -9,18 +9,15 @@ interface ControlButtonsProps {
 }
 
 export default function ControlButtons({ onRun, onStop }: ControlButtonsProps) {
-  const {
-    isRunning,
-    gaProgress,
-    setIsSaveModalOpen,
-    setIsLoadModalOpen,
-    result,
-    viewMode,
-    selectedAlphaIndices,
-  } = useAlphaStore();
+  const isRunning = useAlphaStore(s => s.isRunning);
+  const gaProgress = useAlphaStore(s => s.gaProgress);
+  const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
+  const setIsLoadModalOpen = useAlphaStore(s => s.setIsLoadModalOpen);
+  const isSaveDisabled = useAlphaStore(s =>
+    !s.result || (s.viewMode === 'multi' && s.selectedAlphaIndices.length === 0)
+  );
+  const isMultiMode = useAlphaStore(s => s.viewMode === 'multi');
   const { theme, toggleTheme } = useThemeStore();
-
-  const isSaveDisabled = !result || (viewMode === 'multi' && selectedAlphaIndices.length === 0);
 
   return (
     <div className="flex items-center gap-2 p-2 bg-background-tertiary border-b border-border">
@@ -75,7 +72,7 @@ export default function ControlButtons({ onRun, onStop }: ControlButtonsProps) {
             ? 'bg-foreground-muted cursor-not-allowed'
             : 'bg-blue-600 hover:bg-blue-500'
         }`}
-        title={isSaveDisabled && viewMode === 'multi' ? 'Select alphas first' : 'Save Alpha'}
+        title={isSaveDisabled && isMultiMode ? 'Select alphas first' : 'Save Alpha'}
       >
         <svg
           className="w-5 h-5 text-white"

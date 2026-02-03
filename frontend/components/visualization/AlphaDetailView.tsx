@@ -14,7 +14,8 @@ const METRICS: Array<{ key: DetailMetricKey; label: string }> = [
 ];
 
 export default function AlphaDetailView() {
-  const { result, selectedAlphaIndex } = useAlphaStore();
+  const result = useAlphaStore(s => s.result);
+  const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
   const [metric, setMetric] = useState<DetailMetricKey>('pnl');
 
   const alpha = useMemo(() => {

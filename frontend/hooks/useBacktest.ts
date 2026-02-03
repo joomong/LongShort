@@ -8,15 +8,9 @@ import type { BacktestRunResponse } from '@/types';
 export function useBacktest() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const {
-    xmlCode,
-    settings,
-    setResult,
-    setIsRunning,
-    setSelectedCell,
-    setBacktestError,
-    setGAProgress,
-  } = useAlphaStore();
+  // Only subscribe to values actually read during render
+  const xmlCode = useAlphaStore(s => s.xmlCode);
+  const settings = useAlphaStore(s => s.settings);
 
   const run = useCallback(async () => {
     // Cancel any existing request
@@ -25,11 +19,14 @@ export function useBacktest() {
     }
 
     abortControllerRef.current = new AbortController();
-    setIsRunning(true);
-    setBacktestError(null);
-    setResult(null);
-    setSelectedCell(null, null);
-    setGAProgress({ generation: 0, totalGenerations: 0, evaluated: 0, populationSize: settings.gaPopulation });
+
+    // Read setters from getState() — no subscription needed
+    const store = useAlphaStore.getState();
+    store.setIsRunning(true);
+    store.setBacktestError(null);
+    store.setResult(null);
+    store.setSelectedCell(null, null);
+    store.setGAProgress({ generation: 0, totalGenerations: 0, evaluated: 0, populationSize: settings.gaPopulation });
 
     try {
       await runGAStream(
@@ -37,16 +34,17 @@ export function useBacktest() {
         settings,
         10,
         (event) => {
+          const s = useAlphaStore.getState();
           const type = event.type as string;
           if (type === 'progress') {
-            setGAProgress({
+            s.setGAProgress({
               generation: event.generation as number,
               totalGenerations: event.totalGenerations as number,
               evaluated: event.evaluated as number,
               populationSize: event.populationSize as number,
             });
           } else if (type === 'generation_end') {
-            setGAProgress({
+            s.setGAProgress({
               generation: event.generation as number,
               totalGenerations: event.totalGenerations as number,
               evaluated: 0,
@@ -54,20 +52,20 @@ export function useBacktest() {
             });
             const partial = event.partialResult as BacktestRunResponse | undefined;
             if (partial && partial.alphas && partial.alphas.length > 0) {
-              setResult(partial);
+              s.setResult(partial);
             }
           } else if (type === 'complete') {
             const final = event.data as BacktestRunResponse;
-            setResult(final);
+            s.setResult(final);
 
             // UX: auto-select a default cell so the time series chart is not empty
             const firstSymbol = final?.heatmap?.symbols?.[0] ?? null;
             const firstTimestamp = final?.heatmap?.timestamps?.[0] ?? null;
             if (firstSymbol && firstTimestamp) {
-              setSelectedCell(firstSymbol, firstTimestamp);
+              s.setSelectedCell(firstSymbol, firstTimestamp);
             }
           } else if (type === 'error') {
-            setBacktestError(event.message as string);
+            s.setBacktestError(event.message as string);
           }
         },
         abortControllerRef.current.signal,
@@ -77,22 +75,24 @@ export function useBacktest() {
         // cancelled
       } else {
         const message = error instanceof Error ? error.message : String(error);
-        setBacktestError(message);
+        useAlphaStore.getState().setBacktestError(message);
       }
     } finally {
-      setIsRunning(false);
-      setGAProgress(null);
+      const s = useAlphaStore.getState();
+      s.setIsRunning(false);
+      s.setGAProgress(null);
     }
-  }, [xmlCode, settings, setResult, setIsRunning, setSelectedCell, setBacktestError, setGAProgress]);
+  }, [xmlCode, settings]);
 
   const stop = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    setIsRunning(false);
-    setGAProgress(null);
-  }, [setIsRunning, setGAProgress]);
+    const s = useAlphaStore.getState();
+    s.setIsRunning(false);
+    s.setGAProgress(null);
+  }, []);
 
   return { run, stop };
 }

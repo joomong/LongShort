@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import ClassVar, Dict, Optional, Type
 
-import pandas as pd
+import numpy as np
 
 class Signal(ABC):
     name: str = ""
@@ -29,7 +29,7 @@ class Signal(ABC):
         return cls(sig)
 
     @abstractmethod
-    def compute(self, timestamp: pd.Timestamp, data_slice: pd.DataFrame):
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         ...
 
     # 연산자 오버로드는 "얕은" 의존만: 구현체는 modules.ops.algebra 에 둠
@@ -64,7 +64,7 @@ class Signal(ABC):
     def __rtruediv__(self, other):
         from .modules.ops import Div
         return Div(self._to_signal(other), self)
-    
+
      # 비교 연산 오버로드
     def __le__(self, other):  # <=
         from .modules.ops import Le

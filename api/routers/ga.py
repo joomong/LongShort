@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from api.models.schemas import GARunRequest
-from api.services.backtest_service import resolve_mode, run_single_alpha, run_multiple_alphas
+from api.services.backtest_service import resolve_mode, run_backtest
 from api.services.ga_engine import GAConfig, extract_search_space, run_ga
 from api.services.ga_service import _make_evaluate_batch, _build_response, run_ga_search
 from api.xml_alpha_sources import compile_with_sources
@@ -58,10 +58,7 @@ async def run_ga_stream_endpoint(req: GARunRequest, request: Request):
                 compiled_with_xml = compile_with_sources(req.xml)
                 compiled = [c for c, _x in compiled_with_xml]
                 compiled_xmls = [_x for _c, _x in compiled_with_xml]
-                if len(compiled) == 1:
-                    final = run_single_alpha(compiled[0], req.settings, mode, data_cache, compiled_xmls[0])
-                else:
-                    final = run_multiple_alphas(compiled, compiled_xmls, req.settings, mode, data_cache)
+                final = run_backtest(compiled, compiled_xmls, req.settings, mode, data_cache)
                 q.put(json.dumps({"type": "complete", "data": final}) + "\n")
                 return
             config = GAConfig.from_frontend(req.settings.gaPopulation, top_n=req.topN)

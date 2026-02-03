@@ -21,7 +21,11 @@ interface ChartDataPoint {
 }
 
 export default function SignalChart() {
-  const { result, selectedSymbol, pinnedSnapshots, addSnapshot } = useAlphaStore();
+  // Granular selectors
+  const heatmap = useAlphaStore(s => s.result?.heatmap);
+  const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
+  const pinnedSnapshots = useAlphaStore(s => s.pinnedSnapshots);
+  const addSnapshot = useAlphaStore(s => s.addSnapshot);
   const { theme } = useThemeStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -36,15 +40,20 @@ export default function SignalChart() {
     yRange: { min: number; max: number };
   } | null>(null);
 
-  const colors = useMemo(() => getThemeColors(), [theme]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  const colors = useMemo(() => { void theme; return getThemeColors(); }, [theme]);
+
+  // Build symbol index Map for O(1) lookup (js-index-maps)
+  const symbolMap = useMemo(() => {
+    if (!heatmap) return new Map<string, number>();
+    return new Map(heatmap.symbols.map((s, i) => [s, i]));
+  }, [heatmap]);
 
   const data = useMemo<ChartDataPoint[]>(() => {
-    if (!result?.heatmap || !selectedSymbol) return [];
+    if (!heatmap || !selectedSymbol) return [];
 
-    const { heatmap } = result;
-    const symbolIdx = heatmap.symbols.indexOf(selectedSymbol);
-
-    if (symbolIdx === -1) return [];
+    const symbolIdx = symbolMap.get(selectedSymbol);
+    if (symbolIdx === undefined) return [];
 
     return heatmap.timestamps.map((ts, timeIdx) => {
       const v = (heatmap.values as unknown as Array<Array<number | null | undefined>>)[timeIdx]?.[symbolIdx];
@@ -54,7 +63,7 @@ export default function SignalChart() {
         value: typeof v === 'number' && Number.isFinite(v) ? v : null,
       };
     });
-  }, [result, selectedSymbol]);
+  }, [heatmap, selectedSymbol, symbolMap]);
 
   // Compute data Y range (min/max values)
   const dataYRange = useMemo(() => {

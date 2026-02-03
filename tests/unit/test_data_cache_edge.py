@@ -14,11 +14,12 @@ EC-DC-010: get_slice에 존재하지 않는 타임스탬프 전달 시
 """
 import pytest
 import pandas as pd
+import numpy as np
 import yaml
 
 import pyarrow.lib
 
-from framework.data_cache import DataCache
+from framework.data import DataCache
 
 
 # =============================================================================
@@ -32,13 +33,26 @@ def _make_parquet(path, data):
     return path
 
 
-def _make_config(tmp_path, paths, filename="config.yaml", start_date="2024-01-01", end_date="2024-01-03", time_col=None):
+def _make_config(tmp_path, paths, filename="config.yaml", start_date="2024-01-01", end_date="2024-01-03", time_col=None, use_cols=None):
     """데이터셋 경로 리스트 -> config.yaml 생성."""
+    if use_cols is None:
+        use_cols = [["close"]] * len(paths)
     config_path = tmp_path / filename
-    config = {"datasets": [{"path": str(p)} for p in paths]}
-    config["backtest"] = {"start_date": start_date, "end_date": end_date}
-    if time_col is not None:
-        config["columns"] = {"time": time_col}
+    config = {
+        "datasets": [
+            {
+                "name": f"dataset_{i}",
+                "path": str(p),
+                "time_col": time_col if time_col is not None else "open_time",
+                "symbol_col": "symbol",
+                "use_col": use_cols[i],
+            }
+            for i, p in enumerate(paths)
+        ],
+        "universe": None,
+    }
+    config["backtest"] = {"start_date": start_date, "end_date": end_date,
+                          "initial_capital": 1000000, "transaction_fee": 10}
     with open(config_path, "w") as f:
         yaml.dump(config, f)
     return config_path
@@ -85,7 +99,8 @@ class TestDuplicateColumns:
                 })
         pq_b = _make_parquet(tmp_path / "b" / "data.parquet", data_b)
 
-        config_path = _make_config(tmp_path, [pq_a, pq_b], end_date="2024-01-02")
+        config_path = _make_config(tmp_path, [pq_a, pq_b], end_date="2024-01-02",
+                                   use_cols=[["close", "volume"], ["close"]])
         cache = DataCache(config_path=str(config_path))
 
         # pandas DataFrame.join은 lsuffix/rsuffix 없이 중복 컬럼 -> ValueError
@@ -130,20 +145,23 @@ class TestSymbolCoverageMismatch:
             })
         pq_fund = _make_parquet(tmp_path / "funding" / "data.parquet", funding_data)
 
-        config_path = _make_config(tmp_path, [pq_ohlcv, pq_fund], end_date="2024-01-02")
+        config_path = _make_config(tmp_path, [pq_ohlcv, pq_fund], end_date="2024-01-02",
+                                   use_cols=[["open", "high", "low", "close", "volume"], ["funding_rate"]])
         cache = DataCache(config_path=str(config_path))
         cache.load()
 
         ts = pd.Timestamp("2024-01-01", tz="UTC")
-        data_slice = cache.get_slice(ts)
+        t_idx = cache._ts_index[ts]
 
         # BTCUSDT: close와 funding_rate 모두 존재
-        assert pd.notna(data_slice.loc["BTCUSDT", "close"])
-        assert pd.notna(data_slice.loc["BTCUSDT", "funding_rate"])
+        btc_idx = cache.sym_index["BTCUSDT"]
+        assert not np.isnan(cache.arrays["close"][t_idx, btc_idx])
+        assert not np.isnan(cache.arrays["funding_rate"][t_idx, btc_idx])
 
         # ETHUSDT: close 존재, funding_rate는 NaN
-        assert pd.notna(data_slice.loc["ETHUSDT", "close"])
-        assert pd.isna(data_slice.loc["ETHUSDT", "funding_rate"])
+        eth_idx = cache.sym_index["ETHUSDT"]
+        assert not np.isnan(cache.arrays["close"][t_idx, eth_idx])
+        assert np.isnan(cache.arrays["funding_rate"][t_idx, eth_idx])
 
 
 # =============================================================================
@@ -166,19 +184,18 @@ class TestNotLoaded:
         config_path = _make_config(tmp_path, [pq], end_date="2024-01-01")
         return DataCache(config_path=str(config_path))
 
-    def test_is_loaded_false(self, unloaded_cache):
-        """load() 전에는 is_loaded가 False."""
-        assert unloaded_cache.is_loaded is False
+    def test_cache_is_none_before_load(self, unloaded_cache):
+        """load() 전에는 arrays가 None (_loaded is False)."""
+        assert not unloaded_cache._loaded
+        assert unloaded_cache.arrays is None
 
-    def test_get_slice_raises_runtime_error(self, unloaded_cache):
-        """load() 전 get_slice 호출 시 RuntimeError."""
-        with pytest.raises(RuntimeError, match="not loaded"):
-            unloaded_cache.get_slice(pd.Timestamp("2024-01-01", tz="UTC"))
+    def test_arrays_is_none_before_load(self, unloaded_cache):
+        """load() 전 arrays는 None."""
+        assert unloaded_cache.arrays is None
 
-    def test_get_timestamps_raises_runtime_error(self, unloaded_cache):
-        """load() 전 get_timestamps 호출 시 RuntimeError."""
-        with pytest.raises(RuntimeError, match="not loaded"):
-            unloaded_cache.get_timestamps()
+    def test_timestamps_is_none_before_load(self, unloaded_cache):
+        """load() 전 timestamps는 None."""
+        assert unloaded_cache.timestamps is None
 
 
 # =============================================================================
@@ -234,8 +251,8 @@ class TestInvalidYaml:
 class TestEmptyPeriod:
     """EC-DC-006: 데이터 없는 날짜 범위."""
 
-    def test_empty_cache_loads_successfully(self, tmp_path):
-        """미래 날짜로 조회 시 load()는 성공하되 캐시는 비어있다."""
+    def test_empty_cache_raises_on_load(self, tmp_path):
+        """미래 날짜로 조회 시 load()가 ValueError를 발생시킨다."""
         data = [{
             "open_time": _ts_ms("2024-01-01"),
             "symbol": "BTCUSDT",
@@ -245,39 +262,8 @@ class TestEmptyPeriod:
         config_path = _make_config(tmp_path, [pq], start_date="2099-01-01", end_date="2099-12-31")
 
         cache = DataCache(config_path=str(config_path))
-        cache.load()
-        assert cache.is_loaded
-
-    def test_empty_cache_timestamps(self, tmp_path):
-        """빈 캐시의 get_timestamps()는 빈 인덱스를 반환한다."""
-        data = [{
-            "open_time": _ts_ms("2024-01-01"),
-            "symbol": "BTCUSDT",
-            "close": 100.0,
-        }]
-        pq = _make_parquet(tmp_path / "data" / "test.parquet", data)
-        config_path = _make_config(tmp_path, [pq], start_date="2099-01-01", end_date="2099-12-31")
-
-        cache = DataCache(config_path=str(config_path))
-        cache.load()
-        timestamps = cache.get_timestamps()
-        assert len(timestamps) == 0
-
-    def test_empty_cache_get_slice_raises(self, tmp_path):
-        """빈 캐시에서 get_slice 호출 시 KeyError."""
-        data = [{
-            "open_time": _ts_ms("2024-01-01"),
-            "symbol": "BTCUSDT",
-            "close": 100.0,
-        }]
-        pq = _make_parquet(tmp_path / "data" / "test.parquet", data)
-        config_path = _make_config(tmp_path, [pq], start_date="2099-01-01", end_date="2099-12-31")
-
-        cache = DataCache(config_path=str(config_path))
-        cache.load()
-
-        with pytest.raises(KeyError):
-            cache.get_slice(pd.Timestamp("2099-06-01", tz="UTC"))
+        with pytest.raises(ValueError, match="no data"):
+            cache.load()
 
 
 # =============================================================================
@@ -309,13 +295,13 @@ class TestSingleDataset:
         cache = DataCache(config_path=str(config_path))
         cache.load()
 
-        assert cache.is_loaded
-        assert len(cache.get_timestamps()) == 3
+        assert cache._loaded
+        assert len(pd.DatetimeIndex(cache.timestamps)) == 3
 
         ts = pd.Timestamp("2024-01-02", tz="UTC")
-        data_slice = cache.get_slice(ts)
-        assert "close" in data_slice.columns
-        assert set(data_slice.index) == {"BTCUSDT", "ETHUSDT"}
+        t_idx = cache._ts_index[ts]
+        assert "close" in cache.arrays
+        assert set(cache.symbols) == {"BTCUSDT", "ETHUSDT"}
 
 
 # =============================================================================
@@ -378,30 +364,33 @@ class TestPartialDateOverlap:
             })
         pq_fund = _make_parquet(tmp_path / "funding" / "data.parquet", funding_data)
 
-        config_path = _make_config(tmp_path, [pq_ohlcv, pq_fund], end_date="2024-01-07")
+        config_path = _make_config(tmp_path, [pq_ohlcv, pq_fund], end_date="2024-01-07",
+                                   use_cols=[["open", "high", "low", "close", "volume"], ["funding_rate"]])
         cache = DataCache(config_path=str(config_path))
         cache.load()
 
-        timestamps = cache.get_timestamps()
+        timestamps = pd.DatetimeIndex(cache.timestamps)
         assert len(timestamps) == 7
+
+        btc_idx = cache.sym_index["BTCUSDT"]
 
         # Day 1-2: ohlcv 존재, funding NaN
         for day in ["2024-01-01", "2024-01-02"]:
-            sl = cache.get_slice(pd.Timestamp(day, tz="UTC"))
-            assert pd.notna(sl.loc["BTCUSDT", "close"])
-            assert pd.isna(sl.loc["BTCUSDT", "funding_rate"])
+            t_idx = cache._ts_index[pd.Timestamp(day, tz="UTC")]
+            assert not np.isnan(cache.arrays["close"][t_idx, btc_idx])
+            assert np.isnan(cache.arrays["funding_rate"][t_idx, btc_idx])
 
         # Day 3-5: 둘 다 존재
         for day in ["2024-01-03", "2024-01-04", "2024-01-05"]:
-            sl = cache.get_slice(pd.Timestamp(day, tz="UTC"))
-            assert pd.notna(sl.loc["BTCUSDT", "close"])
-            assert pd.notna(sl.loc["BTCUSDT", "funding_rate"])
+            t_idx = cache._ts_index[pd.Timestamp(day, tz="UTC")]
+            assert not np.isnan(cache.arrays["close"][t_idx, btc_idx])
+            assert not np.isnan(cache.arrays["funding_rate"][t_idx, btc_idx])
 
         # Day 6-7: ohlcv NaN, funding 존재
         for day in ["2024-01-06", "2024-01-07"]:
-            sl = cache.get_slice(pd.Timestamp(day, tz="UTC"))
-            assert pd.isna(sl.loc["BTCUSDT", "close"])
-            assert pd.notna(sl.loc["BTCUSDT", "funding_rate"])
+            t_idx = cache._ts_index[pd.Timestamp(day, tz="UTC")]
+            assert np.isnan(cache.arrays["close"][t_idx, btc_idx])
+            assert not np.isnan(cache.arrays["funding_rate"][t_idx, btc_idx])
 
 
 # =============================================================================
@@ -426,7 +415,7 @@ class TestNonexistentTimestamp:
         cache.load()
 
         with pytest.raises(KeyError):
-            cache.get_slice(pd.Timestamp("2099-01-01", tz="UTC"))
+            cache._ts_index[pd.Timestamp("2099-01-01", tz="UTC")]
 
 
 # =============================================================================
@@ -446,8 +435,18 @@ class TestDataCacheFileNotFound:
         """config에 등록된 parquet이 없을 때 FileNotFoundError"""
         config_path = tmp_path / "config.yaml"
         config = {
-            "datasets": [{"path": str(tmp_path / "missing.parquet")}],
-            "backtest": {"start_date": "2024-01-01", "end_date": "2024-01-03"},
+            "datasets": [
+                {
+                    "name": "missing",
+                    "path": str(tmp_path / "missing.parquet"),
+                    "time_col": "open_time",
+                    "symbol_col": "symbol",
+                    "use_col": ["open", "high", "low", "close", "volume"],
+                }
+            ],
+            "universe": None,
+            "backtest": {"start_date": "2024-01-01", "end_date": "2024-01-03",
+                        "initial_capital": 1000000, "transaction_fee": 10},
         }
         with open(config_path, "w") as f:
             yaml.dump(config, f)

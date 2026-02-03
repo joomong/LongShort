@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from ..signal_base import Signal
 
 
@@ -31,7 +30,6 @@ class NormalizeBySymbol(Signal):
         self.mode = mode
         self.eps = float(epsilon)
         self.window = int(window) if window is not None else None
-        # Defaults: need at least 2 points for std; else fall back to window
         self.min_count = (
             int(min_count)
             if min_count is not None
@@ -44,18 +42,24 @@ class NormalizeBySymbol(Signal):
         if self.window is not None and len(self._buf) > self.window:
             self._buf = self._buf[-self.window :]
 
-    def compute(self, ts, ds):
-        s = self.x.compute(ts, ds)
-        if not isinstance(s, pd.Series):
-            return s
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
+        s = self.x.compute(t_idx, arrays)
+        N = len(s)
 
-        s = s.astype(float)
-        if self.benchmark not in s.index:
-            return pd.Series(0.0, index=s.index)
+        # Find benchmark index
+        symbols = arrays["__symbols__"]
+        bench_idx = None
+        for i, sym in enumerate(symbols):
+            if sym == self.benchmark:
+                bench_idx = i
+                break
 
-        b = float(s.loc[self.benchmark])
+        if bench_idx is None:
+            return np.zeros(N, dtype=np.float64)
+
+        b = float(s[bench_idx])
         if not np.isfinite(b):
-            return pd.Series(0.0, index=s.index)
+            return np.zeros(N, dtype=np.float64)
 
         if self.mode == "diff":
             res = s - b
@@ -66,15 +70,15 @@ class NormalizeBySymbol(Signal):
             arr = np.asarray(self._buf, dtype=float)
             valid = arr[np.isfinite(arr)]
             if len(valid) < self.min_count:
-                return pd.Series(0.0, index=s.index)
+                return np.zeros(N, dtype=np.float64)
             mean_b = valid.mean()
             std_b = valid.std(ddof=1)
             if (not np.isfinite(std_b)) or (std_b < self.eps):
-                res = pd.Series(0.0, index=s.index)
-            else:
-                res = (s - mean_b) / (std_b + self.eps)
+                return np.zeros(N, dtype=np.float64)
+            res = (s - mean_b) / (std_b + self.eps)
 
-        return res.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        res = np.where(np.isfinite(res), res, 0.0)
+        return res
 
 
 def normalize_by_symbol(

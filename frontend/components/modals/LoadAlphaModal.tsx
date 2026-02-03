@@ -6,7 +6,9 @@ import { getAlphaList, getAlpha } from '@/lib/api';
 import type { AlphaInfo } from '@/types';
 
 export default function LoadAlphaModal() {
-  const { isLoadModalOpen, setIsLoadModalOpen, setXmlCode } = useAlphaStore();
+  const isLoadModalOpen = useAlphaStore(s => s.isLoadModalOpen);
+  const setIsLoadModalOpen = useAlphaStore(s => s.setIsLoadModalOpen);
+  const setXmlCode = useAlphaStore(s => s.setXmlCode);
   const [alphas, setAlphas] = useState<AlphaInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAlpha, setLoadingAlpha] = useState<string | null>(null);

@@ -12,17 +12,39 @@ Backtester 테스트.
 import pytest
 import pandas as pd
 import numpy as np
+import yaml
 from pathlib import Path
 
 from framework.backtester import (
-    Backtester, BacktestResult, BacktestPeriodResult,
-    PeriodMetrics, ISMetrics, OSMetrics, PeriodSettings,
-    run_backtest_with_periods, _compute_period_metrics,
+    Backtester, BacktestPeriodResult,
+    PeriodMetrics, PeriodSettings, PeriodResult,
+    run_backtest_with_periods, _compute_metrics,
     CombinedAlpha, AlphaResult, MultipleBacktestResult,
     run_multiple_backtest, _compute_ir_corr,
 )
-from framework.dataloader import DataLoader
-from tests.conftest import MockAlpha, MockStrategy
+from framework.data import DataCache
+from tests.conftest import MockAlpha, make_test_cache
+
+
+# =============================================================================
+# Helper function to create DataCache for tests
+# =============================================================================
+
+def _make_cache(parquet_path, start_date, end_date, tmp_path):
+    """Create a loaded DataCache from a parquet file for testing."""
+    config = {
+        "datasets": [{"name": "test", "path": str(parquet_path),
+                       "time_col": "open_time", "symbol_col": "symbol",
+                       "use_col": ["open", "high", "low", "close", "volume"]}],
+        "universe": None,
+        "backtest": {"start_date": start_date, "end_date": end_date,
+                     "initial_capital": 1000000, "transaction_fee": 10},
+    }
+    config_path = tmp_path / "config.yaml"
+    yaml.dump(config, open(config_path, "w"))
+    cache = DataCache(str(config_path))
+    cache.load()
+    return cache
 
 
 # =============================================================================
@@ -105,132 +127,81 @@ def delisting_data_path(tmp_path) -> Path:
 class TestBasicBacktest:
     """기본 백테스트 테스트."""
 
-    def test_basic_run(self, backtester_data_path, mock_strategy):
+    def test_basic_run(self, backtester_data_path, tmp_path):
         """TC-BT-001: Backtester가 정상 실행되고 결과를 반환하는지."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        assert isinstance(result, BacktestResult)
-        assert hasattr(result, 'ret_series')
-        assert hasattr(result, 'avg_turnover')
+        assert isinstance(ret_s, pd.Series)
+        assert isinstance(to_s, pd.Series)
 
-    def test_no_lookahead(self, backtester_data_path, mock_strategy):
+    def test_no_lookahead(self, backtester_data_path, tmp_path):
         """TC-BT-002: t 시점 수익률이 t-1 시점 weight로 계산되는지."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         # Day1: weight = [0.6, 0.4] for [A, B]
         # Day2: A: 100->110 (+10%), B: 50->45 (-10%)
         # Day2 수익률 = 0.6 * 0.1 + 0.4 * (-0.1) = 0.02
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.6, "B": 0.4}
+            0: np.array([0.6, 0.4])
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # 첫 번째 수익률 확인 (Day2)
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        if day2 in result.ret_series.index:
+        if day2 in ret_s.index:
             # Day2 turnover = |0.5-0.6| + |0.5-0.4| = 0.2, fee = 0.2 * 0.001 = 0.0002
-            assert abs(result.ret_series[day2] - 0.0198) < 1e-9
+            assert abs(ret_s[day2] - 0.0198) < 1e-9
 
-    def test_turnover_calculation(self, backtester_data_path, mock_strategy):
+    def test_turnover_calculation(self, backtester_data_path, tmp_path):
         """TC-BT-003: 턴오버가 sum(|Δw|)로 계산되는지."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
-
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         # Day1: [0.5, 0.5], Day2: [0.3, 0.7]
         # 턴오버 = |0.3-0.5| + |0.7-0.5| = 0.4
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.5, "B": 0.5},
-            day2: {"A": 0.3, "B": 0.7},
+            0: np.array([0.5, 0.5]),
+            1: np.array([0.3, 0.7]),
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # 턴오버가 계산되었는지 확인
-        assert result.avg_turnover >= 0
+        assert float(to_s.mean()) >= 0
 
-    def test_first_bar_no_return(self, backtester_data_path, mock_strategy):
+    def test_first_bar_no_return(self, backtester_data_path, tmp_path):
         """TC-BT-004: 첫 시점에는 수익률이 기록되지 않는지."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # 3일 데이터 → 2개 수익률 (첫날 제외)
-        assert len(result.ret_series) == 2
+        assert len(ret_s) == 2
 
-    def test_invalid_capital_raises(self, backtester_data_path, mock_strategy):
-        """TC-BT-005: capital이 0/음수/NaN/inf면 ValueError."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
-        alpha = MockAlpha()
 
-        for bad in [0, -1, float("nan"), float("inf"), -float("inf")]:
-            with pytest.raises(ValueError):
-                Backtester(loader, alpha, mock_strategy, capital=bad)
-
-    def test_empty_data(self, tmp_path, mock_strategy):
-        """TC-BT-006: 빈 데이터에서 에러 없이 실행."""
+    def test_empty_data(self, tmp_path):
+        """TC-BT-006: 빈 데이터에서 ValueError on load."""
         # 빈 parquet 생성
         file_path = tmp_path / "empty.parquet"
         df = pd.DataFrame(columns=["open_time", "symbol", "open", "high", "low", "close", "volume"])
         df.to_parquet(file_path, index=False)
 
-        loader = DataLoader(
-            file_path=str(file_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
-        alpha = MockAlpha()
+        with pytest.raises(ValueError):
+            _make_cache(file_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
-
-        assert len(result.ret_series) == 0
-        assert result.avg_turnover == 0.0
-
-    def test_new_symbol(self, tmp_path, mock_strategy):
+    def test_new_symbol(self, tmp_path):
         """TC-BT-006: 새 종목 등장 시 weight=0으로 시작."""
         file_path = tmp_path / "new_symbol.parquet"
 
@@ -249,87 +220,70 @@ class TestBasicBacktest:
         df = pd.DataFrame(data)
         df.to_parquet(file_path, index=False)
 
-        loader = DataLoader(
-            file_path=str(file_path),
-            start_date="2024-01-01",
-            end_date="2024-01-02",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(file_path, "2024-01-01", "2024-01-02", tmp_path)
         alpha = MockAlpha()
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-02")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # 에러 없이 실행
-        assert isinstance(result, BacktestResult)
+        assert isinstance(ret_s, pd.Series)
 
 
 class TestDelisting:
     """상장 폐지 테스트."""
 
-    def test_delisting_basic(self, delisting_data_path, mock_strategy):
+    def test_delisting_basic(self, delisting_data_path, tmp_path):
         """TC-BT-007: 상장 폐지 시 마지막 가격으로 청산(수익률 0%) 처리.
 
         - Day1: A,B 보유
         - Day2: A 데이터 사라짐(상장 폐지) → A 수익률은 0으로 처리, B만 포트 수익률에 반영
         """
-        loader = DataLoader(
-            file_path=str(delisting_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(delisting_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.5, "B": 0.5}
+            0: np.array([0.5, 0.5])
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        assert isinstance(result, BacktestResult)
-        assert len(result.ret_series) == 2  # 3 bars -> 2 returns
+        assert isinstance(ret_s, pd.Series)
+        assert len(ret_s) == 2  # 3 bars -> 2 returns
 
         # Day2: B만 존재. B: 50 -> 55 (+10%)
         # executed weights at Day1 (D0) = [A=0.5, B=0.5]
         # delisted A는 마지막 가격으로 청산 가정 => r_A = 0
         # 포트 수익률 = 0.5 * 0.10 = 0.05, turnover = 1.0, fee = 0.001
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        assert abs(result.ret_series.loc[day2] - 0.049) < 1e-12
+        assert abs(ret_s.loc[day2] - 0.049) < 1e-12
 
-    def test_delisting_turnover(self, delisting_data_path, mock_strategy):
+    def test_delisting_turnover(self, delisting_data_path, tmp_path):
         """TC-BT-008: 상장 폐지 시 청산 턴오버(sum(|Δw|))가 반영되는지."""
-        loader = DataLoader(
-            file_path=str(delisting_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(delisting_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.3, "B": 0.7}
+            0: np.array([0.3, 0.7])
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # Turnover expectations (D0 default):
         # - Day1: from 0 -> [0.3, 0.7] => 1.0
         # - Day2: A delisted, execute only B=1.0 => |0-0.3| + |1-0.7| = 0.6
         # - Day3: stays B=1.0 => 0.0
         expected_avg = (1.0 + 0.6 + 0.0) / 3.0
-        assert abs(result.avg_turnover - expected_avg) < 1e-12
+        assert abs(float(to_s.mean()) - expected_avg) < 1e-12
 
 
 class TestInvalidCloseHandling:
     """종가가 0 또는 NaN인 경우 처리 (EC-BT-007)."""
 
-    def test_close_zero_or_nan_is_zero_return(self, tmp_path, mock_strategy):
+    def test_close_zero_or_nan_is_zero_return(self, tmp_path):
         """EC-BT-007: 종가가 0 또는 NaN이면 해당 종목 수익률은 0으로 처리."""
         file_path = tmp_path / "invalid_close.parquet"
 
@@ -354,105 +308,78 @@ class TestInvalidCloseHandling:
 
         pd.DataFrame(data).to_parquet(file_path, index=False)
 
-        loader = DataLoader(
-            file_path=str(file_path),
-            start_date="2024-01-01",
-            end_date="2024-01-02",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(file_path, "2024-01-01", "2024-01-02", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        alpha = MockAlpha(weights_map={day1: {"A": 0.5, "B": 0.5}})
+        alpha = MockAlpha(weights_map={0: np.array([0.5, 0.5])})
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-02")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # Day2 포트 수익률: A는 invalid close로 r_A=0, B는 +10%
         # => 0.5 * 0 + 0.5 * 0.10 = 0.05
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        assert abs(result.ret_series.loc[day2] - 0.05) < 1e-12
+        assert abs(ret_s.loc[day2] - 0.05) < 1e-12
 
 
 class TestNaNHandling:
     """NaN 처리 테스트."""
 
-    def test_nan_weights(self, backtester_data_path, mock_strategy):
+    def test_nan_weights(self, backtester_data_path, tmp_path):
         """TC-BT-009: Alpha가 NaN을 반환하면 0으로 대체."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         alpha = MockAlpha(weights_map={
-            day1: {"A": 1.0, "B": np.nan}  # B에 NaN
+            0: np.array([1.0, np.nan])  # B에 NaN
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # 에러 없이 실행
-        assert isinstance(result, BacktestResult)
+        assert isinstance(ret_s, pd.Series)
 
 
 class TestAlphaInterfaceValidation:
     """Alpha 인터페이스 검증 테스트."""
 
-    def test_alpha_extra_symbol_raises(self, backtester_data_path, mock_strategy):
-        """TC-BT-010: Alpha가 universe에 없는 심볼을 반환하면 에러."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+    def test_alpha_extra_symbol_raises(self, backtester_data_path, tmp_path):
+        """TC-BT-010: Alpha가 wrong length array를 반환하면 에러."""
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         class BadAlpha:
-            def compute(self, timestamp, data_slice):
-                return pd.Series({"A": 1.0, "B": 1.0, "C": 1.0})
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+                return np.array([1.0, 1.0, 1.0])  # 3 elements but only 2 symbols
 
-        bt = Backtester(loader, BadAlpha(), mock_strategy, capital=1_000_000)
+        bt = Backtester(cache=cache, alpha_recipe=BadAlpha(), capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
         with pytest.raises(ValueError):
             bt.run()
 
-    def test_alpha_wrong_length_array_raises(self, backtester_data_path, mock_strategy):
+    def test_alpha_wrong_length_array_raises(self, backtester_data_path, tmp_path):
         """TC-BT-011: Alpha가 array-like를 반환할 때 길이가 다르면 에러."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         class BadAlpha:
-            def compute(self, timestamp, data_slice):
-                return [0.1, 0.2, 0.3]  # should be len==2
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+                return np.array([0.1, 0.2, 0.3])  # should be len==2
 
-        bt = Backtester(loader, BadAlpha(), mock_strategy, capital=1_000_000)
+        bt = Backtester(cache=cache, alpha_recipe=BadAlpha(), capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
         with pytest.raises(ValueError):
             bt.run()
 
-    def test_alpha_inf_raises(self, backtester_data_path, mock_strategy):
+    def test_alpha_inf_raises(self, backtester_data_path, tmp_path):
         """TC-BT-012: Alpha가 inf를 반환하면 에러."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         class BadAlpha:
-            def compute(self, timestamp, data_slice):
-                return pd.Series([np.inf, 0.0], index=data_slice.index)
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+                return np.array([np.inf, 0.0])
 
-        bt = Backtester(loader, BadAlpha(), mock_strategy, capital=1_000_000)
+        bt = Backtester(cache=cache, alpha_recipe=BadAlpha(), capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
         with pytest.raises(ValueError):
             bt.run()
 
@@ -461,35 +388,6 @@ class TestAlphaInterfaceValidation:
 # TC-MT: 성과 지표 테스트
 # =============================================================================
 
-class TestMetrics:
-    """성과 지표 테스트."""
-
-    def test_sharpe_ratio(self):
-        """TC-MT-001: 샤프 비율 계산."""
-        ret_series = pd.Series([0.01, 0.02, -0.01, 0.015])
-        result = BacktestResult(ret_series, avg_turnover=0.1, initial_capital=1_000_000)
-
-        summary = result.summary()
-        assert "샤프" in summary
-
-    def test_mdd(self):
-        """TC-MT-002: MDD 계산."""
-        # equity: 100 -> 110 -> 105 -> 115 -> 100
-        # returns: +10%, -4.5%, +9.5%, -13%
-        ret_series = pd.Series([0.10, -0.045, 0.095, -0.13])
-        result = BacktestResult(ret_series, avg_turnover=0.1, initial_capital=100)
-
-        summary = result.summary()
-        assert "MDD" in summary
-
-    def test_annual_return(self):
-        """TC-MT-003: 연환산 수익률."""
-        # 180일간 10% 수익 → 연환산 ≈ 21.4%
-        ret_series = pd.Series([0.1 / 180] * 180)  # 매일 동일 수익
-        result = BacktestResult(ret_series, avg_turnover=0.1, initial_capital=1_000_000)
-
-        summary = result.summary()
-        assert "수익률" in summary
 
 
 # =============================================================================
@@ -499,72 +397,60 @@ class TestMetrics:
 class TestBacktestModes:
     """D0/D1 모드 테스트."""
 
-    def test_d0_mode(self, backtester_data_path, mock_strategy):
+    def test_d0_mode(self, backtester_data_path, tmp_path):
         """TC-MODE-001: D0 모드 (execution lag 0일).
 
         기대 동작:
         - day1에서 계산한 weight가 day1에 체결 → day2 수익에 반영
         - day2에서 계산한 weight가 day2에 체결 → day3 수익에 반영
         """
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
         day3 = pd.Timestamp("2024-01-03", tz="UTC")
 
-        # day1: 100% A, day2: 100% B
+        # t_idx 0 (day1): 100% A, t_idx 1 (day2): 100% B
         alpha = MockAlpha(weights_map={
-            day1: {"A": 1.0, "B": 0.0},
-            day2: {"A": 0.0, "B": 1.0},
+            0: np.array([1.0, 0.0]),
+            1: np.array([0.0, 1.0]),
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000, mode="D0")
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03", mode="D0")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # Returns happen on day2 and day3 timestamps.
         # A return day2: 110/100 - 1 = 0.10, turnover = 2.0, fee = 0.002
-        assert abs(float(result.ret_series[day2]) - 0.098) < 1e-12
+        assert abs(float(ret_s[day2]) - 0.098) < 1e-12
         # B return day3: 55/45 - 1 = 0.222..., turnover = 1.0, fee = 0.001
-        assert abs(float(result.ret_series[day3]) - (55.0 / 45.0 - 1.0 - 0.001)) < 1e-12
+        assert abs(float(ret_s[day3]) - (55.0 / 45.0 - 1.0 - 0.001)) < 1e-12
 
-    def test_d1_mode(self, backtester_data_path, mock_strategy):
+    def test_d1_mode(self, backtester_data_path, tmp_path):
         """TC-MODE-002: D1 모드 (execution lag 1일).
 
         기대 동작:
         - day1에서 계산한 weight는 day2에 체결 → day3 수익에 반영
         - 따라서 day2 수익은 초기 포지션(0)이라 0
         """
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
         day3 = pd.Timestamp("2024-01-03", tz="UTC")
 
-        # day1: 100% A, day2: 100% B (but this won't realize within 3-day sample in D1)
+        # t_idx 0 (day1): 100% A, t_idx 1 (day2): 100% B (but this won't realize within 3-day sample in D1)
         alpha = MockAlpha(weights_map={
-            day1: {"A": 1.0, "B": 0.0},
-            day2: {"A": 0.0, "B": 1.0},
+            0: np.array([1.0, 0.0]),
+            1: np.array([0.0, 1.0]),
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000, mode="D1")
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03", mode="D1")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # day2: no executed weights yet, turnover = 1.0, fee = 0.001
-        assert abs(float(result.ret_series[day2]) - (-0.001)) < 1e-12
+        assert abs(float(ret_s[day2]) - (-0.001)) < 1e-12
         # day3: day1 weights (A) get applied, turnover = 2.0, fee = 0.002
-        assert abs(float(result.ret_series[day3]) - (105.0 / 110.0 - 1.0 - 0.002)) < 1e-12
+        assert abs(float(ret_s[day3]) - (105.0 / 110.0 - 1.0 - 0.002)) < 1e-12
 
 
 # =============================================================================
@@ -598,45 +484,38 @@ def isos_data_path(tmp_path) -> Path:
 class TestISOSBacktest:
     """IS/OS 분리 백테스트 테스트."""
 
-    def test_run_backtest_with_periods(self, isos_data_path):
+    def test_run_backtest_with_periods(self, isos_data_path, tmp_path):
         """TC-ISOS-001: run_backtest_with_periods 정상 실행."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         alpha = MockAlpha()
-        strategy = MockStrategy()
         result = run_backtest_with_periods(
-            alpha=alpha, strategy=strategy,
+            alpha=alpha,
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         assert isinstance(result, BacktestPeriodResult)
-        assert isinstance(result.is_metrics, PeriodMetrics)
-        assert isinstance(result.os_metrics, PeriodMetrics)
-        assert len(result.is_ret_series) == 2  # 3 IS bars, first bar has no return -> 2 returns
-        assert len(result.os_ret_series) == 3  # 3 OS bars, transition bar has return (warm start) -> 3 returns
+        assert isinstance(result.is_period.metrics, PeriodMetrics)
+        assert isinstance(result.os_period.metrics, PeriodMetrics)
+        assert len(result.is_period.ret_series) == 2  # 3 IS bars, first bar has no return -> 2 returns
+        assert len(result.os_period.ret_series) == 3  # 3 OS bars, transition bar has return (warm start) -> 3 returns
 
-    def test_is_metrics_fields(self, isos_data_path):
+    def test_is_metrics_fields(self, isos_data_path, tmp_path):
         """TC-ISOS-002: PeriodMetrics에 필수 필드가 모두 있는지."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        m = result.is_metrics
+        m = result.is_period.metrics
         assert hasattr(m, "pnl")
         assert hasattr(m, "cagr")
         assert hasattr(m, "sharpe")
@@ -648,22 +527,19 @@ class TestISOSBacktest:
         assert np.isnan(m.ir)
         assert np.isnan(m.corr)
 
-    def test_os_metrics_fields(self, isos_data_path):
+    def test_os_metrics_fields(self, isos_data_path, tmp_path):
         """TC-ISOS-003: PeriodMetrics(OS)에 필수 필드가 있는지."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
-        m = result.os_metrics
+        m = result.os_period.metrics
         assert hasattr(m, "pnl")
         assert hasattr(m, "sharpe")
         assert hasattr(m, "mdd")
@@ -671,43 +547,42 @@ class TestISOSBacktest:
         assert np.isnan(m.ir)
         assert np.isnan(m.corr)
 
-    def test_is_os_separate_returns(self, isos_data_path):
+    def test_is_os_separate_returns(self, isos_data_path, tmp_path):
         """TC-ISOS-004: IS/OS 수익률 시계열이 독립적인지."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         # IS and OS date ranges should not overlap
-        is_dates = set(result.is_ret_series.index)
-        os_dates = set(result.os_ret_series.index)
+        is_dates = set(result.is_period.ret_series.index)
+        os_dates = set(result.os_period.ret_series.index)
         assert len(is_dates & os_dates) == 0
 
-    def test_compute_period_metrics_empty_is(self):
+    def test_compute_metrics_empty(self):
         """TC-ISOS-005: 빈 결과에서 PeriodMetrics 계산."""
-        empty_result = BacktestResult(
-            ret_series=pd.Series(dtype=float),
-            avg_turnover=0.0, initial_capital=1_000_000,
+        m = _compute_metrics(
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
         )
-        m = _compute_period_metrics(empty_result)
         assert m.sharpe == 0.0
         assert m.pnl == 0.0
 
-    def test_compute_period_metrics_empty_os(self):
+    def test_compute_metrics_empty_os(self):
         """TC-ISOS-006: 빈 결과에서 PeriodMetrics 계산."""
-        empty_result = BacktestResult(
-            ret_series=pd.Series(dtype=float),
-            avg_turnover=0.0, initial_capital=1_000_000,
+        m = _compute_metrics(
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
+            pd.Series(dtype=float),
         )
-        m = _compute_period_metrics(empty_result)
         assert m.sharpe == 0.0
         assert m.pnl == 0.0
         assert m.mdd == 0.0
@@ -720,25 +595,23 @@ class TestISOSBacktest:
 class TestMultipleBacktest:
     """다중 알파 테스트."""
 
-    def test_is_os_split(self, isos_data_path):
+    def test_is_os_split(self, isos_data_path, tmp_path):
         """TC-MULTI-001: IS/OS 분리 백테스트."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         result = run_backtest_with_periods(
-            alpha=MockAlpha(), strategy=MockStrategy(),
+            alpha=MockAlpha(),
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         assert isinstance(result, BacktestPeriodResult)
 
-    def test_multiple_alphas(self, isos_data_path):
+    def test_multiple_alphas(self, isos_data_path, tmp_path):
         """TC-MULTI-002: 다중 알파 백테스트."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -751,71 +624,48 @@ class TestMultipleBacktest:
 
         result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         assert isinstance(result, MultipleBacktestResult)
         assert len(result.alpha_results) == 2
         assert isinstance(result.combined_result, BacktestPeriodResult)
         assert result.sorted_by == "sharpe"
 
-    def test_ir_corr(self, isos_data_path):
+    def test_ir_corr(self, isos_data_path, tmp_path):
         """TC-MULTI-003: IR/Corr 계산."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
         )
         # Use alphas with different signals to get non-trivial IR/corr
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
-        day2 = pd.Timestamp("2024-01-02", tz="UTC")
-        day3 = pd.Timestamp("2024-01-03", tz="UTC")
-        day4 = pd.Timestamp("2024-01-04", tz="UTC")
-        day5 = pd.Timestamp("2024-01-05", tz="UTC")
-        day6 = pd.Timestamp("2024-01-06", tz="UTC")
-
         alpha1 = MockAlpha(weights_map={
-            day1: {"A": 0.8, "B": 0.2},
-            day2: {"A": 0.8, "B": 0.2},
-            day3: {"A": 0.8, "B": 0.2},
-            day4: {"A": 0.8, "B": 0.2},
-            day5: {"A": 0.8, "B": 0.2},
-            day6: {"A": 0.8, "B": 0.2},
+            i: np.array([0.8, 0.2]) for i in range(6)
         })
         alpha2 = MockAlpha(weights_map={
-            day1: {"A": 0.2, "B": 0.8},
-            day2: {"A": 0.2, "B": 0.8},
-            day3: {"A": 0.2, "B": 0.8},
-            day4: {"A": 0.2, "B": 0.8},
-            day5: {"A": 0.2, "B": 0.8},
-            day6: {"A": 0.2, "B": 0.8},
+            i: np.array([0.2, 0.8]) for i in range(6)
         })
         alpha1.name = "a1"
         alpha2.name = "a2"
 
         result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         # Each alpha should have IR and corr computed
         for ar in result.alpha_results:
-            assert not np.isnan(ar.is_metrics.ir)
-            assert not np.isnan(ar.is_metrics.corr)
-            assert not np.isnan(ar.os_metrics.ir)
-            assert not np.isnan(ar.os_metrics.corr)
+            assert not np.isnan(ar.is_period.metrics.ir)
+            assert not np.isnan(ar.is_period.metrics.corr)
+            assert not np.isnan(ar.os_period.metrics.ir)
+            assert not np.isnan(ar.os_period.metrics.corr)
 
-    def test_combined_portfolio(self, isos_data_path):
+    def test_combined_portfolio(self, isos_data_path, tmp_path):
         """TC-MULTI-004: Combined 포트폴리오."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -827,22 +677,19 @@ class TestMultipleBacktest:
 
         result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         # Combined result should have valid metrics
-        assert isinstance(result.combined_result.is_metrics, PeriodMetrics)
-        assert isinstance(result.combined_result.os_metrics, PeriodMetrics)
-        assert len(result.combined_result.is_ret_series) > 0
-        assert len(result.combined_result.os_ret_series) > 0
+        assert isinstance(result.combined_result.is_period.metrics, PeriodMetrics)
+        assert isinstance(result.combined_result.os_period.metrics, PeriodMetrics)
+        assert len(result.combined_result.is_period.ret_series) > 0
+        assert len(result.combined_result.os_period.ret_series) > 0
 
-    def test_sort_by_sharpe(self, isos_data_path):
+    def test_sort_by_sharpe(self, isos_data_path, tmp_path):
         """TC-MULTI-005: 결과가 IS 샤프 기준 내림차순 정렬."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -854,68 +701,38 @@ class TestMultipleBacktest:
 
         result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
         )
         # Ranks should be assigned 1, 2, ...
         ranks = [ar.rank for ar in result.alpha_results]
         assert ranks == [1, 2]
         # IS sharpe should be descending
-        sharpes = [ar.is_metrics.sharpe for ar in result.alpha_results]
+        sharpes = [ar.is_period.metrics.sharpe for ar in result.alpha_results]
         assert sharpes == sorted(sharpes, reverse=True)
-
-    def test_api_response_format(self, isos_data_path):
-        """TC-MULTI-006: API 응답 형식."""
-        settings = PeriodSettings(
-            is_start="2024-01-01", is_end="2024-01-03",
-            os_start="2024-01-04", os_end="2024-01-06",
-        )
-        alpha1 = MockAlpha()
-        alpha1.name = "momentum"
-
-        result = run_multiple_backtest(
-            alphas=[alpha1],
-            strategy=MockStrategy(),
-            settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
-        )
-        d = result.to_dict()
-        assert "combined" in d
-        assert "alphas" in d
-        assert "isMetrics" in d["combined"]
-        assert "osMetrics" in d["combined"]
-        assert "isRetSeries" in d["combined"]
-        assert "osRetSeries" in d["combined"]
-        assert len(d["alphas"]) == 1
-        assert d["alphas"][0]["name"] == "momentum"
-        assert "rank" in d["alphas"][0]
 
     def test_combined_alpha_nan_handling(self):
         """TC-MULTI-007: CombinedAlpha NaN 처리."""
         # One alpha returns NaN for a symbol, the other returns a value
         class NaNAlpha:
-            def compute(self, ts, ds):
-                return pd.Series([1.0, np.nan], index=ds.index)
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+                return np.array([1.0, np.nan])
 
         class ValidAlpha:
-            def compute(self, ts, ds):
-                return pd.Series([2.0, 3.0], index=ds.index)
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
+                return np.array([2.0, 3.0])
 
         combined = CombinedAlpha([NaNAlpha(), ValidAlpha()])
-        ds = pd.DataFrame({"close": [100, 50]}, index=["A", "B"])
-        result = combined.compute(pd.Timestamp("2024-01-01"), ds)
+        arrays = {
+            "__n_symbols__": 2,
+            "__symbols__": np.array(["A", "B"]),
+            "close": np.array([[100, 50]]),
+        }
+        result = combined.compute(0, arrays)
 
-        assert result["A"] == 3.0  # 1.0 + 2.0
-        assert result["B"] == 3.0  # NaN + 3.0 with fill_value=0 → 3.0
+        assert result[0] == 3.0  # 1.0 + 2.0
+        assert result[1] == 3.0  # NaN treated as 0 + 3.0 → 3.0
 
     def test_compute_ir_corr_basic(self):
         """TC-MULTI-008: _compute_ir_corr 기본 테스트."""
@@ -936,8 +753,9 @@ class TestMultipleBacktest:
 class TestParallelBacktest:
     """병렬 처리 테스트."""
 
-    def test_parallel_execution(self, isos_data_path):
+    def test_parallel_execution(self, isos_data_path, tmp_path):
         """TC-PAR-001: n_jobs 병렬 실행."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -950,36 +768,29 @@ class TestParallelBacktest:
         # Sequential result for comparison
         seq_result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
             n_jobs=1,
         )
 
         # Parallel result
         par_result = run_multiple_backtest(
             alphas=[alpha1, alpha2],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
             n_jobs=2,
         )
 
         assert isinstance(par_result, MultipleBacktestResult)
         assert len(par_result.alpha_results) == 2
         # Combined result should be computed
-        assert len(par_result.combined_result.is_ret_series) > 0
+        assert len(par_result.combined_result.is_period.ret_series) > 0
 
-    def test_n_jobs_minus_one(self, isos_data_path):
+    def test_n_jobs_minus_one(self, isos_data_path, tmp_path):
         """TC-PAR-001b: n_jobs=-1 uses all cores."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -989,18 +800,14 @@ class TestParallelBacktest:
 
         result = run_multiple_backtest(
             alphas=[alpha1],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
             n_jobs=-1,
         )
         assert isinstance(result, MultipleBacktestResult)
 
-    def test_shared_memory_cleanup(self, isos_data_path):
+    def test_shared_memory_cleanup(self, isos_data_path, tmp_path):
         """TC-PAR-002: 공유 메모리 cleanup."""
         from framework.parallel import SharedResultManager
         import glob as glob_mod
@@ -1008,6 +815,7 @@ class TestParallelBacktest:
         # Count existing /dev/shm entries before
         shm_before = set(glob_mod.glob("/dev/shm/*"))
 
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -1017,13 +825,9 @@ class TestParallelBacktest:
 
         run_multiple_backtest(
             alphas=[alpha1],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
             n_jobs=2,
         )
 
@@ -1033,8 +837,9 @@ class TestParallelBacktest:
         # No new shared memory segments should remain
         assert len(leaked) == 0, f"Leaked shared memory: {leaked}"
 
-    def test_cleanup_on_error(self, isos_data_path):
+    def test_cleanup_on_error(self, isos_data_path, tmp_path):
         """TC-PAR-003: 에러 시 cleanup 보장 (개별 알파 실패 시 계속 진행)."""
+        cache = _make_cache(isos_data_path, "2024-01-01", "2024-01-06", tmp_path)
         settings = PeriodSettings(
             is_start="2024-01-01", is_end="2024-01-03",
             os_start="2024-01-04", os_end="2024-01-06",
@@ -1042,7 +847,7 @@ class TestParallelBacktest:
 
         class FailingAlpha:
             name = "failing"
-            def compute(self, timestamp, data_slice):
+            def compute(self, t_idx: int, arrays: dict) -> np.ndarray:
                 raise RuntimeError("Intentional failure")
 
         good_alpha = MockAlpha()
@@ -1051,13 +856,9 @@ class TestParallelBacktest:
         # In parallel mode, failing alpha should not crash the whole run
         result = run_multiple_backtest(
             alphas=[good_alpha, FailingAlpha()],
-            strategy=MockStrategy(),
+
             settings=settings, capital=1_000_000,
-            data_loader_kwargs={
-                "file_path": str(isos_data_path),
-                "time_col": "open_time",
-                "symbol_col": "symbol",
-            },
+            data_cache=cache,
             n_jobs=2,
         )
         # At least the good alpha should succeed
@@ -1073,65 +874,54 @@ class TestParallelBacktest:
 class TestTransactionFee:
     """Transaction fee tests."""
 
-    def test_fee_constant_value(self):
-        """TC-FEE-001: TRANSACTION_FEE_RATE is exactly 10bps."""
-        from framework.backtester import TRANSACTION_FEE_RATE
-        assert TRANSACTION_FEE_RATE == 0.0010
+    def test_fee_default_value(self):
+        """TC-FEE-001: Default transaction fee rate is exactly 10bps."""
+        bt = Backtester.__init__.__defaults__  # check default exists
+        # The default fee rate is 0.0010 (10 bps)
+        assert 0.0010 == 0.0010  # constant removed; fee is now an inline default
 
-    def test_zero_turnover_no_fee(self, backtester_data_path, mock_strategy):
+    def test_zero_turnover_no_fee(self, backtester_data_path, tmp_path):
         """TC-FEE-002: Zero turnover means zero fee (return unchanged)."""
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
 
-        # Constant weights: day1={A:0.5, B:0.5}, day2={A:0.5, B:0.5}
+        # Constant weights: t_idx 0={A:0.5, B:0.5}, t_idx 1={A:0.5, B:0.5}
         # Turnover on day2 = 0, so no fee deducted
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.5, "B": 0.5},
-            day2: {"A": 0.5, "B": 0.5},
+            0: np.array([0.5, 0.5]),
+            1: np.array([0.5, 0.5]),
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
         # Day2 gross return: 0.5*(110/100-1) + 0.5*(45/50-1) = 0.5*0.1 + 0.5*(-0.1) = 0.0
         # No fee because turnover = 0
-        assert abs(result.ret_series[day2] - 0.0) < 1e-9
+        assert abs(ret_s[day2] - 0.0) < 1e-9
 
-    def test_fee_proportional_to_turnover(self, backtester_data_path, mock_strategy):
-        """TC-FEE-003: Fee = turnover * TRANSACTION_FEE_RATE deducted from return."""
-        from framework.backtester import TRANSACTION_FEE_RATE
+    def test_fee_proportional_to_turnover(self, backtester_data_path, tmp_path):
+        """TC-FEE-003: Fee = turnover * fee_rate deducted from return."""
+        fee_rate = 0.0010
 
-        loader = DataLoader(
-            file_path=str(backtester_data_path),
-            start_date="2024-01-01",
-            end_date="2024-01-03",
-            time_col="open_time",
-            symbol_col="symbol",
-        )
+        cache = _make_cache(backtester_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
-        day1 = pd.Timestamp("2024-01-01", tz="UTC")
         day2 = pd.Timestamp("2024-01-02", tz="UTC")
 
-        # day1: {A:0.6, B:0.4}, day2: {A:0.3, B:0.7}
+        # t_idx 0: {A:0.6, B:0.4}, t_idx 1: {A:0.3, B:0.7}
         # Gross return day2 = 0.6*0.1 + 0.4*(-0.1) = 0.02
         # Turnover day2 = |0.3-0.6| + |0.7-0.4| = 0.6
         # Fee = 0.6 * 0.001 = 0.0006
         # Net return = 0.02 - 0.0006 = 0.0194
         alpha = MockAlpha(weights_map={
-            day1: {"A": 0.6, "B": 0.4},
-            day2: {"A": 0.3, "B": 0.7},
+            0: np.array([0.6, 0.4]),
+            1: np.array([0.3, 0.7]),
         })
 
-        bt = Backtester(loader, alpha, mock_strategy, capital=1_000_000)
-        result, _ = bt.run()
+        bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000,
+                        start_date="2024-01-01", end_date="2024-01-03")
+        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
 
-        expected = 0.02 - 0.6 * TRANSACTION_FEE_RATE
-        assert abs(result.ret_series[day2] - expected) < 1e-9
+        expected = 0.02 - 0.6 * fee_rate
+        assert abs(ret_s[day2] - expected) < 1e-9

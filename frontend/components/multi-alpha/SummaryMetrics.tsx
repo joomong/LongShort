@@ -15,7 +15,7 @@ const formatNumber = (value: number | undefined) => {
 };
 
 export default function SummaryMetrics() {
-  const { result } = useAlphaStore();
+  const result = useAlphaStore(s => s.result);
   const combined = result?.combined;
 
   if (!combined) return null;

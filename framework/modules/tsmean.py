@@ -1,8 +1,50 @@
 # STAR/framework/modules/stateful/tsmean.py
-import pandas as pd
-from collections import deque
+import numpy as np
 from ..signal_base import Signal
 from framework.xml_helpers import parse_positive_int
+
+try:
+    import numba
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+
+
+def _tsmean_kernel_numpy(vals, buf, pos, window, count):
+    """Numpy fallback: write to buffer and compute row means."""
+    N = len(vals)
+    buf[:, pos] = vals
+    if count + 1 >= window:
+        out = np.nanmean(buf, axis=1)
+    else:
+        out = np.full(N, np.nan, dtype=np.float64)
+    return out
+
+
+if _HAS_NUMBA:
+    @numba.jit(nopython=True, cache=True)
+    def _tsmean_kernel_numba(vals, buf, pos, window, count):
+        N = len(vals)
+        buf[:, pos] = vals
+        out = np.empty(N, dtype=np.float64)
+        if count + 1 >= window:
+            for i in range(N):
+                s = 0.0
+                c = 0
+                for j in range(window):
+                    v = buf[i, j]
+                    if v == v:  # NaN check
+                        s += v
+                        c += 1
+                out[i] = s / c if c > 0 else np.nan
+        else:
+            out[:] = np.nan
+        return out
+
+    _tsmean_kernel = _tsmean_kernel_numba
+else:
+    _tsmean_kernel = _tsmean_kernel_numpy
+
 
 class TsMean(Signal):
     tag = "tsmean"
@@ -13,14 +55,22 @@ class TsMean(Signal):
 
     def __init__(self, x: Signal, window: int):
         self.x, self.window = x, int(window)
-        self.buf = {}  # symbol -> deque
+        self._buf: np.ndarray | None = None  # (N, window) circular buffer
+        self._pos: int = 0
+        self._count: int = 0
 
-    def compute(self, ts: pd.Timestamp, ds: pd.DataFrame):
-        vals = self.x.compute(ts, ds)
-        out = pd.Series(index=vals.index, dtype=float)
-        for sym, val in vals.items():
-            q = self.buf.setdefault(sym, deque(maxlen=self.window))
-            q.append(float(val))
-            if len(q) == self.window:
-                out.loc[sym] = sum(q) / self.window
+    def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
+        vals = self.x.compute(t_idx, arrays)
+        N = len(vals)
+
+        # Lazy init
+        if self._buf is None:
+            self._buf = np.full((N, self.window), np.nan, dtype=np.float64)
+            self._pos = 0
+            self._count = 0
+
+        col = self._pos % self.window
+        out = _tsmean_kernel(vals, self._buf, col, self.window, self._count)
+        self._count += 1
+        self._pos = (self._pos + 1) % self.window
         return out

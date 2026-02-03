@@ -10,7 +10,11 @@ const BAR_INTERVALS: { value: BacktestSettings['barInterval']; label: string; di
 ];
 
 export default function SettingsBar() {
-  const { settings, setSettings, dataRange, symbols, gaProgress } = useAlphaStore();
+  const settings = useAlphaStore(s => s.settings);
+  const setSettings = useAlphaStore(s => s.setSettings);
+  const dataRange = useAlphaStore(s => s.dataRange);
+  const symbols = useAlphaStore(s => s.symbols);
+  const gaProgress = useAlphaStore(s => s.gaProgress);
 
   const handleChange = (key: keyof BacktestSettings, value: string) => {
     if (!value) return;
