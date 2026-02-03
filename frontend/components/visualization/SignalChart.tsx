@@ -40,6 +40,18 @@ export default function SignalChart() {
     yRange: { min: number; max: number };
   } | null>(null);
 
+  // Refs to avoid stale closures in stable callbacks
+  const viewRangeRef = useRef(viewRange);
+  viewRangeRef.current = viewRange;
+  const yViewRangeRef = useRef(yViewRange);
+  yViewRangeRef.current = yViewRange;
+  const dataLenRef = useRef(0);
+  const dataYRangeRef = useRef({ min: -1, max: 1 });
+  const isDraggingRef = useRef(false);
+  isDraggingRef.current = isDragging;
+  const dragStartRef = useRef(dragStart);
+  dragStartRef.current = dragStart;
+
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   const colors = useMemo(() => { void theme; return getThemeColors(); }, [theme]);
 
@@ -64,6 +76,7 @@ export default function SignalChart() {
       };
     });
   }, [heatmap, selectedSymbol, symbolMap]);
+  dataLenRef.current = data.length;
 
   // Compute data Y range (min/max values)
   const dataYRange = useMemo(() => {
@@ -80,6 +93,7 @@ export default function SignalChart() {
     const padding = (max - min) * 0.1 || 0.1;
     return { min: min - padding, max: max + padding };
   }, [data]);
+  dataYRangeRef.current = dataYRange;
 
   // Reset view range when symbol changes
   useEffect(() => {
@@ -136,11 +150,12 @@ export default function SignalChart() {
     });
   }, [data, pinnedSnapshots, selectedSymbol, addSnapshot]);
 
-  // Handle mouse wheel for zoom
+  // Handle mouse wheel for zoom (stable callback — reads refs, no state deps)
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (data.length === 0) return;
+    const len = dataLenRef.current;
+    if (len === 0) return;
 
-    const currentRange = viewRange ?? { start: 0, end: data.length - 1 };
+    const currentRange = viewRangeRef.current ?? { start: 0, end: len - 1 };
     const rangeSize = Math.max(1, currentRange.end - currentRange.start);
     const containerWidth = containerRef.current?.clientWidth ?? 1;
 
@@ -157,15 +172,14 @@ export default function SignalChart() {
         newEnd -= newStart;
         newStart = 0;
       }
-      const maxEnd = data.length - 1;
+      const maxEnd = len - 1;
       if (newEnd > maxEnd) {
         const overshoot = newEnd - maxEnd;
         newStart -= overshoot;
         newEnd = maxEnd;
       }
 
-      // If we are still showing everything, keep null to avoid lock-in
-      if (newEnd - newStart >= data.length - 1) {
+      if (newEnd - newStart >= len - 1) {
         setViewRange(null);
       } else {
         setViewRange({
@@ -177,84 +191,84 @@ export default function SignalChart() {
     }
 
     e.preventDefault();
-    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9; // Softer zoom for smoother feel
+    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
     const currentStart = currentRange.start;
     const currentEnd = currentRange.end;
-    const newRange = Math.max(5, Math.min(data.length, Math.round(rangeSize * zoomFactor)));
+    const newRange = Math.max(5, Math.min(len, Math.round(rangeSize * zoomFactor)));
     const center = (currentStart + currentEnd) / 2;
 
     let newStart = Math.round(center - newRange / 2);
     let newEnd = Math.round(center + newRange / 2);
 
-    // Clamp to valid range
     if (newStart < 0) {
       newStart = 0;
-      newEnd = Math.min(data.length - 1, newRange);
+      newEnd = Math.min(len - 1, newRange);
     }
-    if (newEnd >= data.length) {
-      newEnd = data.length - 1;
+    if (newEnd >= len) {
+      newEnd = len - 1;
       newStart = Math.max(0, newEnd - newRange);
     }
 
-    if (newEnd - newStart >= data.length - 1) {
-      setViewRange(null); // Show all data
+    if (newEnd - newStart >= len - 1) {
+      setViewRange(null);
     } else {
       setViewRange({ start: newStart, end: newEnd });
     }
-  }, [data.length, viewRange]);
+  }, []);
 
-  // Handle mouse down for drag start
+  // Handle mouse down for drag start (stable callback)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (data.length === 0 || e.button !== 0) return;
+    const len = dataLenRef.current;
+    if (len === 0 || e.button !== 0) return;
     e.preventDefault();
     setIsDragging(true);
     setDragStart({
       x: e.clientX,
       y: e.clientY,
-      xRange: viewRange ?? { start: 0, end: data.length - 1 },
-      yRange: yViewRange ?? dataYRange,
+      xRange: viewRangeRef.current ?? { start: 0, end: len - 1 },
+      yRange: yViewRangeRef.current ?? dataYRangeRef.current,
     });
-  }, [data.length, viewRange, yViewRange, dataYRange]);
+  }, []);
 
-  // Handle mouse move for dragging
+  // Handle mouse move for dragging (stable callback)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging || !dragStart || !containerRef.current || data.length === 0) return;
+    const ds = dragStartRef.current;
+    if (!isDraggingRef.current || !ds || !containerRef.current) return;
+    const len = dataLenRef.current;
+    if (len === 0) return;
 
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
-    const deltaX = e.clientX - dragStart.x;
-    const deltaY = e.clientY - dragStart.y;
+    const deltaX = e.clientX - ds.x;
+    const deltaY = e.clientY - ds.y;
 
     // X-axis panning
-    const xRangeSize = Math.max(1, dragStart.xRange.end - dragStart.xRange.start);
+    const xRangeSize = Math.max(1, ds.xRange.end - ds.xRange.start);
     const indexDelta = (deltaX / containerWidth) * xRangeSize * -1;
 
-    let newStart = dragStart.xRange.start + indexDelta;
-    let newEnd = dragStart.xRange.end + indexDelta;
+    let newStart = ds.xRange.start + indexDelta;
+    let newEnd = ds.xRange.end + indexDelta;
 
     if (newStart < 0) {
       newStart = 0;
       newEnd = xRangeSize;
     }
-    if (newEnd >= data.length) {
-      newEnd = data.length - 1;
+    if (newEnd >= len) {
+      newEnd = len - 1;
       newStart = newEnd - xRangeSize;
     }
 
     setViewRange({
       start: Math.max(0, Math.round(newStart)),
-      end: Math.min(data.length - 1, Math.round(newEnd))
+      end: Math.min(len - 1, Math.round(newEnd))
     });
 
     // Y-axis panning (inverted: drag up = see higher values)
-    const yRangeSize = dragStart.yRange.max - dragStart.yRange.min;
+    const yRangeSize = ds.yRange.max - ds.yRange.min;
     const valueDelta = (deltaY / containerHeight) * yRangeSize;
 
-    const newMin = dragStart.yRange.min + valueDelta;
-    const newMax = dragStart.yRange.max + valueDelta;
-
-    setYViewRange({ min: newMin, max: newMax });
-  }, [isDragging, dragStart, data.length]);
+    setYViewRange({ min: ds.yRange.min + valueDelta, max: ds.yRange.max + valueDelta });
+  }, []);
 
   // Handle mouse up to stop dragging
   const handleMouseUp = useCallback(() => {
