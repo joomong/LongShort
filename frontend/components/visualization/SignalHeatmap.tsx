@@ -22,7 +22,7 @@ interface TooltipInfo {
   y: number;
   symbol: string;
   timestamp: string;
-  value: number;
+  value: number | null;
 }
 
 export default function SignalHeatmap() {
@@ -33,11 +33,20 @@ export default function SignalHeatmap() {
   const cellSizeRef = useRef({ w: MIN_CELL_WIDTH, h: MIN_CELL_HEIGHT });
   // Granular selectors — avoid subscribing to the full result object for selection state
   const heatmap = useAlphaStore(s => s.result?.heatmap);
-  const signalRange = useAlphaStore(s => s.result?.signalRange);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const selectedTimestamp = useAlphaStore(s => s.selectedTimestamp);
   const setSelectedCell = useAlphaStore(s => s.setSelectedCell);
   const { theme } = useThemeStore();
+
+  // Refs to avoid stale closures in stable draw callback
+  const heatmapRef = useRef(heatmap);
+  heatmapRef.current = heatmap;
+  const selectedSymbolRef = useRef(selectedSymbol);
+  selectedSymbolRef.current = selectedSymbol;
+  const selectedTimestampRef = useRef(selectedTimestamp);
+  selectedTimestampRef.current = selectedTimestamp;
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   // Build index Maps for O(1) lookup (js-index-maps)
   const symbolMap = useMemo(() => {
@@ -50,100 +59,129 @@ export default function SignalHeatmap() {
     return new Map(heatmap.timestamps.map((t, i) => [t, i]));
   }, [heatmap]);
 
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container || !heatmap || !signalRange) return;
+  const symbolMapRef = useRef(symbolMap);
+  symbolMapRef.current = symbolMap;
+  const timeMapRef = useRef(timeMap);
+  timeMapRef.current = timeMap;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+   // Stable draw function that reads from refs to prevent infinite loops
+   const drawHeatmap = useCallback(() => {
+     const canvas = canvasRef.current;
+     const container = containerRef.current;
+     const currentHeatmap = heatmapRef.current;
+     const currentSelectedSymbol = selectedSymbolRef.current;
+     const currentSelectedTimestamp = selectedTimestampRef.current;
+     const currentTheme = themeRef.current;
+     const currentSymbolMap = symbolMapRef.current;
+     const currentTimeMap = timeMapRef.current;
 
-    void theme; // Trigger redraw on theme change (getThemeColors reads CSS variables)
-    const colors = getThemeColors();
-    const { timestamps, symbols, values } = heatmap;
-    if (timestamps.length === 0 || symbols.length === 0) return;
+     if (!canvas || !container || !currentHeatmap) return;
 
-    // Fit canvas to container
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
+     const ctx = canvas.getContext('2d');
+     if (!ctx) return;
 
-    const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / timestamps.length);
-    const cellH = Math.max(MIN_CELL_HEIGHT, containerHeight / symbols.length);
-    cellSizeRef.current = { w: cellW, h: cellH };
+     void currentTheme; // Trigger redraw on theme change (getThemeColors reads CSS variables)
+     const colors = getThemeColors();
+     const { timestamps, symbols, values } = currentHeatmap;
+     if (timestamps.length === 0 || symbols.length === 0) return;
 
-    const width = Math.ceil(cellW * timestamps.length);
-    const height = Math.ceil(cellH * symbols.length);
+     // Fit canvas to container
+     const containerWidth = container.clientWidth;
+     const containerHeight = container.clientHeight;
 
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = `${containerWidth}px`;
-    canvas.style.height = `${Math.max(containerHeight, height)}px`;
+     const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / timestamps.length);
+     const cellH = Math.max(MIN_CELL_HEIGHT, containerHeight / symbols.length);
+     cellSizeRef.current = { w: cellW, h: cellH };
 
-    // Clear canvas
-    ctx.fillStyle = colors.chartBackground;
-    ctx.fillRect(0, 0, width, height);
+     const width = Math.ceil(cellW * timestamps.length);
+     const height = Math.ceil(cellH * symbols.length);
 
-    // Draw heatmap cells (X=time, Y=symbol)
-    // Per-timestamp (column) min/max for cross-sectional color mapping
-    const colMin = new Float64Array(timestamps.length);
-    const colMax = new Float64Array(timestamps.length);
-    for (let t = 0; t < timestamps.length; t++) {
-      let lo = Infinity, hi = -Infinity;
-      const col = values[t];
-      if (col) {
-        for (let s = 0; s < symbols.length; s++) {
-          const v = col[s];
-          if (typeof v === 'number' && isFinite(v)) {
-            if (v < lo) lo = v;
-            if (v > hi) hi = v;
-          }
-        }
-      }
-      colMin[t] = isFinite(lo) ? lo : 0;
-      colMax[t] = isFinite(hi) ? hi : 0;
-    }
+     canvas.width = width;
+     canvas.height = height;
+     canvas.style.width = `${containerWidth}px`;
+     canvas.style.height = `${Math.max(containerHeight, height)}px`;
 
-    symbols.forEach((_, symbolIdx) => {
-      timestamps.forEach((_, timeIdx) => {
-        const value = values[timeIdx]?.[symbolIdx];
-        const color = signalToColor(typeof value === 'number' ? value : NaN, colMin[timeIdx], colMax[timeIdx]);
+     // Clear canvas
+     ctx.fillStyle = colors.chartBackground;
+     ctx.fillRect(0, 0, width, height);
 
-        const x = Math.floor(timeIdx * cellW);
-        const y = Math.floor(symbolIdx * cellH);
-        const w = Math.ceil(cellW);
-        const h = Math.ceil(cellH);
+     // Draw heatmap cells (X=time, Y=symbol)
+     // Per-timestamp (column) rank-based normalization for cross-sectional color mapping
+     const colSorted: number[][] = new Array(timestamps.length);
+     for (let t = 0; t < timestamps.length; t++) {
+       const col = values[t];
+       const finite: number[] = [];
+       if (col) {
+         for (let s = 0; s < symbols.length; s++) {
+           const v = col[s];
+           if (typeof v === 'number' && isFinite(v)) finite.push(v);
+         }
+       }
+       finite.sort((a, b) => a - b);
+       colSorted[t] = finite;
+     }
 
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, w, h);
-      });
-    });
+     symbols.forEach((_, symbolIdx) => {
+       timestamps.forEach((_, timeIdx) => {
+         const value = values[timeIdx]?.[symbolIdx];
+         let color: string;
+         if (typeof value !== 'number' || !isFinite(value)) {
+           color = signalToColor(NaN, -1, 1);
+         } else {
+           const sorted = colSorted[timeIdx];
+           if (sorted.length <= 1) {
+             color = signalToColor(0, -1, 1);
+           } else {
+             // Binary search for rank
+             let lo = 0, hi = sorted.length;
+             while (lo < hi) {
+               const mid = (lo + hi) >> 1;
+               if (sorted[mid] < value) lo = mid + 1;
+               else hi = mid;
+             }
+             const rank01 = lo / (sorted.length - 1); // 0 ~ 1
+             const normalized = rank01 * 2 - 1;       // -1 ~ +1
+             color = signalToColor(normalized, -1, 1);
+           }
+         }
 
-    // Draw selection highlight — O(1) Map lookup instead of indexOf
-    if (selectedSymbol && selectedTimestamp) {
-      const symbolIdx = symbolMap.get(selectedSymbol);
-      const timeIdx = timeMap.get(selectedTimestamp);
-      if (symbolIdx !== undefined && timeIdx !== undefined) {
-        const x = Math.floor(timeIdx * cellW);
-        const y = Math.floor(symbolIdx * cellH);
-        ctx.strokeStyle = colors.accent;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, Math.ceil(cellW), Math.ceil(cellH));
-      }
-    }
-  }, [heatmap, signalRange, selectedSymbol, selectedTimestamp, theme, symbolMap, timeMap]);
+         const x = Math.floor(timeIdx * cellW);
+         const y = Math.floor(symbolIdx * cellH);
+         const w = Math.ceil(cellW);
+         const h = Math.ceil(cellH);
 
-  useEffect(() => {
-    draw();
-  }, [draw]);
+         ctx.fillStyle = color;
+         ctx.fillRect(x, y, w, h);
+       });
+     });
+
+     // Draw selection highlight — O(1) Map lookup instead of indexOf
+     if (currentSelectedSymbol && currentSelectedTimestamp) {
+       const symbolIdx = currentSymbolMap.get(currentSelectedSymbol);
+       const timeIdx = currentTimeMap.get(currentSelectedTimestamp);
+       if (symbolIdx !== undefined && timeIdx !== undefined) {
+         const x = Math.floor(timeIdx * cellW);
+         const y = Math.floor(symbolIdx * cellH);
+         ctx.strokeStyle = colors.accent;
+         ctx.lineWidth = 2;
+         ctx.strokeRect(x, y, Math.ceil(cellW), Math.ceil(cellH));
+       }
+     }
+   }, []); // Empty dependency array - all values accessed via refs
+
+   // Redraw when data, selection, or theme changes
+   useEffect(() => {
+     drawHeatmap();
+   }, [drawHeatmap, heatmap, selectedSymbol, selectedTimestamp, theme]);
 
   // Redraw on container resize
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(() => draw());
+    const observer = new ResizeObserver(() => drawHeatmap());
     observer.observe(container);
     return () => observer.disconnect();
-  }, [draw]);
+  }, [drawHeatmap]);
 
   const getCell = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -177,7 +215,7 @@ export default function SignalHeatmap() {
       y: e.clientY,
       symbol: heatmap.symbols[cell.symbolIdx],
       timestamp: heatmap.timestamps[cell.timeIdx],
-      value: typeof value === 'number' ? value : 0,
+      value: typeof value === 'number' ? value : null,
     });
   }, [heatmap, getCell]);
 
@@ -216,7 +254,7 @@ export default function SignalHeatmap() {
       />
       {tooltip && (
         <div
-          className="fixed z-50 px-2 py-1 text-xs bg-background-tertiary border border-border rounded shadow-lg pointer-events-none"
+          className="fixed z-50 px-3 py-2 text-xs bg-background-elevated border border-border-strong shadow-elevated pointer-events-none"
           style={{
             left: tooltip.x + 10,
             top: tooltip.y + 10,
@@ -225,10 +263,11 @@ export default function SignalHeatmap() {
           <div className="font-medium text-foreground">{tooltip.symbol}</div>
           <div className="text-foreground-secondary">{tooltip.timestamp}</div>
           <div className={`font-mono ${
-            tooltip.value > 0 ? 'text-red-400' :
-            tooltip.value < 0 ? 'text-blue-400' : 'text-foreground-muted'
+            tooltip.value === null ? 'text-foreground-muted' :
+            tooltip.value > 0 ? 'text-metric-negative' :
+            tooltip.value < 0 ? 'text-accent' : 'text-foreground-muted'
           }`}>
-            {isNaN(tooltip.value) ? 'N/A' : tooltip.value.toFixed(4)}
+            {tooltip.value === null ? 'N/A' : tooltip.value.toFixed(4)}
           </div>
         </div>
       )}
