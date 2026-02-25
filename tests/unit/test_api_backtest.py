@@ -121,46 +121,26 @@ SETTINGS_PAYLOAD = {
 }
 
 
-def _fake_run_output():
-    """Create a fake 7-tuple return from Backtester.run()."""
-    dates = pd.to_datetime(["2023-06-01", "2023-09-01", "2024-03-01"], utc=True)
-    ret_s = pd.Series([0.01, -0.005, 0.02], index=dates, dtype=float)
-    to_s = pd.Series([0.1, 0.1, 0.1], index=dates, dtype=float)
-    mb_s = pd.Series([10, 12, 11], index=dates, dtype=float)
-    mw_s = pd.Series([0.15, 0.20, 0.18], index=dates, dtype=float)
-    lw_s = pd.Series([0.6, 0.7, 0.55], index=dates, dtype=float)
-    sw_s = pd.Series([0.4, 0.3, 0.45], index=dates, dtype=float)
-
-    idx = pd.MultiIndex.from_tuples(
-        [
-            (pd.Timestamp("2024-01-01"), "BTCUSDT"),
-            (pd.Timestamp("2024-01-01"), "ETHUSDT"),
-        ],
-        names=["date", "symbol"],
-    )
-    sym_df = pd.DataFrame({"signal": [1.0, -0.5]}, index=idx)
-    viz = {"symbols": sym_df}
-
-    return (ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz)
-
-
 def _fake_multi_result() -> MultipleBacktestResult:
     is_metrics = PeriodMetrics(
         pnl=0.10, cagr=0.12, sharpe=1.5, mdd=-0.05,
         turnover=0.10, min_bet=0.02, max_weight=0.15,
     )
     os_metrics = PeriodMetrics(pnl=0.08, cagr=0.10, sharpe=1.2, mdd=0.0)
-    ret = pd.Series([0.01, 0.02], dtype=float)
-    to = pd.Series([0.1, 0.1], dtype=float)
-    mb = pd.Series([0.0, 0.0], dtype=float)
-    mw = pd.Series([0.0, 0.0], dtype=float)
+    ts = pd.DatetimeIndex(
+        [pd.Timestamp("2023-06-01", tz="UTC"), pd.Timestamp("2023-09-01", tz="UTC")]
+    ).values
+    ret = np.array([0.01, 0.02], dtype=float)
+    to = np.array([0.1, 0.1], dtype=float)
+    mb = np.array([0.0, 0.0], dtype=float)
+    mw = np.array([0.0, 0.0], dtype=float)
 
     is_period = PeriodResult(
-        metrics=is_metrics, ret_series=ret, turnover_series=to,
+        metrics=is_metrics, timestamps=ts, ret_series=ret, turnover_series=to,
         min_bet_series=mb, max_weight_series=mw, long_ratio=0.6, short_ratio=0.4,
     )
     os_period = PeriodResult(
-        metrics=os_metrics, ret_series=ret, turnover_series=to,
+        metrics=os_metrics, timestamps=ts, ret_series=ret, turnover_series=to,
         min_bet_series=mb, max_weight_series=mw, long_ratio=0.5, short_ratio=0.5,
     )
 
@@ -168,6 +148,7 @@ def _fake_multi_result() -> MultipleBacktestResult:
         name="alpha_0",
         is_period=is_period,
         os_period=os_period,
+        source_idx=0,
         rank=1,
     )
 
@@ -176,10 +157,18 @@ def _fake_multi_result() -> MultipleBacktestResult:
         os_period=os_period,
     )
 
+    sym_df = pd.DataFrame(
+        [
+            {"date": pd.Timestamp("2024-01-01", tz="UTC"), "symbol": "BTCUSDT", "signal": 1.0},
+            {"date": pd.Timestamp("2024-01-01", tz="UTC"), "symbol": "ETHUSDT", "signal": -0.5},
+        ]
+    ).set_index("date")
+
     return MultipleBacktestResult(
         alpha_results=[ar],
         combined_result=combined,
         sorted_by="sharpe",
+        viz_bundle={"symbols": sym_df, "portfolio": pd.DataFrame()},
     )
 
 
@@ -211,14 +200,11 @@ client = TestClient(app, raise_server_exceptions=False)
 
 class TestSingleAlphaEndpoint:
     @patch("api.routers.backtest.compile_with_sources")
-    @patch("api.services.backtest_service.Backtester")
-    def test_single_alpha_response_shape(self, mock_bt_cls, mock_compile_with_sources):
+    @patch("api.services.backtest_service.run_framework_backtest")
+    def test_single_alpha_response_shape(self, mock_rmb, mock_compile_with_sources):
         mock_signal = MagicMock()
         mock_compile_with_sources.return_value = [(mock_signal, '<data expr="close" delay="1"/>')]
-
-        mock_bt = MagicMock()
-        mock_bt.run.return_value = _fake_run_output()
-        mock_bt_cls.return_value = mock_bt
+        mock_rmb.return_value = _fake_multi_result()
 
         resp = client.post("/api/backtest/run", json={
             "xml": '<data expr="close" delay="1"/>',
@@ -227,7 +213,7 @@ class TestSingleAlphaEndpoint:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["combined"] is None
+        assert body["combined"] is not None
         assert isinstance(body["alphas"], list)
         assert len(body["alphas"]) == 1
         assert "heatmap" in body
@@ -237,6 +223,60 @@ class TestSingleAlphaEndpoint:
         is_metrics = body["alphas"][0]["isMetrics"]
         assert "min_bet" in is_metrics
         assert "max_weight" in is_metrics
+
+
+class TestMultiAlphaEndpoint:
+    @patch("api.routers.backtest.compile_with_sources")
+    @patch("api.services.backtest_service.run_framework_backtest")
+    def test_multi_alpha_includes_combined_in_alphas(self, mock_rmb, mock_compile_with_sources):
+        """Multi-alpha response should have Combined (rank=0) as first entry in alphas."""
+        mock_signal = MagicMock()
+        # 2 alphas → multi-alpha path
+        mock_compile_with_sources.return_value = [
+            (mock_signal, '<data expr="close" delay="1"/>'),
+            (mock_signal, '<data expr="open" delay="1"/>'),
+        ]
+
+        # Build a MultipleBacktestResult with 2 alpha_results
+        base = _fake_multi_result()
+        ar2 = AlphaResult(
+            name="alpha_1",
+            is_period=base.alpha_results[0].is_period,
+            os_period=base.alpha_results[0].os_period,
+            source_idx=1,
+            rank=2,
+        )
+        mock_rmb.return_value = MultipleBacktestResult(
+            alpha_results=[base.alpha_results[0], ar2],
+            combined_result=base.combined_result,
+            sorted_by="sharpe",
+            viz_bundle=base.viz_bundle,
+        )
+
+        resp = client.post("/api/backtest/run", json={
+            "xml": '<data expr="close" delay="1"/>\n<data expr="open" delay="1"/>',
+            "settings": SETTINGS_PAYLOAD,
+        })
+
+        assert resp.status_code == 200
+        body = resp.json()
+        alphas = body["alphas"]
+        # 2 individual + 1 Combined = 3
+        assert len(alphas) == 3
+        # First entry is Combined
+        assert alphas[0]["name"] == "Combined"
+        assert alphas[0]["rank"] == 0
+        assert alphas[0]["xml"] is None
+        # Combined should not have IR/Corr (NaN → omitted)
+        assert "ir" not in alphas[0]["isMetrics"]
+        assert "corr" not in alphas[0]["isMetrics"]
+        # Individual alphas follow
+        assert alphas[1]["name"] == "alpha_0"
+        assert alphas[2]["name"] == "alpha_1"
+        # combined field still present for backward compat
+        assert body["combined"] is not None
+        # No heatmap for multi-alpha
+        assert "heatmap" not in body
 
 
 class TestDateValidation:

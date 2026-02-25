@@ -29,6 +29,7 @@ export interface ISMetrics {
 
 export interface OSMetrics {
   pnl: number;
+  cagr?: number;
   sharpe: number;
   mdd?: number;
   ir?: number;
@@ -45,18 +46,20 @@ export interface BacktestAlphaResult {
   xml?: string;
 
   // present in multi-alpha path
-  isRetSeries?: Record<string, number>;
-  osRetSeries?: Record<string, number>;
+  isRetSeries?: Record<string, number | null>;
+  osRetSeries?: Record<string, number | null>;
 
   // detail view time series
-  isTurnoverSeries?: Record<string, number> | null;
-  osTurnoverSeries?: Record<string, number> | null;
-  isMinBetSeries?: Record<string, number> | null;
-  osMinBetSeries?: Record<string, number> | null;
-  isMaxWeightSeries?: Record<string, number> | null;
-  osMaxWeightSeries?: Record<string, number> | null;
-  isEquitySeries?: Record<string, number> | null;
-  osEquitySeries?: Record<string, number> | null;
+  isTurnoverSeries?: Record<string, number | null> | null;
+  osTurnoverSeries?: Record<string, number | null> | null;
+  isMinBetSeries?: Record<string, number | null> | null;
+  osMinBetSeries?: Record<string, number | null> | null;
+  isMaxWeightSeries?: Record<string, number | null> | null;
+  osMaxWeightSeries?: Record<string, number | null> | null;
+  isNonzeroPositionSeries?: Record<string, number | null> | null;
+  osNonzeroPositionSeries?: Record<string, number | null> | null;
+  isEquitySeries?: Record<string, number | null> | null;
+  osEquitySeries?: Record<string, number | null> | null;
   longRatio?: number;
   shortRatio?: number;
 }
@@ -64,8 +67,8 @@ export interface BacktestAlphaResult {
 export interface BacktestCombinedResult {
   isMetrics: ISMetrics;
   osMetrics: OSMetrics;
-  isRetSeries?: Record<string, number>;
-  osRetSeries?: Record<string, number>;
+  isRetSeries?: Record<string, number | null>;
+  osRetSeries?: Record<string, number | null>;
 }
 
 export interface BacktestRunResponse {
@@ -75,9 +78,9 @@ export interface BacktestRunResponse {
   sortedBy?: string;
 
   // single-alpha path returns viz bundle
-  heatmap?: HeatmapData;
-  signalRange?: SignalRange;
-  distribution?: number[];
+  heatmap?: HeatmapData | null;
+  signalRange?: SignalRange | null;
+  distribution?: number[] | null;
 }
 
 export interface BacktestSettings {

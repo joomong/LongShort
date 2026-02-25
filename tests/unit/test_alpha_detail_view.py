@@ -20,7 +20,7 @@ from framework.backtester import (
     Backtester, BacktestPeriodResult,
     PeriodMetrics, PeriodSettings, PeriodResult,
     run_backtest_with_periods, AlphaResult, MultipleBacktestResult,
-    run_multiple_backtest, _split_series_by_date,
+    run_backtest, _split_arrays_by_date,
 )
 from framework.data import DataCache
 from tests.conftest import MockAlpha
@@ -141,7 +141,7 @@ class TestBacktestResultLongShortFields:
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
         assert lw_s is not None
         assert sw_s is not None
@@ -149,14 +149,14 @@ class TestBacktestResultLongShortFields:
         assert len(sw_s) == 3
 
     def test_fields_are_pd_series(self, basic_data_path, tmp_path):
-        """The weight series should be pandas Series."""
+        """The weight series should be numpy arrays."""
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         alpha = MockAlpha()
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
-        assert isinstance(lw_s, pd.Series)
-        assert isinstance(sw_s, pd.Series)
+        assert isinstance(lw_s, np.ndarray)
+        assert isinstance(sw_s, np.ndarray)
 
 
 # =============================================================================
@@ -184,12 +184,12 @@ class TestLongShortWeightCorrectness:
         cache = _make_cache(five_symbol_data_path, "2024-01-01", "2024-01-03", tmp_path)
 
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
         # Executed weights after normalization: same as input (abs_sum=1.0)
         # lw_s.iloc[0] is bar 1 (bar 0 is dropped)
-        assert abs(lw_s.iloc[0] - 0.6) < 1e-9
-        assert abs(sw_s.iloc[0] - 0.4) < 1e-9
+        assert abs(lw_s[0] - 0.6) < 1e-9
+        assert abs(sw_s[0] - 0.4) < 1e-9
 
     def test_all_positive_signals(self, basic_data_path, tmp_path):
         """All positive signals: long_weight should equal 1.0, short_weight should be 0.0."""
@@ -199,10 +199,10 @@ class TestLongShortWeightCorrectness:
 
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
-        assert abs(lw_s.iloc[0] - 1.0) < 1e-9
-        assert abs(sw_s.iloc[0] - 0.0) < 1e-9
+        assert abs(lw_s[0] - 1.0) < 1e-9
+        assert abs(sw_s[0] - 0.0) < 1e-9
 
 
 # =============================================================================
@@ -246,12 +246,12 @@ class TestBacktestPeriodResultFields:
         )
 
         # IS: 3 bars → ret_series has 2 entries (first bar no return),
-        #   turnover/min_bet have 3 entries (all bars including bar 0)
+        #   ALL series now aligned to T-1 length (first bar dropped)
         # OS: 3 bars → 3 entries for all series
         assert len(result.is_period.ret_series) == 2
-        assert len(result.is_period.turnover_series) == 3
+        assert len(result.is_period.turnover_series) == 2
         assert len(result.os_period.turnover_series) == 3
-        assert len(result.is_period.min_bet_series) == 3
+        assert len(result.is_period.min_bet_series) == 2
         assert len(result.os_period.min_bet_series) == 3
 
 
@@ -314,7 +314,7 @@ class TestLongShortRatio:
 # =============================================================================
 
 class TestAlphaResultMultiAlpha:
-    """TC-ADV-005: run_multiple_backtest propagates new fields to AlphaResult."""
+    """TC-ADV-005: run_backtest propagates new fields to AlphaResult."""
 
     def test_alpha_result_has_new_fields(self, isos_data_path, tmp_path):
         """Each AlphaResult should have the new detail view fields."""
@@ -328,7 +328,7 @@ class TestAlphaResultMultiAlpha:
         alpha2.name = "alpha_2"
 
         cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
-        result = run_multiple_backtest(
+        result = run_backtest(
             alphas=[alpha1, alpha2],
 
             settings=settings, capital=1_000_000,
@@ -355,7 +355,7 @@ class TestAlphaResultMultiAlpha:
         alpha1.name = "a1"
 
         cache = _make_cache(isos_data_path, settings.is_start, settings.os_end, tmp_path)
-        result = run_multiple_backtest(
+        result = run_backtest(
             alphas=[alpha1],
 
             settings=settings, capital=1_000_000,
@@ -373,37 +373,44 @@ class TestAlphaResultMultiAlpha:
 # =============================================================================
 
 class TestSplitSeriesByDate:
-    """TC-ADV-007: _split_series_by_date splits series correctly."""
+    """TC-ADV-007: _split_arrays_by_date splits arrays correctly."""
 
     def test_split_preserves_long_short_series(self):
-        """Both IS and OS sub-series should be split correctly."""
-        dates = pd.to_datetime(
-            ["2024-01-01", "2024-01-02", "2024-03-01", "2024-03-02"], utc=True
-        )
-        lw_series = pd.Series([0.6, 0.7, 0.55, 0.65], index=dates)
-        sw_series = pd.Series([0.4, 0.3, 0.45, 0.35], index=dates)
+        """Both IS and OS sub-arrays should be split correctly."""
+        timestamps = np.array([
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-03-01T00:00:00",
+            "2024-03-02T00:00:00",
+        ], dtype="datetime64[ns]")
+        lw_arr = np.array([0.6, 0.7, 0.55, 0.65])
+        sw_arr = np.array([0.4, 0.3, 0.45, 0.35])
 
-        is_lw, os_lw = _split_series_by_date(lw_series, "2024-03-01")
-        is_sw, os_sw = _split_series_by_date(sw_series, "2024-03-01")
+        (is_ts, is_lw, is_sw), (os_ts, os_lw, os_sw) = _split_arrays_by_date(
+            timestamps, lw_arr, sw_arr, split_date="2024-03-01"
+        )
 
         # IS side
         assert len(is_lw) == 2
         assert len(is_sw) == 2
-        assert abs(is_lw.iloc[0] - 0.6) < 1e-9
-        assert abs(is_sw.iloc[0] - 0.4) < 1e-9
+        assert abs(is_lw[0] - 0.6) < 1e-9
+        assert abs(is_sw[0] - 0.4) < 1e-9
 
         # OS side
         assert len(os_lw) == 2
         assert len(os_sw) == 2
-        assert abs(os_lw.iloc[0] - 0.55) < 1e-9
-        assert abs(os_sw.iloc[0] - 0.45) < 1e-9
+        assert abs(os_lw[0] - 0.55) < 1e-9
+        assert abs(os_sw[0] - 0.45) < 1e-9
 
     def test_split_empty_series(self):
-        """Empty series should split into two empty series without error."""
-        empty = pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))
-        is_part, os_part = _split_series_by_date(empty, "2024-03-01")
-        assert len(is_part) == 0
-        assert len(os_part) == 0
+        """Empty arrays should split into two empty arrays without error."""
+        empty_ts = np.array([], dtype="datetime64[ns]")
+        empty_arr = np.array([], dtype=float)
+        (is_ts, is_arr), (os_ts, os_arr) = _split_arrays_by_date(
+            empty_ts, empty_arr, split_date="2024-03-01"
+        )
+        assert len(is_arr) == 0
+        assert len(os_arr) == 0
 
 
 # =============================================================================
@@ -424,14 +431,14 @@ class TestEdgeCaseAllLong:
 
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
         # All short weights should be zero
-        for val in sw_s.values:
+        for val in sw_s:
             assert abs(val) < 1e-9, f"Expected 0.0, got {val}"
 
         # All long weights should be 1.0 (gross=1 normalized)
-        for val in lw_s.values:
+        for val in lw_s:
             assert abs(val - 1.0) < 1e-9, f"Expected 1.0, got {val}"
 
     def test_all_long_ratio_one(self, isos_data_path, tmp_path):
@@ -470,14 +477,14 @@ class TestEdgeCaseAllShort:
 
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
         # All long weights should be zero
-        for val in lw_s.values:
+        for val in lw_s:
             assert abs(val) < 1e-9, f"Expected 0.0, got {val}"
 
         # All short weights should be 1.0 (gross=1 normalized)
-        for val in sw_s.values:
+        for val in sw_s:
             assert abs(val - 1.0) < 1e-9, f"Expected 1.0, got {val}"
 
     def test_all_short_ratio_one(self, isos_data_path, tmp_path):
@@ -524,12 +531,12 @@ class TestEdgeCaseAllZero:
 
         cache = _make_cache(basic_data_path, "2024-01-01", "2024-01-03", tmp_path)
         bt = Backtester(cache=cache, alpha_recipe=alpha, capital=1_000_000)
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = bt.run()
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, viz = bt.run()
 
         # Both series should be all zeros, no NaN
-        for val in lw_s.values:
+        for val in lw_s:
             assert val == 0.0
-        for val in sw_s.values:
+        for val in sw_s:
             assert val == 0.0
 
     def test_all_zero_ratio_zero(self, isos_data_path, tmp_path):

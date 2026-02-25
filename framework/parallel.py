@@ -1,4 +1,5 @@
 """Parallel multi-alpha backtest via shared memory and ProcessPoolExecutor."""
+
 from __future__ import annotations
 
 import os
@@ -14,6 +15,7 @@ import pandas as pd
 @dataclass
 class SharedResultInfo:
     """Shared memory metadata for backtest results."""
+
     shm_name: str
     n_alphas: int
     n_timestamps_is: int
@@ -25,29 +27,37 @@ class SharedResultInfo:
 @dataclass
 class SharedDataInfo:
     """Shared memory metadata for input data (3D array: T x N x C)."""
+
     shm_name: str
-    shape: tuple          # (T, N, C)
+    shape: tuple  # (T, N, C)
     dtype: str
-    timestamps_ns: list   # int64 nanosecond values
-    symbols: list         # symbol strings
-    columns: list         # column names
+    timestamps_raw: list  # int64 epoch values
+    timestamps_dtype: str  # e.g. "datetime64[ms]" or "datetime64[ns]"
+    symbols: list  # symbol strings
+    columns: list  # column names
     transaction_fee_rate: float
 
 
 class SharedResultManager:
     """Manages backtest result storage in shared memory."""
 
-    N_IS_METRICS = 8
-    N_OS_METRICS = 6
+    N_IS_METRICS = 10
+    N_OS_METRICS = 10
 
     def __init__(self):
         self.shm: Optional[shared_memory.SharedMemory] = None
         self.info: Optional[SharedResultInfo] = None
 
-    def create(self, n_alphas: int, n_timestamps_is: int, n_timestamps_os: int) -> SharedResultInfo:
+    def create(
+        self, n_alphas: int, n_timestamps_is: int, n_timestamps_os: int
+    ) -> SharedResultInfo:
         size_per_alpha = (
-            n_timestamps_is + n_timestamps_os +
-            self.N_IS_METRICS + self.N_OS_METRICS
+            n_timestamps_is
+            + n_timestamps_os
+            + n_timestamps_is
+            + n_timestamps_os
+            + self.N_IS_METRICS
+            + self.N_OS_METRICS
         )
         total_bytes = n_alphas * size_per_alpha * 8
         total_bytes = max(total_bytes, 8)
@@ -70,8 +80,12 @@ class SharedResultManager:
 
     def get_result_array(self) -> np.ndarray:
         size_per_alpha = (
-            self.info.n_timestamps_is + self.info.n_timestamps_os +
-            self.N_IS_METRICS + self.N_OS_METRICS
+            self.info.n_timestamps_is
+            + self.info.n_timestamps_os
+            + self.info.n_timestamps_is
+            + self.info.n_timestamps_os
+            + self.N_IS_METRICS
+            + self.N_OS_METRICS
         )
         return np.ndarray(
             (self.info.n_alphas, size_per_alpha),
@@ -109,7 +123,8 @@ class SharedDataManager:
             shm_name=self.shm.name,
             shape=arr.shape,
             dtype="float64",
-            timestamps_ns=[int(ts) for ts in timestamps.astype('int64')],
+            timestamps_raw=[int(ts) for ts in timestamps.astype("int64")],
+            timestamps_dtype=str(timestamps.dtype),
             symbols=symbols.tolist(),
             columns=columns,
             transaction_fee_rate=float(cache.transaction_fee_rate),
@@ -130,7 +145,7 @@ class SharedCacheProxy:
         self._shm = shared_memory.SharedMemory(name=info.shm_name)
         self._arr = np.ndarray(info.shape, dtype=info.dtype, buffer=self._shm.buf)
 
-        self.timestamps = np.array(info.timestamps_ns, dtype='datetime64[ns]')
+        self.timestamps = np.array(info.timestamps_raw, dtype=info.timestamps_dtype)
         self.symbols = np.array(info.symbols, dtype=object)
         self.sym_index = {s: i for i, s in enumerate(info.symbols)}
         self._ts_index = {pd.Timestamp(ts): i for i, ts in enumerate(self.timestamps)}
@@ -159,6 +174,8 @@ def write_result_to_shared(
     alpha_idx: int,
     is_ret_series: np.ndarray,
     os_ret_series: np.ndarray,
+    is_nonzero_series: np.ndarray,
+    os_nonzero_series: np.ndarray,
     is_metrics: List[float],
     os_metrics: List[float],
 ):
@@ -166,8 +183,12 @@ def write_result_to_shared(
     shm = shared_memory.SharedMemory(name=result_info.shm_name)
     try:
         size_per_alpha = (
-            result_info.n_timestamps_is + result_info.n_timestamps_os +
-            SharedResultManager.N_IS_METRICS + SharedResultManager.N_OS_METRICS
+            result_info.n_timestamps_is
+            + result_info.n_timestamps_os
+            + result_info.n_timestamps_is
+            + result_info.n_timestamps_os
+            + SharedResultManager.N_IS_METRICS
+            + SharedResultManager.N_OS_METRICS
         )
         arr = np.ndarray(
             (result_info.n_alphas, size_per_alpha),
@@ -175,13 +196,17 @@ def write_result_to_shared(
             buffer=shm.buf,
         )
         offset = 0
-        arr[alpha_idx, offset:offset + len(is_ret_series)] = is_ret_series
+        arr[alpha_idx, offset : offset + len(is_ret_series)] = is_ret_series
         offset += result_info.n_timestamps_is
-        arr[alpha_idx, offset:offset + len(os_ret_series)] = os_ret_series
+        arr[alpha_idx, offset : offset + len(os_ret_series)] = os_ret_series
         offset += result_info.n_timestamps_os
-        arr[alpha_idx, offset:offset + len(is_metrics)] = is_metrics
+        arr[alpha_idx, offset : offset + len(is_nonzero_series)] = is_nonzero_series
+        offset += result_info.n_timestamps_is
+        arr[alpha_idx, offset : offset + len(os_nonzero_series)] = os_nonzero_series
+        offset += result_info.n_timestamps_os
+        arr[alpha_idx, offset : offset + len(is_metrics)] = is_metrics
         offset += SharedResultManager.N_IS_METRICS
-        arr[alpha_idx, offset:offset + len(os_metrics)] = os_metrics
+        arr[alpha_idx, offset : offset + len(os_metrics)] = os_metrics
     finally:
         shm.close()
 
@@ -199,8 +224,9 @@ def _backtest_worker(
     proxy = None
     try:
         from .backtester import (
-            Backtester, PeriodSettings,
-            _build_period_result, _split_series_by_date,
+            Backtester,
+            PeriodSettings,
+            _build_backtest_period_result_from_arrays,
         )
 
         settings = PeriodSettings(*settings_tuple)
@@ -216,41 +242,63 @@ def _backtest_worker(
             start_date=settings.is_start,
             end_date=settings.os_end,
         )
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = bt.run()
-
-        os_start = settings.os_start
-        is_ret, os_ret = _split_series_by_date(ret_s, os_start)
-        is_to, os_to = _split_series_by_date(to_s, os_start)
-        is_mb, os_mb = _split_series_by_date(mb_s, os_start)
-        is_mw, os_mw = _split_series_by_date(mw_s, os_start)
-        is_lw, os_lw = _split_series_by_date(lw_s, os_start)
-        is_sw, os_sw = _split_series_by_date(sw_s, os_start)
-
-        is_period = _build_period_result(is_ret, is_to, is_mb, is_mw, is_lw, is_sw)
-        os_period = _build_period_result(os_ret, os_to, os_mb, os_mw, os_lw, os_sw)
+        timestamps, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, nz_s, _ = bt.run()
+        period_result = _build_backtest_period_result_from_arrays(
+            timestamps,
+            ret_s,
+            to_s,
+            mb_s,
+            mw_s,
+            lw_s,
+            sw_s,
+            nz_s,
+            split_date=settings.os_start,
+        )
+        is_period = period_result.is_period
+        os_period = period_result.os_period
 
         is_metrics_obj = is_period.metrics
         os_metrics_obj = os_period.metrics
 
-        is_ret_vals = is_ret.fillna(0.0).values
-        os_ret_vals = os_ret.fillna(0.0).values
+        is_ret_vals = np.asarray(is_period.ret_series, dtype=np.float64)
+        os_ret_vals = np.asarray(os_period.ret_series, dtype=np.float64)
+        is_nonzero_vals = np.asarray(is_period.nonzero_position_series, dtype=np.float64)
+        os_nonzero_vals = np.asarray(os_period.nonzero_position_series, dtype=np.float64)
 
         is_metrics_list = [
-            is_metrics_obj.pnl, is_metrics_obj.cagr,
-            is_metrics_obj.sharpe, is_metrics_obj.mdd,
-            is_metrics_obj.turnover, is_metrics_obj.min_bet,
-            is_metrics_obj.max_weight, np.nan,
+            is_metrics_obj.pnl,
+            is_metrics_obj.cagr,
+            is_metrics_obj.sharpe,
+            is_metrics_obj.mdd,
+            is_metrics_obj.turnover,
+            is_metrics_obj.min_bet,
+            is_metrics_obj.max_weight,
+            float(is_metrics_obj.nonzero_position),
+            is_period.long_ratio,
+            is_period.short_ratio,
         ]
         os_metrics_list = [
-            os_metrics_obj.pnl, os_metrics_obj.cagr,
-            os_metrics_obj.sharpe, os_metrics_obj.mdd,
-            np.nan, np.nan,
+            os_metrics_obj.pnl,
+            os_metrics_obj.cagr,
+            os_metrics_obj.sharpe,
+            os_metrics_obj.mdd,
+            os_metrics_obj.turnover,
+            os_metrics_obj.min_bet,
+            os_metrics_obj.max_weight,
+            float(os_metrics_obj.nonzero_position),
+            os_period.long_ratio,
+            os_period.short_ratio,
         ]
 
         write_result_to_shared(
-            result_info, alpha_idx,
-            is_ret_vals, os_ret_vals,
-            is_metrics_list, os_metrics_list,
+            result_info,
+            alpha_idx,
+            is_ret_vals,
+            os_ret_vals,
+            is_nonzero_vals,
+            os_nonzero_vals,
+            is_metrics_list,
+            os_metrics_list,
         )
         return (alpha_idx, True, "")
 
@@ -273,16 +321,39 @@ def run_parallel_backtests(
 ) -> list:
     """Run multiple alpha backtests in parallel using ProcessPoolExecutor."""
     from .backtester import (
-        BacktestPeriodResult, PeriodResult, PeriodMetrics,
+        BacktestPeriodResult,
+        PeriodResult,
+        PeriodMetrics,
     )
 
     n_jobs = max(1, n_jobs)
 
-    n_ts_is = data_cache.count_timestamps_in_range(settings.is_start, settings.is_end)
-    n_ret_is = max(n_ts_is - 1, 0)
+    ts_pd = pd.DatetimeIndex(data_cache.timestamps)
+    if ts_pd.tz is None:
+        ts_pd = ts_pd.tz_localize("UTC")
 
-    n_ts_os = data_cache.count_timestamps_in_range(settings.os_start, settings.os_end)
-    n_ret_os = n_ts_os
+    start_ts = pd.Timestamp(settings.is_start, tz="UTC")
+    end_ts = (
+        pd.Timestamp(settings.os_end, tz="UTC")
+        + pd.Timedelta(days=1)
+        - pd.Timedelta(milliseconds=1)
+    )
+    start_idx = int(ts_pd.searchsorted(start_ts, side="left"))
+    end_idx = int(ts_pd.searchsorted(end_ts, side="right")) - 1
+    start_idx = max(0, min(start_idx, len(ts_pd)))
+    end_idx = max(-1, min(end_idx, len(ts_pd) - 1))
+    if start_idx > end_idx:
+        raise ValueError("No data in requested date range.")
+
+    ts_window = ts_pd[start_idx : end_idx + 1]
+    ret_timestamps = ts_window[1:].values if len(ts_window) > 1 else np.array([], dtype="datetime64[ns]")
+    split_ts = np.datetime64(settings.os_start + "T00:00:00", "ns")
+    split_idx = int(np.searchsorted(ret_timestamps, split_ts, side="left"))
+    is_timestamps = ret_timestamps[:split_idx]
+    os_timestamps = ret_timestamps[split_idx:]
+
+    n_ret_is = int(len(is_timestamps))
+    n_ret_os = int(len(os_timestamps))
 
     n_alphas = len(alphas)
     result_manager = SharedResultManager()
@@ -291,7 +362,12 @@ def run_parallel_backtests(
     data_manager = SharedDataManager()
     shared_data_info = data_manager.create(data_cache)
 
-    settings_tuple = (settings.is_start, settings.is_end, settings.os_start, settings.os_end)
+    settings_tuple = (
+        settings.is_start,
+        settings.is_end,
+        settings.os_start,
+        settings.os_end,
+    )
 
     success_map = {}
     try:
@@ -300,9 +376,12 @@ def run_parallel_backtests(
             for idx, alpha in enumerate(alphas):
                 fut = executor.submit(
                     _backtest_worker,
-                    idx, alpha,
-                    settings_tuple, capital,
-                    shared_data_info, mode,
+                    idx,
+                    alpha,
+                    settings_tuple,
+                    capital,
+                    shared_data_info,
+                    mode,
                     result_info,
                 )
                 futures[fut] = idx
@@ -326,48 +405,80 @@ def run_parallel_backtests(
                 continue
 
             offset = 0
-            is_ret_vals = arr[idx, offset:offset + n_ret_is]
+            # Detach from shared memory before manager cleanup.
+            is_ret_vals = arr[idx, offset : offset + n_ret_is].copy()
             offset += n_ret_is
-            os_ret_vals = arr[idx, offset:offset + n_ret_os]
+            os_ret_vals = arr[idx, offset : offset + n_ret_os].copy()
             offset += n_ret_os
-            is_metrics_vals = arr[idx, offset:offset + SharedResultManager.N_IS_METRICS]
+            is_nonzero_vals = arr[idx, offset : offset + n_ret_is].copy()
+            offset += n_ret_is
+            os_nonzero_vals = arr[idx, offset : offset + n_ret_os].copy()
+            offset += n_ret_os
+            is_metrics_vals = arr[
+                idx, offset : offset + SharedResultManager.N_IS_METRICS
+            ].copy()
             offset += SharedResultManager.N_IS_METRICS
-            os_metrics_vals = arr[idx, offset:offset + SharedResultManager.N_OS_METRICS]
+            os_metrics_vals = arr[
+                idx, offset : offset + SharedResultManager.N_OS_METRICS
+            ].copy()
 
             is_metrics = PeriodMetrics(
-                pnl=is_metrics_vals[0], cagr=is_metrics_vals[1],
-                sharpe=is_metrics_vals[2], mdd=is_metrics_vals[3],
-                turnover=is_metrics_vals[4], min_bet=is_metrics_vals[5],
+                pnl=is_metrics_vals[0],
+                cagr=is_metrics_vals[1],
+                sharpe=is_metrics_vals[2],
+                mdd=is_metrics_vals[3],
+                turnover=is_metrics_vals[4],
+                min_bet=is_metrics_vals[5],
                 max_weight=is_metrics_vals[6],
+                nonzero_position=int(is_metrics_vals[7]),
             )
             os_metrics = PeriodMetrics(
-                pnl=os_metrics_vals[0], cagr=os_metrics_vals[1],
-                sharpe=os_metrics_vals[2], mdd=os_metrics_vals[3],
+                pnl=os_metrics_vals[0],
+                cagr=os_metrics_vals[1],
+                sharpe=os_metrics_vals[2],
+                mdd=os_metrics_vals[3],
+                turnover=os_metrics_vals[4],
+                min_bet=os_metrics_vals[5],
+                max_weight=os_metrics_vals[6],
+                nonzero_position=int(os_metrics_vals[7]),
             )
 
-            is_ret_series = pd.Series(is_ret_vals, dtype=float)
-            os_ret_series = pd.Series(os_ret_vals, dtype=float)
+            # Build compact PeriodResult from shared memory data.
+            # Auxiliary per-bar series are omitted in parallel mode to reduce memory.
+            empty_arrays = np.array([], dtype=np.float64)
 
-            # Build minimal PeriodResult from shared memory data
             is_period = PeriodResult(
                 metrics=is_metrics,
-                ret_series=is_ret_series,
-                turnover_series=pd.Series(dtype=float),
-                min_bet_series=pd.Series(dtype=float),
-                max_weight_series=pd.Series(dtype=float),
+                timestamps=is_timestamps,
+                ret_series=is_ret_vals,
+                turnover_series=empty_arrays,
+                min_bet_series=empty_arrays,
+                max_weight_series=empty_arrays,
+                nonzero_position_series=is_nonzero_vals.astype(np.int16, copy=False),
+                long_ratio=float(is_metrics_vals[8]),
+                short_ratio=float(is_metrics_vals[9]),
             )
             os_period = PeriodResult(
                 metrics=os_metrics,
-                ret_series=os_ret_series,
-                turnover_series=pd.Series(dtype=float),
-                min_bet_series=pd.Series(dtype=float),
-                max_weight_series=pd.Series(dtype=float),
+                timestamps=os_timestamps,
+                ret_series=os_ret_vals,
+                turnover_series=empty_arrays,
+                min_bet_series=empty_arrays,
+                max_weight_series=empty_arrays,
+                nonzero_position_series=os_nonzero_vals.astype(np.int16, copy=False),
+                long_ratio=float(os_metrics_vals[8]),
+                short_ratio=float(os_metrics_vals[9]),
             )
 
-            results.append((idx, BacktestPeriodResult(
-                is_period=is_period,
-                os_period=os_period,
-            )))
+            results.append(
+                (
+                    idx,
+                    BacktestPeriodResult(
+                        is_period=is_period,
+                        os_period=os_period,
+                    ),
+                )
+            )
 
         return results
 

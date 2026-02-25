@@ -57,16 +57,17 @@ export default function LoadAlphaModal() {
   if (!isLoadModalOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-background-tertiary rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-background-tertiary shadow-modal border border-border w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" style={{ overscrollBehavior: 'contain' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-foreground">Load Alpha</h2>
           <button
             onClick={handleClose}
-            className="text-foreground-secondary hover:text-foreground transition-colors"
+            className="text-foreground-secondary hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label="Close"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -80,7 +81,7 @@ export default function LoadAlphaModal() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <span className="ml-2 text-foreground-secondary">Loading...</span>
+              <span className="ml-2 text-foreground-secondary">Loading\u2026</span>
             </div>
           ) : alphas.length === 0 ? (
             <div className="text-center py-8 text-foreground-muted">
@@ -91,7 +92,7 @@ export default function LoadAlphaModal() {
               {alphas.map((alpha) => (
                 <div
                   key={alpha.name}
-                  className="flex items-center justify-between p-3 bg-background-elevated rounded hover:bg-border-hover transition-colors"
+                  className="flex items-center justify-between p-3 bg-background-elevated border border-border hover:bg-border-hover transition-colors"
                 >
                   <div>
                     <h3 className="font-medium text-foreground">{alpha.name}</h3>
@@ -102,9 +103,9 @@ export default function LoadAlphaModal() {
                   <button
                     onClick={() => handleLoad(alpha.name)}
                     disabled={loadingAlpha !== null}
-                    className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors disabled:opacity-50"
+                    className="px-3 py-1 text-sm bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-accent"
                   >
-                    {loadingAlpha === alpha.name ? 'Loading...' : 'Load'}
+                    {loadingAlpha === alpha.name ? 'Loading\u2026' : 'Load'}
                   </button>
                 </div>
               ))}
@@ -121,7 +122,7 @@ export default function LoadAlphaModal() {
         <div className="flex justify-end px-6 py-4 border-t border-border">
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-foreground-secondary hover:text-foreground transition-colors"
+            className="px-4 py-2 text-foreground-secondary hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-accent"
           >
             Close
           </button>

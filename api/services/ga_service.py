@@ -1,6 +1,7 @@
 """GA service: wires GA engine to backtest evaluation."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Tuple
 
 from api.models.schemas import BacktestSettings
@@ -11,9 +12,11 @@ from api.services.ga_engine import (
 from framework.exceptions import XmlCompileError
 from api.xml_alpha_sources import compile_with_sources
 from framework.backtester import (
-    PeriodSettings, run_multiple_backtest, metrics_to_api_dict,
+    PeriodSettings, run_backtest as run_framework_backtest,
 )
 from framework.data import DataCache
+
+logger = logging.getLogger(__name__)
 
 
 def _make_evaluate_batch(
@@ -42,8 +45,12 @@ def _make_evaluate_batch(
                 for signal, _src in pairs:
                     compiled.append(signal)
                     xml_index_map.append(i)
-            except Exception:
-                pass  # skip invalid XMLs; they get NaN fitness
+            except XmlCompileError:
+                # Invalid XMLs are intentionally skipped and remain NaN fitness.
+                continue
+            except Exception as exc:
+                logger.warning("Unexpected compile failure at batch index %d: %s", i, exc)
+                continue
 
         if not compiled:
             return [float('nan')] * len(xml_list)
@@ -57,7 +64,7 @@ def _make_evaluate_batch(
 
         effective_jobs = n_jobs if n_jobs > 0 else -1
 
-        multi_result = run_multiple_backtest(
+        multi_result = run_framework_backtest(
             alphas=compiled,
             settings=period_settings,
             capital=data_cache.initial_capital,
@@ -69,7 +76,11 @@ def _make_evaluate_batch(
         results = [float('nan')] * len(xml_list)
         for ar in multi_result.alpha_results:
             try:
-                compiled_idx = int(ar.name.split("_")[1])
+                source_idx = getattr(ar, "source_idx", -1)
+                if isinstance(source_idx, int) and source_idx >= 0:
+                    compiled_idx = source_idx
+                else:
+                    compiled_idx = int(ar.name.split("_")[1])
                 orig_idx = xml_index_map[compiled_idx]
                 results[orig_idx] = ar.is_period.metrics.sharpe
                 # Cache per-alpha dict for streaming
@@ -119,7 +130,10 @@ def _build_response(
         try:
             pairs = compile_with_sources(xml)
             compiled_with_xml.extend(pairs)
-        except Exception:
+        except XmlCompileError:
+            continue
+        except Exception as exc:
+            logger.warning("Unexpected compile failure while building GA response: %s", exc)
             continue
 
     compiled = [c for c, _x in compiled_with_xml]

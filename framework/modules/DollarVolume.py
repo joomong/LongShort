@@ -28,6 +28,6 @@ class DollarVolume(Signal):
                 if "volume" in arrays:
                     vol = arrays["volume"][t_idx] * price
                 else:
-                    return np.zeros(N, dtype=np.float64)
+                    return np.full(N, np.nan, dtype=np.float64)
 
-        return np.nan_to_num(vol, nan=0.0)
+        return np.where(np.isfinite(vol), vol, np.nan)

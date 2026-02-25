@@ -28,11 +28,7 @@ sys.path.insert(0, str(_PROJECT))
 from framework.data import DataCache
 from framework.backtester import Backtester, _compute_metrics
 
-try:
-    import numba
-    _HAS_NUMBA = True
-except ImportError:
-    _HAS_NUMBA = False
+import numba
 
 
 # ── Golden dataset (small, for accuracy) ──────────────────────────────────
@@ -112,7 +108,10 @@ def check_golden_accuracy(tmp_dir: Path):
     bt = Backtester(cache=cache, alpha_recipe=ConstAlpha(),
                     capital=1_000_000, mode="D0",
                     start_date="2024-01-01", end_date="2024-01-10")
-    ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = bt.run()
+    _, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = bt.run()
+    to_s = to_s[1:] if to_s.size == ret_s.size + 1 else to_s
+    mb_s = mb_s[1:] if mb_s.size == ret_s.size + 1 else mb_s
+    mw_s = mw_s[1:] if mw_s.size == ret_s.size + 1 else mw_s
     m = _compute_metrics(ret_s, to_s, mb_s, mw_s)
 
     # Independent calculation
@@ -140,7 +139,7 @@ def check_golden_accuracy(tmp_dir: Path):
             all_ok = False
 
     # Return series element-wise
-    bt_rets = ret_s.values
+    bt_rets = ret_s
     ok = np.allclose(bt_rets, port_rets, rtol=1e-6)
     status = "PASS" if ok else "FAIL"
     print(f"  Return series (element-wise, rtol=1e-6): [{status}]")
@@ -274,9 +273,7 @@ def main():
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp(prefix="bench_"))
     print(f"Temp dir: {tmp_dir}")
-    print(f"Numba available: {_HAS_NUMBA}")
-    if _HAS_NUMBA:
-        print(f"Numba version: {numba.__version__}")
+    print(f"Numba version: {numba.__version__}")
     print()
 
     # 1. Golden accuracy

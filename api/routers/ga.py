@@ -79,6 +79,9 @@ async def run_ga_stream_endpoint(req: GARunRequest, request: Request):
                         "alphas": partial_alphas,
                         "initialCapital": data_cache.initial_capital,
                         "sortedBy": "sharpe",
+                        "heatmap": None,
+                        "signalRange": None,
+                        "distribution": None,
                     }
                 q.put(json.dumps(event) + "\n")
 

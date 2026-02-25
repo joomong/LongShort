@@ -126,7 +126,8 @@ export function enforceSettingsDates(
 export const useAlphaStore = create<AlphaState>((set) => ({
   // XML Editor
   xmlCode: defaultXml,
-  setXmlCode: (code) => set({ xmlCode: code }),
+  setXmlCode: (code) =>
+    set((state) => (state.xmlCode === code ? state : { xmlCode: code })),
 
   // UI Error
   backtestError: null,
@@ -147,13 +148,23 @@ export const useAlphaStore = create<AlphaState>((set) => ({
   result: null,
   setResult: (result) =>
     set((state) => {
-      const isMulti = !!(result?.combined || (result?.alphas && result.alphas.length > 1));
+      const isMulti = (result?.alphas?.length ?? 0) > 1;
       const baseMode = isMulti ? 'multi' : 'single';
-      // During GA streaming, keep viewMode if already in multi
-      const viewMode = state.gaProgress && state.viewMode === 'multi' ? 'multi' : baseMode;
+      // During GA streaming, preserve detail view state
+      if (state.gaProgress) {
+        const viewMode = state.viewMode === 'detail' ? 'detail'
+          : state.viewMode === 'multi' ? 'multi'
+          : baseMode;
+        return {
+          result,
+          viewMode,
+          selectedAlphaIndex: state.viewMode === 'detail' ? state.selectedAlphaIndex : null,
+          selectedAlphaIndices: [],
+        };
+      }
       return {
         result,
-        viewMode,
+        viewMode: baseMode,
         selectedAlphaIndex: null,
         selectedAlphaIndices: [],
       };
@@ -176,7 +187,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
   enterDetailView: (index) =>
     set((state) => {
       if (state.viewMode === 'detail' && state.selectedAlphaIndex === index) {
-        const baseMode = state.result?.combined ? 'multi' : 'single';
+        const baseMode = (state.result?.alphas?.length ?? 0) > 1 ? 'multi' : 'single';
         return { viewMode: baseMode, selectedAlphaIndex: null };
       }
       return { viewMode: 'detail', selectedAlphaIndex: index };

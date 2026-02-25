@@ -1,6 +1,7 @@
 """Tests for GA service integration with backtest."""
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,7 +14,7 @@ class TestEvaluateBatch:
     """Tests for _make_evaluate_batch callable."""
 
     @patch("api.services.ga_service.compile_with_sources")
-    @patch("api.services.ga_service.run_multiple_backtest")
+    @patch("api.services.ga_service.run_framework_backtest")
     def test_maps_results_to_correct_indices(self, mock_rmb, mock_compile):
         """IS Sharpe values correctly mapped back to xml_list indices."""
         from api.services.ga_engine import Individual
@@ -22,17 +23,18 @@ class TestEvaluateBatch:
         mock_signal = MagicMock()
         mock_compile.side_effect = lambda xml: [(mock_signal, xml)]
 
-        # Mock run_multiple_backtest result with real PeriodMetrics
+        # Mock run_backtest result with real PeriodMetrics
         def _make_mock_ar(name, sharpe):
             ar = MagicMock()
             ar.name = name
             metrics = PeriodMetrics(pnl=0.1, cagr=0.1, sharpe=sharpe, mdd=-0.01)
             period = PeriodResult(
                 metrics=metrics,
-                ret_series=pd.Series(dtype=float),
-                turnover_series=pd.Series(dtype=float),
-                min_bet_series=pd.Series(dtype=float),
-                max_weight_series=pd.Series(dtype=float),
+                timestamps=np.array([], dtype="datetime64[ns]"),
+                ret_series=np.array([], dtype=float),
+                turnover_series=np.array([], dtype=float),
+                min_bet_series=np.array([], dtype=float),
+                max_weight_series=np.array([], dtype=float),
             )
             ar.is_period = period
             ar.os_period = period

@@ -5,49 +5,31 @@ import numpy as np
 from ..signal_base import Signal
 from framework.exceptions import XmlCompileError
 
-try:
-    import numba
-    _HAS_NUMBA = True
-except ImportError:
-    _HAS_NUMBA = False
+import numba
 
 
-def _event_kernel_numpy(base, trig, hold, threshold, max_holddays, bet_all):
-    """Numpy fallback: decrement holds, fire triggers, apply mask."""
-    hold[:] = np.maximum(hold - 1, 0)
-    fired = trig > threshold
-    hold[fired] = max_holddays
-    if not bet_all:
-        return base
-    active = hold > 0
-    return np.where(active, base, 0.0)
+@numba.jit(nopython=True, cache=True)
+def _event_kernel_numba(base, trig, hold, threshold, max_holddays, bet_all):
+    """Numba kernel: hold decrement + trigger + mask."""
+    N = len(base)
+    out = np.empty(N, dtype=np.float64)
+    for i in range(N):
+        # Decrement hold
+        h = hold[i] - 1
+        if h < 0:
+            h = 0
+        # Fire trigger
+        if trig[i] > threshold:
+            h = max_holddays
+        hold[i] = h
+        # Output
+        if bet_all:
+            out[i] = base[i] if h > 0 else 0.0
+        else:
+            out[i] = base[i]
+    return out
 
-
-if _HAS_NUMBA:
-    @numba.jit(nopython=True, cache=True)
-    def _event_kernel_numba(base, trig, hold, threshold, max_holddays, bet_all):
-        """Numba kernel: hold decrement + trigger + mask."""
-        N = len(base)
-        out = np.empty(N, dtype=np.float64)
-        for i in range(N):
-            # Decrement hold
-            h = hold[i] - 1
-            if h < 0:
-                h = 0
-            # Fire trigger
-            if trig[i] > threshold:
-                h = max_holddays
-            hold[i] = h
-            # Output
-            if bet_all:
-                out[i] = base[i] if h > 0 else 0.0
-            else:
-                out[i] = base[i]
-        return out
-
-    _event_kernel = _event_kernel_numba
-else:
-    _event_kernel = _event_kernel_numpy
+_event_kernel = _event_kernel_numba
 
 
 class EventSignal(Signal):
@@ -125,6 +107,11 @@ class EventSignal(Signal):
         self._hold: np.ndarray | None = None  # (N,) remaining hold days per symbol
         self._last_t_idx: int = -1
 
+    def reset(self):
+        self._hold = None
+        self._last_t_idx = -1
+        super().reset()
+
     def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         base = self.signal.compute(t_idx, arrays)
         trig = self.trigger.compute(t_idx, arrays)
@@ -133,10 +120,6 @@ class EventSignal(Signal):
         # Lazy init hold array
         if self._hold is None:
             self._hold = np.zeros(N, dtype=np.int32)
-
-        # Replace NaN with 0 for both
-        base = np.nan_to_num(base, nan=0.0)
-        trig = np.nan_to_num(trig, nan=0.0)
 
         # Only process once per new timestamp
         if t_idx != self._last_t_idx:

@@ -55,11 +55,6 @@ npm run test:watch   # watch mode
 npm run lint
 ```
 
-### Legacy Bokeh Dashboard
-```bash
-bokeh serve --show app.py
-```
-
 ## Architecture
 
 ### Signal DAG System
@@ -148,4 +143,3 @@ The GA engine (`api/services/ga_engine.py`) treats expansion dimensions as genes
 - `POST/GET /api/alphas`: Alpha CRUD (filesystem-based)
 
 See `api/README.md` and `api/models/schemas.py` for detailed API contract.
-

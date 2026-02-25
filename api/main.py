@@ -7,6 +7,7 @@ All business logic lives in api.services and Pydantic models in api.models.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,10 +35,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LongShort API", version="0.1.0", lifespan=lifespan)
 
-# Allow local Next.js dev
+# Allow local frontend dev servers (localhost/127.0.0.1 on any port).
+extra_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")
+    if o.strip()
+]
+allow_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    *extra_origins,
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allow_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

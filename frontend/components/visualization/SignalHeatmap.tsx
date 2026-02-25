@@ -28,7 +28,10 @@ interface TooltipInfo {
 export default function SignalHeatmap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   // Store computed cell sizes so mouse handlers can use them
   const cellSizeRef = useRef({ w: MIN_CELL_WIDTH, h: MIN_CELL_HEIGHT });
   // Granular selectors — avoid subscribing to the full result object for selection state
@@ -64,6 +67,25 @@ export default function SignalHeatmap() {
   const timeMapRef = useRef(timeMap);
   timeMapRef.current = timeMap;
 
+  // Compute filtered symbols for search
+  const filteredSymbols = useMemo(() => {
+    if (!searchQuery || !heatmap) return [];
+    return heatmap.symbols.filter(s => s.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [searchQuery, heatmap]);
+
+  // Click outside handler for search dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    };
+    if (isSearchOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isSearchOpen]);
+
    // Stable draw function that reads from refs to prevent infinite loops
    const drawHeatmap = useCallback(() => {
      const canvas = canvasRef.current;
@@ -85,21 +107,21 @@ export default function SignalHeatmap() {
      const { timestamps, symbols, values } = currentHeatmap;
      if (timestamps.length === 0 || symbols.length === 0) return;
 
-     // Fit canvas to container
+     // Fit canvas to container width; height = all symbols
      const containerWidth = container.clientWidth;
      const containerHeight = container.clientHeight;
 
      const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / timestamps.length);
-     const cellH = Math.max(MIN_CELL_HEIGHT, containerHeight / symbols.length);
+     const cellH = containerHeight / symbols.length;
      cellSizeRef.current = { w: cellW, h: cellH };
 
      const width = Math.ceil(cellW * timestamps.length);
-     const height = Math.ceil(cellH * symbols.length);
+     const height = containerHeight;
 
      canvas.width = width;
      canvas.height = height;
      canvas.style.width = `${containerWidth}px`;
-     canvas.style.height = `${Math.max(containerHeight, height)}px`;
+     canvas.style.height = `${containerHeight}px`;
 
      // Clear canvas
      ctx.fillStyle = colors.chartBackground;
@@ -244,7 +266,39 @@ export default function SignalHeatmap() {
   }
 
   return (
-    <div ref={containerRef} className="h-32 overflow-hidden bg-background border-b border-border relative">
+    <div ref={containerRef} className="h-32 shrink-0 overflow-hidden bg-background border-b border-border relative">
+      {/* Symbol search box */}
+      <div ref={searchContainerRef} className="absolute top-2 left-2 z-10">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setIsSearchOpen(e.target.value.length > 0);
+          }}
+          onFocus={() => setIsSearchOpen(searchQuery.length > 0)}
+          placeholder="Search symbol"
+          className="w-28 px-2 py-1 text-xs font-mono bg-background-elevated border border-border text-data-color focus:outline-none focus:border-accent"
+        />
+        {isSearchOpen && filteredSymbols.length > 0 && (
+          <div className="absolute top-full left-0 mt-1 w-28 max-h-48 overflow-y-auto bg-background-elevated border border-border shadow-elevated">
+            {filteredSymbols.map((symbol) => (
+              <div
+                key={symbol}
+                className="px-2 py-1 text-xs font-mono text-data-color cursor-pointer hover:bg-row-active"
+                onClick={() => {
+                  setSelectedCell(symbol, null);
+                  setSearchQuery('');
+                  setIsSearchOpen(false);
+                }}
+              >
+                {symbol}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <canvas
         ref={canvasRef}
         onClick={handleClick}

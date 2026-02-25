@@ -28,6 +28,12 @@ class Signal(ABC):
         """Create Signal instance from XML tag. Default: simple tags that only take a signal."""
         return cls(sig)
 
+    def reset(self):
+        """Reset internal state for re-execution. Traverses the signal DAG."""
+        for v in self.__dict__.values():
+            if isinstance(v, Signal):
+                v.reset()
+
     @abstractmethod
     def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         ...

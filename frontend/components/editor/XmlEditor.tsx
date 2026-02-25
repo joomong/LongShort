@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback, useEffect, useRef } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { useThemeStore } from '@/store/themeStore';
 import dynamic from 'next/dynamic';
@@ -16,6 +16,11 @@ export default function XmlEditor() {
   const result = useAlphaStore(s => s.result);
   const { theme } = useThemeStore();
 
+  const xmlCodeRef = useRef(xmlCode);
+  useEffect(() => {
+    xmlCodeRef.current = xmlCode;
+  }, [xmlCode]);
+
   const selectedAlphaXml = useMemo(() => {
     if (viewMode !== 'detail') return null;
     if (selectedAlphaIndex === null) return null;
@@ -26,30 +31,36 @@ export default function XmlEditor() {
   const isDetailXml = Boolean(selectedAlphaXml);
   const value = selectedAlphaXml ?? xmlCode;
 
+  const editorOptions = useMemo(() => ({
+    minimap: { enabled: false },
+    fontSize: 14,
+    lineNumbers: 'on' as const,
+    wordWrap: 'on' as const,
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    tabSize: 2,
+    formatOnPaste: !isDetailXml,
+    formatOnType: !isDetailXml,
+    readOnly: isDetailXml,
+  }), [isDetailXml]);
+
+  const handleChange = useCallback((v?: string) => {
+    // In detail mode, show per-alpha XML read-only (do not overwrite main editor contents).
+    if (isDetailXml) return;
+    const next = v || '';
+    if (next === xmlCodeRef.current) return;
+    setXmlCode(next);
+  }, [isDetailXml, setXmlCode]);
+
   return (
     <div className="flex-1 w-full h-full">
       <Editor
         height="100%"
         defaultLanguage="xml"
         value={value}
-        onChange={(v) => {
-          // In detail mode, show per-alpha XML read-only (do not overwrite main editor contents).
-          if (isDetailXml) return;
-          setXmlCode(v || '');
-        }}
+        onChange={handleChange}
         theme={theme === 'dark' ? 'vs-dark' : 'light'}
-        options={{
-          minimap: { enabled: false },
-          fontSize: 14,
-          lineNumbers: 'on',
-          wordWrap: 'on',
-          scrollBeyondLastLine: false,
-          automaticLayout: true,
-          tabSize: 2,
-          formatOnPaste: !isDetailXml,
-          formatOnType: !isDetailXml,
-          readOnly: isDetailXml,
-        }}
+        options={editorOptions}
       />
     </div>
   );

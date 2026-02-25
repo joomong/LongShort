@@ -33,7 +33,7 @@ Python class 기반 DAG traversal 유지. 각 노드 내부 계산만 numpy/numb
 ```
 API Router (len(compiled) == 1 ?)
 ├── run_single_alpha()     ← Backtester 직접 호출 + 수동 IS/OS split + viz
-└── run_multiple_alphas()  ← run_multiple_backtest() 위임 (framework)
+└── run_multiple_alphas()  ← run_backtest() 위임 (framework)
 ```
 
 **통합 후:**
@@ -724,7 +724,7 @@ def run_single_alpha(compiled_signal, settings, mode, data_cache, compiled_xml):
     ...
 
 def run_multiple_alphas(compiled_alphas, compiled_xmls, settings, mode, data_cache):
-    # run_multiple_backtest() 위임
+    # run_backtest() 위임
     ...
 ```
 

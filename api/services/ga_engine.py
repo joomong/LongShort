@@ -10,50 +10,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import xml.etree.ElementTree as ET
 
+from api.xml_alpha import _parse_range, _split_pipe
 from framework.exceptions import XmlCompileError
 
 
 # ---------------------------------------------------------------------------
-# Parsing helpers (replicated from xml_alpha to avoid relying on private API)
+# Parsing helpers
 # ---------------------------------------------------------------------------
-
-def _split_pipe(value: str) -> List[str]:
-    """Split attribute value by pipe."""
-    raw = (value or "").strip()
-    if not raw:
-        return [raw]
-    raw = raw.replace("\\|", "|")
-    if "|" not in raw:
-        return [raw]
-    parts = [p.strip() for p in raw.split("|")]
-    return [p for p in parts if p != ""]
-
-
-def _parse_range(value: str) -> List[str]:
-    """Parse 'start...step...end' or 'start...end' into a list of string ints."""
-    raw = (value or "").strip()
-    if "..." not in raw:
-        return [raw]
-    parts = raw.split("...")
-    try:
-        if len(parts) == 3:
-            start, step, end = int(parts[0]), int(parts[1]), int(parts[2])
-        elif len(parts) == 2:
-            start, end = int(parts[0]), int(parts[1])
-            step = 1
-        else:
-            return [raw]
-    except ValueError as e:
-        raise XmlCompileError(f"Invalid range expression: {raw!r}") from e
-
-    if step == 0:
-        raise XmlCompileError(f"Invalid range expression: {raw!r}")
-    if step > 0 and start > end:
-        raise XmlCompileError(f"Invalid range expression: {raw!r}")
-    if step < 0 and start < end:
-        raise XmlCompileError(f"Invalid range expression: {raw!r}")
-
-    return [str(v) for v in range(start, end + (1 if step > 0 else -1), step)]
 
 
 # ---------------------------------------------------------------------------

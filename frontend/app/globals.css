@@ -26,32 +26,52 @@
   --chart-grid: #e5e7eb;
   --chart-text: #4b5563;
   --chart-line: #2563eb;
+
+  --metric-positive: #22c55e;
+  --metric-neutral:  #f59e0b;
+  --metric-negative: #ef4444;
+  --row-active:      #eff6ff;
+
+  --data-color:           #4b5563;
+  --metric-positive-bg: rgba(34, 197, 94, 0.1);
+  --metric-negative-bg: rgba(239, 68, 68, 0.1);
+  --metric-neutral-bg:  rgba(245, 158, 11, 0.08);
 }
 
-/* Dark theme (true black) */
+/* Dark theme (Bloomberg terminal) */
 .dark {
-  --background: #000000;
+  --background:           #000000;
   --background-secondary: #0a0a0a;
-  --background-tertiary: #111111;
-  --background-elevated: #1c1c1c;
+  --background-tertiary:  #111111;
+  --background-elevated:  #1a1a1a;
 
-  --foreground: #e5e5e5;
-  --foreground-secondary: #a3a3a3;
-  --foreground-muted: #737373;
+  --foreground:           #e0e0e0;
+  --foreground-secondary: #aaaaaa;
+  --foreground-muted:     #666666;
 
-  --border: #1e1e1e;
-  --border-strong: #333333;
-  --border-hover: #404040;
+  --border:               #1a1a1a;
+  --border-strong:        #333333;
+  --border-hover:         #444444;
 
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
+  --accent:               #0078ff;
+  --accent-hover:         #339aff;
 
-  --row-hover: #1a1a1a;
+  --row-hover:            #111111;
 
-  --chart-background: #0a0a0a;
-  --chart-grid: #1a1a1a;
-  --chart-text: #a3a3a3;
-  --chart-line: #3b82f6;
+  --chart-background:     #000000;
+  --chart-grid:           #222222;
+  --chart-text:           #aaaaaa;
+  --chart-line:           #0078ff;
+
+  --metric-positive: #4af6c3;
+  --metric-neutral:  #ff9800;
+  --metric-negative: #ff433d;
+  --row-active:      #001a33;
+
+  --data-color:           #ff9800;
+  --metric-positive-bg: rgba(74, 246, 195, 0.12);
+  --metric-negative-bg: rgba(255, 67, 61, 0.15);
+  --metric-neutral-bg:  rgba(255, 152, 0, 0.08);
 }
 
 html,
@@ -65,7 +85,8 @@ body {
 body {
   color: var(--foreground);
   background: var(--background);
-  /* font-family handled by Tailwind font-sans via next/font CSS variables */
+  font-weight: 500;
+  /* font-family handled by Tailwind font-mono via next/font CSS variables */
 }
 
 /* Scrollbar styling - theme aware */
@@ -80,7 +101,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--foreground-muted);
-  border-radius: 4px;
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -90,4 +111,9 @@ body {
 /* Input date picker - dark mode only */
 .dark input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
+}
+
+/* Panel inset effect — subtle top highlight for depth */
+.panel-inset {
+  box-shadow: inset 0 1px 0 rgba(255,152,0,0.04);
 }

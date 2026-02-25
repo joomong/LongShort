@@ -445,10 +445,10 @@ class TestDataCacheBacktestIntegration:
         assert len(result.os_period.ret_series) == 3  # 3 OS bars, transition bar has return (warm start) -> 3 returns
 
 
-    def test_run_multiple_backtest_with_cache(self, cache_6day):
-        """TC-DC-023: run_multiple_backtest()가 data_cache로 정상 동작."""
+    def test_run_backtest_with_cache(self, cache_6day):
+        """TC-DC-023: run_backtest()가 data_cache로 정상 동작."""
         from framework.backtester import (
-            run_multiple_backtest, PeriodSettings, MultipleBacktestResult,
+            run_backtest, PeriodSettings, MultipleBacktestResult,
         )
 
         settings = PeriodSettings(
@@ -460,7 +460,7 @@ class TestDataCacheBacktestIntegration:
         alpha1.name = "a1"
         alpha2.name = "a2"
 
-        result = run_multiple_backtest(
+        result = run_backtest(
             alphas=[alpha1, alpha2],
             strategy=_MockStrategy(),
             settings=settings, capital=1_000_000,

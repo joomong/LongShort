@@ -3,47 +3,29 @@ import numpy as np
 from ..signal_base import Signal
 from framework.xml_helpers import parse_positive_int
 
-try:
-    import numba
-    _HAS_NUMBA = True
-except ImportError:
-    _HAS_NUMBA = False
+import numba
 
 
-def _tsmean_kernel_numpy(vals, buf, pos, window, count):
-    """Numpy fallback: write to buffer and compute row means."""
+@numba.jit(nopython=True, cache=True)
+def _tsmean_kernel_numba(vals, buf, pos, window, count):
     N = len(vals)
     buf[:, pos] = vals
+    out = np.empty(N, dtype=np.float64)
     if count + 1 >= window:
-        out = np.nanmean(buf, axis=1)
+        for i in range(N):
+            s = 0.0
+            c = 0
+            for j in range(window):
+                v = buf[i, j]
+                if v == v:  # NaN check
+                    s += v
+                    c += 1
+            out[i] = s / c if c > 0 else np.nan
     else:
-        out = np.full(N, np.nan, dtype=np.float64)
+        out[:] = np.nan
     return out
 
-
-if _HAS_NUMBA:
-    @numba.jit(nopython=True, cache=True)
-    def _tsmean_kernel_numba(vals, buf, pos, window, count):
-        N = len(vals)
-        buf[:, pos] = vals
-        out = np.empty(N, dtype=np.float64)
-        if count + 1 >= window:
-            for i in range(N):
-                s = 0.0
-                c = 0
-                for j in range(window):
-                    v = buf[i, j]
-                    if v == v:  # NaN check
-                        s += v
-                        c += 1
-                out[i] = s / c if c > 0 else np.nan
-        else:
-            out[:] = np.nan
-        return out
-
-    _tsmean_kernel = _tsmean_kernel_numba
-else:
-    _tsmean_kernel = _tsmean_kernel_numpy
+_tsmean_kernel = _tsmean_kernel_numba
 
 
 class TsMean(Signal):
@@ -58,6 +40,12 @@ class TsMean(Signal):
         self._buf: np.ndarray | None = None  # (N, window) circular buffer
         self._pos: int = 0
         self._count: int = 0
+
+    def reset(self):
+        self._buf = None
+        self._pos = 0
+        self._count = 0
+        super().reset()
 
     def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         vals = self.x.compute(t_idx, arrays)

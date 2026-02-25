@@ -106,8 +106,21 @@ class DataCache:
         initial_capital = backtest_cfg.get("initial_capital")
         fee_bps = backtest_cfg.get("transaction_fee")
 
-        if not all([start_date, end_date, initial_capital, fee_bps]):
-            missing = [k for k, v in {"start_date": start_date, "end_date": end_date, "initial_capital": initial_capital, "transaction_fee": fee_bps}.items() if not v]
+        if (
+            start_date in (None, "")
+            or end_date in (None, "")
+            or initial_capital is None
+            or fee_bps is None
+        ):
+            missing = []
+            if start_date in (None, ""):
+                missing.append("start_date")
+            if end_date in (None, ""):
+                missing.append("end_date")
+            if initial_capital is None:
+                missing.append("initial_capital")
+            if fee_bps is None:
+                missing.append("transaction_fee")
             raise ValueError(f"Backtest config missing required fields: {missing}")
 
         self.start_date: str = start_date
@@ -213,18 +226,13 @@ class DataCache:
 
         self.arrays = {}
         for col in cols:
-            arr = np.full((T, N), np.nan, dtype=np.float64)
-            for t_idx, ts in enumerate(ts_unique):
-                try:
-                    slice_df = merged.loc[ts]
-                except KeyError:
-                    continue
-                for sym in slice_df.index:
-                    if sym in self.sym_index:
-                        s_idx = self.sym_index[sym]
-                        val = slice_df.loc[sym, col] if isinstance(slice_df, pd.DataFrame) else slice_df[col]
-                        arr[t_idx, s_idx] = float(val)
-            self.arrays[col] = arr
+            series = merged[col]
+            if series.index.has_duplicates:
+                # Preserve legacy behavior by taking the last duplicate.
+                series = series.groupby(level=[0, 1]).last()
+
+            arr_df = series.unstack(level=1).reindex(index=ts_unique, columns=sym_unique)
+            self.arrays[col] = arr_df.to_numpy(dtype=np.float64)
 
         logger.info(
             "DataCache loaded: %d timestamps, %d symbols, %d columns (numpy)",
@@ -253,4 +261,3 @@ class DataCache:
         if ts.tz is None and len(ts) > 0:
             ts = ts.tz_localize("UTC")
         return int(((ts >= _start) & (ts <= _end)).sum())
-

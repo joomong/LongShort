@@ -25,7 +25,7 @@ class ZScore(Signal):
         count = int(finite.sum())
 
         if count < self.min_count:
-            return np.zeros_like(s)
+            return np.full_like(s, np.nan)
 
         vals = s[finite]
         if self.robust:
@@ -36,8 +36,8 @@ class ZScore(Signal):
             scale = np.nanstd(vals, ddof=self.ddof)
 
         if (not np.isfinite(scale)) or (scale < self.eps):
-            return np.zeros_like(s)
+            return np.full_like(s, np.nan)
 
         z = (s - center) / (scale + self.eps)
-        z = np.where(np.isfinite(z), z, 0.0)
+        z = np.where(np.isfinite(z), z, np.nan)
         return z

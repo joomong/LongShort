@@ -6,6 +6,10 @@ Verifies calculation correctness by:
 3. Comparing both results.
 
 Golden dataset: 3 symbols (BTC, ETH, SOL) x 10 days with hardcoded prices.
+
+Note:
+- Independent and framework Sharpe both use ddof=1.
+- This file is a ground-truth reliability suite, not a regression lock for bugs.
 """
 
 from __future__ import annotations
@@ -306,7 +310,7 @@ class MockAlpha:
 # ============================================================================
 
 def _run_full_backtest(parquet_path: Path):
-    """Run the backtester on the full golden dataset, return 7-tuple."""
+    """Run the backtester on the full golden dataset, return 9-tuple."""
     from framework.data import DataCache
     from framework.backtester import Backtester
     import yaml
@@ -376,7 +380,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_pnl_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.pnl, independent_full.pnl(), rel_tol=1e-9), (
             f"PnL mismatch: bt={bt_metrics.pnl}, indep={independent_full.pnl()}"
@@ -384,7 +388,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_sharpe_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.sharpe, independent_full.sharpe(), rel_tol=1e-9), (
             f"Sharpe mismatch: bt={bt_metrics.sharpe}, indep={independent_full.sharpe()}"
@@ -392,7 +396,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_mdd_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.mdd, independent_full.mdd(), rel_tol=1e-9), (
             f"MDD mismatch: bt={bt_metrics.mdd}, indep={independent_full.mdd()}"
@@ -400,7 +404,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_cagr_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.cagr, independent_full.cagr(), rel_tol=1e-9), (
             f"CAGR mismatch: bt={bt_metrics.cagr}, indep={independent_full.cagr()}"
@@ -408,7 +412,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_turnover_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.turnover, independent_full.avg_turnover(), rel_tol=1e-9), (
             f"Turnover mismatch: bt={bt_metrics.turnover}, indep={independent_full.avg_turnover()}"
@@ -416,7 +420,7 @@ class TestGoldenDatasetFullPipeline:
 
     def test_min_bet_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.min_bet, independent_full.avg_min_bet(), rel_tol=1e-9), (
             f"Min bet mismatch: bt={bt_metrics.min_bet}, indep={independent_full.avg_min_bet()}"
@@ -424,22 +428,22 @@ class TestGoldenDatasetFullPipeline:
 
     def test_max_weight_matches(self, golden_parquet, independent_full):
         from framework.backtester import _compute_metrics
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_metrics = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         assert math.isclose(bt_metrics.max_weight, independent_full.max_weight(), rel_tol=1e-9), (
             f"Max weight mismatch: bt={bt_metrics.max_weight}, indep={independent_full.max_weight()}"
         )
 
     def test_return_series_length(self, golden_parquet, independent_full):
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         # Backtester records returns from bar 1 onwards (9 returns for 10 bars)
         assert len(ret_s) == 9
         assert len(independent_full.portfolio_returns()) == 9
 
     def test_return_series_values(self, golden_parquet, independent_full):
         """Per-bar return values should match exactly."""
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
-        bt_rets = ret_s.values
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
+        bt_rets = ret_s
         indep_rets = independent_full.portfolio_returns().values
         np.testing.assert_allclose(bt_rets, indep_rets, rtol=1e-12)
 
@@ -502,16 +506,16 @@ class TestGoldenDatasetISOSSplit:
     def test_is_os_dates_no_overlap(self, golden_parquet):
         """IS and OS date ranges must not overlap."""
         period = _run_period_backtest(golden_parquet)
-        is_dates = set(period.is_period.ret_series.index)
-        os_dates = set(period.os_period.ret_series.index)
+        is_dates = set(period.is_period.timestamps)
+        os_dates = set(period.os_period.timestamps)
         overlap = is_dates & os_dates
         assert len(overlap) == 0, f"IS/OS date overlap: {overlap}"
 
     def test_is_os_date_ranges(self, golden_parquet):
         """Verify IS dates are before OS dates."""
         period = _run_period_backtest(golden_parquet)
-        if len(period.is_period.ret_series) > 0 and len(period.os_period.ret_series) > 0:
-            assert period.is_period.ret_series.index.max() < period.os_period.ret_series.index.min()
+        if len(period.is_period.timestamps) > 0 and len(period.os_period.timestamps) > 0:
+            assert period.is_period.timestamps.max() < period.os_period.timestamps.min()
 
 
 # ============================================================================
@@ -531,8 +535,8 @@ class TestISOSStitching:
         """prod(1+IS_rets) * prod(1+OS_rets) == stitched total equity."""
         period = _run_period_backtest(golden_parquet)
 
-        is_equity_final = float((1.0 + period.is_period.ret_series.fillna(0)).cumprod().iloc[-1])
-        os_equity_final = float((1.0 + period.os_period.ret_series.fillna(0)).cumprod().iloc[-1])
+        is_equity_final = float(np.cumprod(1.0 + np.nan_to_num(period.is_period.ret_series, nan=0.0))[-1])
+        os_equity_final = float(np.cumprod(1.0 + np.nan_to_num(period.os_period.ret_series, nan=0.0))[-1])
         stitched = is_equity_final * os_equity_final
 
         # This is by definition: each period's equity starts at 1.0
@@ -547,12 +551,12 @@ class TestISOSStitching:
         - IS returns + OS returns == full returns (same bars, same weights).
         - prod(1 + IS_rets) * prod(1 + OS_rets) == prod(1 + full_rets).
         """
-        ret_full, to_full, mb_full, mw_full, lw_full, sw_full, _ = _run_full_backtest(golden_parquet)
+        ts_full, ret_full, to_full, mb_full, mw_full, lw_full, sw_full, _nz, _ = _run_full_backtest(golden_parquet)
         period = _run_period_backtest(golden_parquet)
 
-        full_equity = float((1.0 + ret_full.fillna(0)).cumprod().iloc[-1])
-        is_eq = float((1.0 + period.is_period.ret_series.fillna(0)).cumprod().iloc[-1])
-        os_eq = float((1.0 + period.os_period.ret_series.fillna(0)).cumprod().iloc[-1])
+        full_equity = float(np.cumprod(1.0 + np.nan_to_num(ret_full, nan=0.0))[-1])
+        is_eq = float(np.cumprod(1.0 + np.nan_to_num(period.is_period.ret_series, nan=0.0))[-1])
+        os_eq = float(np.cumprod(1.0 + np.nan_to_num(period.os_period.ret_series, nan=0.0))[-1])
         stitched = is_eq * os_eq
 
         assert math.isclose(full_equity, stitched, rel_tol=1e-9), (
@@ -640,7 +644,7 @@ class TestBoundaryPositionHandoff:
     def test_os_first_bar_turnover_near_zero(self, golden_parquet):
         """First OS bar turnover should be ~0 (weights carry over from IS)."""
         period = _run_period_backtest(golden_parquet)
-        first_turnover = period.os_period.turnover_series.iloc[0]
+        first_turnover = period.os_period.turnover_series[0]
         # With constant signal, weights carry over perfectly -> turnover = 0
         assert math.isclose(first_turnover, 0.0, abs_tol=1e-9), (
             f"First OS turnover: {first_turnover}, expected: ~0.0"
@@ -649,20 +653,22 @@ class TestBoundaryPositionHandoff:
     def test_os_all_turnover_zero(self, golden_parquet):
         """All OS bars should have zero turnover (constant signal, warm start)."""
         period = _run_period_backtest(golden_parquet)
-        np.testing.assert_allclose(period.os_period.turnover_series.values, 0.0, atol=1e-12)
+        np.testing.assert_allclose(period.os_period.turnover_series, 0.0, atol=1e-12)
 
     def test_is_all_turnover_zero_in_split(self, golden_parquet):
-        """IS turnover: bar 0 has initial position build, rest is zero.
+        """IS turnover: all bars have zero turnover after alignment.
 
-        Bar 0: weights go from 0 to NORMALIZED_WEIGHTS => turnover = sum(|w|) = 1.0.
-        Bar 1+: constant signal => turnover = 0.
+        With IS/OS unification, turnover_series is aligned with ret_series (both
+        drop bar 0). Since the signal is constant, all remaining bars have
+        turnover = 0 (no rebalancing).
+
+        Bar 0's initial position establishment (turnover=1.0) is not in the
+        final turnover_series because bar 0 has no return.
         """
         period = _run_period_backtest(golden_parquet)
-        to_vals = period.is_period.turnover_series.values
-        # Bar 0: initial position build
-        assert math.isclose(to_vals[0], 1.0, abs_tol=1e-9)
-        # Remaining bars: zero turnover
-        np.testing.assert_allclose(to_vals[1:], 0.0, atol=1e-12)
+        to_vals = period.is_period.turnover_series
+        # All bars: zero turnover (constant signal, no rebalancing)
+        np.testing.assert_allclose(to_vals, 0.0, atol=1e-12)
 
 
 # ============================================================================
@@ -697,21 +703,20 @@ class TestCrossCheckDecomposition:
         """metrics_to_api_dict wraps _compute_metrics with unit conversion.
 
         - pnl/cagr/mdd/turnover → ×100 (percent).
-        - API ``pnl`` field = CAGR (annualised return), not cumulative return.
-          Actual cumulative PnL is computed from retSeries in the detail page.
+        - API ``pnl`` field = cumulative return, ``cagr`` field = annualised return.
         """
         from framework.backtester import _compute_metrics, metrics_to_api_dict
 
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
         bt_m = _compute_metrics(ret_s, to_s, mb_s, mw_s)
         api_m = metrics_to_api_dict(bt_m)
 
-        # API "pnl" field = CAGR × 100 (annualised)
-        assert math.isclose(api_m["pnl"], bt_m.cagr * 100, rel_tol=1e-9), (
-            f"API pnl={api_m['pnl']}, expected cagr*100={bt_m.cagr * 100}"
+        # API "pnl" field = cumulative return × 100
+        assert math.isclose(api_m["pnl"], bt_m.pnl * 100, rel_tol=1e-9), (
+            f"API pnl={api_m['pnl']}, expected pnl*100={bt_m.pnl * 100}"
         )
 
-        # CAGR field also present and same as pnl
+        # CAGR field is annualized return × 100
         assert math.isclose(api_m["cagr"], bt_m.cagr * 100, rel_tol=1e-9)
 
         # Sharpe should be the same (not scaled)
@@ -731,8 +736,8 @@ class TestCrossCheckDecomposition:
 
     def test_backtester_return_series_matches_independent(self, golden_parquet, independent_full):
         """Every bar's return in the backtester matches independent calculation."""
-        ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _ = _run_full_backtest(golden_parquet)
-        bt_rets = ret_s.values
+        ts_arr, ret_s, to_s, mb_s, mw_s, lw_s, sw_s, _nz, _ = _run_full_backtest(golden_parquet)
+        bt_rets = ret_s
         indep_rets = independent_full.portfolio_returns().values
         np.testing.assert_allclose(bt_rets, indep_rets, rtol=1e-12, atol=1e-15)
 
@@ -762,7 +767,7 @@ class _VaryingAlpha:
 
 
 def _run_full_backtest_d1(parquet_path):
-    """Run the backtester on golden dataset in D1 mode."""
+    """Run the backtester on golden dataset in D1 mode, return 9-tuple."""
     from framework.data import DataCache
     from framework.backtester import Backtester
     import yaml
@@ -804,23 +809,23 @@ class TestGoldenDatasetD1Mode:
         From bar 2 onwards, positions are established (bar 1's target was
         NORMALIZED_WEIGHTS), so returns match D0 bar 2+.
         """
-        d0_ret, *_ = _run_full_backtest(golden_parquet)
-        d1_ret, *_ = _run_full_backtest_d1(golden_parquet)
+        ts_d0, d0_ret, *_ = _run_full_backtest(golden_parquet)
+        ts_d1, d1_ret, *_ = _run_full_backtest_d1(golden_parquet)
 
         # D1 first return: gross=0 (no position on bar 0), turnover=1.0, fee=0.001
-        assert d1_ret.iloc[0] == pytest.approx(-0.001, abs=1e-12), (
-            f"D1 first return should be -0.001 (fee), got {d1_ret.iloc[0]}"
+        assert d1_ret[0] == pytest.approx(-0.001, abs=1e-12), (
+            f"D1 first return should be -0.001 (fee), got {d1_ret[0]}"
         )
 
         # D0 first return should be non-zero (bar 0 executes immediately)
-        assert abs(d0_ret.iloc[0]) > 1e-6, (
-            f"D0 first return should be non-zero, got {d0_ret.iloc[0]}"
+        assert abs(d0_ret[0]) > 1e-6, (
+            f"D0 first return should be non-zero, got {d0_ret[0]}"
         )
 
         # From bar 2 onwards (index 1+), D0 and D1 should match (constant signal)
         np.testing.assert_allclose(
-            d0_ret.values[1:],
-            d1_ret.values[1:],
+            d0_ret[1:],
+            d1_ret[1:],
             rtol=1e-12,
             err_msg="D0 and D1 should match from bar 2 onwards for constant signals",
         )
@@ -829,14 +834,14 @@ class TestGoldenDatasetD1Mode:
         """D1 with constant signal: PnL differs from D0 only by first bar effect."""
         from framework.backtester import _compute_metrics
 
-        d0_ret, d0_to, d0_mb, d0_mw, *_ = _run_full_backtest(golden_parquet)
-        d1_ret, d1_to, d1_mb, d1_mw, *_ = _run_full_backtest_d1(golden_parquet)
+        ts_d0, d0_ret, d0_to, d0_mb, d0_mw, *_ = _run_full_backtest(golden_parquet)
+        ts_d1, d1_ret, d1_to, d1_mb, d1_mw, *_ = _run_full_backtest_d1(golden_parquet)
         d0_m = _compute_metrics(d0_ret, d0_to, d0_mb, d0_mw)
         d1_m = _compute_metrics(d1_ret, d1_to, d1_mb, d1_mw)
 
         # D1 PnL should be less than D0 (missed first bar's return)
         # because first bar return in D1 is 0 vs non-zero in D0
-        first_bar_return = d0_ret.iloc[0]
+        first_bar_return = d0_ret[0]
         assert abs(first_bar_return) > 1e-6
         # Both should be reasonable
         assert math.isfinite(d1_m.pnl)
@@ -876,7 +881,7 @@ class TestGoldenDatasetD1Mode:
                 start_date="2024-01-01",
                 end_date="2024-01-10",
             )
-            ret_s, *_ = bt.run()
+            ts_arr, ret_s, *_ = bt.run()
             return ret_s
 
         d0_ret = _run("D0")
@@ -887,8 +892,8 @@ class TestGoldenDatasetD1Mode:
         assert len(d0_ret) == 9  # 10 bars → 9 returns
 
         # Returns MUST differ (varying signal + execution lag)
-        d0_vals = d0_ret.values
-        d1_vals = d1_ret.values
+        d0_vals = d0_ret
+        d1_vals = d1_ret
         assert not np.allclose(d0_vals, d1_vals, rtol=1e-9), (
             "D0 and D1 should produce different returns with varying signals"
         )
@@ -933,7 +938,7 @@ class TestGoldenDatasetD1Mode:
                 start_date="2024-01-01",
                 end_date="2024-01-10",
             )
-            ret_s, *_ = bt.run()
+            ts_arr, ret_s, *_ = bt.run()
             return ret_s
 
         d0 = _run("D0")
@@ -943,6 +948,6 @@ class TestGoldenDatasetD1Mode:
         # D1 bar 1: uses bar 0's target weights (lagged)
         # Since VaryingAlpha alternates, bar 0 weights ≠ bar 1 weights
         # → first return should differ between D0 and D1
-        assert d0.iloc[0] != pytest.approx(d1.iloc[0], abs=1e-12), (
+        assert d0[0] != pytest.approx(d1[0], abs=1e-12), (
             "D1 first return should differ from D0 (using lagged weights)"
         )

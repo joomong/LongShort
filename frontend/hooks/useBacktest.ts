@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useMemo, useEffect } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { runGAStream } from '@/lib/api';
 import type { BacktestRunResponse } from '@/types';
@@ -8,9 +8,24 @@ import type { BacktestRunResponse } from '@/types';
 export function useBacktest() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Only subscribe to values actually read during render
-  const xmlCode = useAlphaStore(s => s.xmlCode);
-  const settings = useAlphaStore(s => s.settings);
+  // Use refs to stabilize values that change frequently
+  const xmlCodeRef = useRef(useAlphaStore.getState().xmlCode);
+  const settingsRef = useRef(useAlphaStore.getState().settings);
+
+  // Update refs when store values change with proper cleanup
+  useEffect(() => {
+    const unsubscribeXml = useAlphaStore.subscribe(state => {
+      xmlCodeRef.current = state.xmlCode;
+    });
+    const unsubscribeSettings = useAlphaStore.subscribe(state => {
+      settingsRef.current = state.settings;
+    });
+
+    return () => {
+      unsubscribeXml();
+      unsubscribeSettings();
+    };
+  }, []);
 
   const run = useCallback(async () => {
     // Cancel any existing request
@@ -26,12 +41,12 @@ export function useBacktest() {
     store.setBacktestError(null);
     store.setResult(null);
     store.setSelectedCell(null, null);
-    store.setGAProgress({ generation: 0, totalGenerations: 0, evaluated: 0, populationSize: settings.gaPopulation });
+    store.setGAProgress({ generation: 0, totalGenerations: 0, evaluated: 0, populationSize: settingsRef.current.gaPopulation });
 
     try {
       await runGAStream(
-        xmlCode,
-        settings,
+        xmlCodeRef.current,
+        settingsRef.current,
         10,
         (event) => {
           const s = useAlphaStore.getState();
@@ -48,7 +63,7 @@ export function useBacktest() {
               generation: event.generation as number,
               totalGenerations: event.totalGenerations as number,
               evaluated: 0,
-              populationSize: (event as Record<string, unknown>).populationSize as number || settings.gaPopulation,
+              populationSize: (event as Record<string, unknown>).populationSize as number || settingsRef.current.gaPopulation,
             });
             const partial = event.partialResult as BacktestRunResponse | undefined;
             if (partial && partial.alphas && partial.alphas.length > 0) {
@@ -82,7 +97,7 @@ export function useBacktest() {
       s.setIsRunning(false);
       s.setGAProgress(null);
     }
-  }, [xmlCode, settings]);
+  }, []);
 
   const stop = useCallback(() => {
     if (abortControllerRef.current) {

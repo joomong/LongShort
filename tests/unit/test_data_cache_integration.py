@@ -20,9 +20,30 @@ from framework.modules.sources import Price
 
 
 def _extract_series(run_output):
-    """Backtester.run() returns a 7-tuple; extract ret_series."""
-    ret_s, to_s, mb_s, mw_s, lw_s, sw_s, viz = run_output
-    return ret_s
+    """Backtester.run() output -> return series with datetime index."""
+    if len(run_output) in (8, 9):
+        timestamps, ret_s, *_ = run_output
+    elif len(run_output) == 7:
+        ret_s, *_ = run_output
+        if isinstance(ret_s, pd.Series):
+            return ret_s
+        raise ValueError("Legacy 7-tuple output requires ret_series as pd.Series")
+    else:
+        raise ValueError(f"Unexpected Backtester.run() output length: {len(run_output)}")
+
+    if isinstance(ret_s, pd.Series):
+        return ret_s
+
+    ret_arr = np.asarray(ret_s, dtype=float)
+    ts_arr = np.asarray(timestamps)
+    if ts_arr.size == ret_arr.size + 1:
+        ts_arr = ts_arr[1:]
+    if ts_arr.size != ret_arr.size:
+        raise ValueError(
+            f"Timestamp/return length mismatch: timestamps={ts_arr.size}, returns={ret_arr.size}"
+        )
+    idx = pd.DatetimeIndex(ts_arr, tz="UTC")
+    return pd.Series(ret_arr, index=idx, dtype=float)
 
 
 # =============================================================================

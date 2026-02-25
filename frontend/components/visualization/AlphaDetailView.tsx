@@ -18,6 +18,8 @@ export default function AlphaDetailView() {
   const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
   const [metric, setMetric] = useState<DetailMetricKey>('pnl');
 
+  const exitDetailView = useAlphaStore(s => s.exitDetailView);
+
   const alpha = useMemo(() => {
     if (selectedAlphaIndex === null) return null;
     return result?.alphas?.[selectedAlphaIndex] ?? null;
@@ -27,6 +29,19 @@ export default function AlphaDetailView() {
 
   return (
     <div className="flex flex-col bg-background-tertiary border-b border-border">
+      {/* header: alpha name + close button */}
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border">
+        <span className="text-[11px] text-foreground-muted">
+          #{alpha.rank} {alpha.name}
+        </span>
+        <button
+          onClick={exitDetailView}
+          className="text-[11px] text-foreground-muted hover:text-foreground px-1"
+          title="Close detail view"
+        >
+          ✕
+        </button>
+      </div>
       {/* ① metric selector row (like the wireframe small boxes) */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
         {METRICS.map((m) => {
@@ -36,9 +51,9 @@ export default function AlphaDetailView() {
               key={m.key}
               onClick={() => setMetric(m.key)}
               className={
-                'text-[11px] px-2 py-1 rounded border transition-colors ' +
+                'text-[11px] px-2 py-1 border transition-colors ' +
                 (active
-                  ? 'bg-background-secondary border-border text-foreground'
+                  ? 'bg-accent/10 border-accent/30 text-accent'
                   : 'bg-background-tertiary border-border/40 text-foreground-muted hover:text-foreground hover:bg-background-secondary/40')
               }
               title={m.label}
@@ -49,16 +64,16 @@ export default function AlphaDetailView() {
         })}
       </div>
 
-      {/* ② chart block */}
-      <div className="px-2 py-2">
-        <div className="h-[260px] border border-border rounded bg-background overflow-hidden">
-          <DetailTimeSeries alpha={alpha} metric={metric} />
+      {/* ② chart + ③ yearly table stacked vertically */}
+      <div className="flex flex-col gap-2 px-2 py-2">
+        <div className="min-w-0 h-[220px] border border-border bg-background-secondary overflow-hidden">
+          <DetailTimeSeries
+            alpha={alpha}
+            metric={metric}
+            initialCapital={result?.initialCapital}
+          />
         </div>
-      </div>
-
-      {/* ③ yearly table block (calendar year) */}
-      <div className="px-2 pb-2">
-        <div className="border border-border rounded bg-background overflow-hidden">
+        <div className="min-w-0 border border-border bg-background-secondary overflow-hidden">
           <DetailSummaryTable alpha={alpha} initialCapital={result?.initialCapital} />
         </div>
       </div>

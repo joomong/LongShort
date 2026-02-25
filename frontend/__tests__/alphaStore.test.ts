@@ -29,14 +29,20 @@ describe('fetchDataRange', () => {
     expect(useAlphaStore.getState().dataRange).toEqual(mockRange);
   });
 
-  it('should NOT modify settings', async () => {
+  it('should clamp osEnd to maxDate from API', async () => {
     const mockRange = { minDate: '2020-01-01', maxDate: '2025-01-28', transactionFeeRate: 0.001 };
     vi.mocked(getDataRange).mockResolvedValue(mockRange);
 
     const settingsBefore = { ...useAlphaStore.getState().settings };
     await useAlphaStore.getState().fetchDataRange();
 
-    expect(useAlphaStore.getState().settings).toEqual(settingsBefore);
+    const settingsAfter = useAlphaStore.getState().settings;
+    // Other settings should remain unchanged
+    expect(settingsAfter.isStart).toBe(settingsBefore.isStart);
+    expect(settingsAfter.isEnd).toBe(settingsBefore.isEnd);
+    expect(settingsAfter.osStart).toBe(settingsBefore.osStart);
+    // But osEnd should be clamped to API maxDate
+    expect(settingsAfter.osEnd).toBe(mockRange.maxDate);
   });
 
   it('should keep dataRange null on API failure', async () => {

@@ -16,52 +16,64 @@ const SignalHeatmap = dynamic(() => import('@/components/visualization/SignalHea
 const SignalChart = dynamic(() => import('@/components/visualization/SignalChart'));
 const SnapshotManager = dynamic(() => import('@/components/visualization/SnapshotManager'));
 const AlphaDetailView = dynamic(() => import('@/components/visualization/AlphaDetailView'));
-const SummaryMetrics = dynamic(() => import('@/components/multi-alpha/SummaryMetrics'));
 const AlphaRankingTable = dynamic(() => import('@/components/multi-alpha/AlphaRankingTable'));
 const SaveAlphaModal = dynamic(() => import('@/components/modals/SaveAlphaModal'));
 const LoadAlphaModal = dynamic(() => import('@/components/modals/LoadAlphaModal'));
 
-function LeftPanel() {
-  const viewMode = useAlphaStore(s => s.viewMode);
-  const isMulti = useAlphaStore(s =>
-    !!(s.result?.combined || (s.result?.alphas && s.result.alphas.length > 1))
-  );
-
-  if (isMulti) {
-    return (
-      <div className="flex flex-col h-full">
-        <SettingsBar />
-        <SummaryMetrics />
-        <AlphaRankingTable />
-
-        {/* Detail plot area (below the table) */}
-        {viewMode === 'detail' && (
-          <div className="border-t border-border">
-            <AlphaDetailView />
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Single-alpha mode
+function SingleAlphaPanel() {
   return (
     <div className="flex flex-col h-full">
       <SettingsBar />
       <BacktestMetrics />
-      {/* Plot area (only this region changes in detail mode) */}
-      {viewMode === 'detail' ? (
-        <AlphaDetailView />
-      ) : (
-        <>
-          <SignalDistribution />
-          <SignalHeatmap />
-          <SignalChart />
-          <SnapshotManager />
-        </>
+      <SignalDistribution />
+      <SignalHeatmap />
+      <SignalChart />
+      <SnapshotManager />
+    </div>
+  );
+}
+
+function SingleAlphaDetailPanel() {
+  return (
+    <div className="flex flex-col h-full">
+      <SettingsBar />
+      <BacktestMetrics />
+      <AlphaDetailView />
+    </div>
+  );
+}
+
+function MultiAlphaPanel() {
+  const viewMode = useAlphaStore(s => s.viewMode);
+
+  return (
+    <div className="flex flex-col h-full">
+      <SettingsBar />
+      <div className={viewMode === 'detail' ? 'max-h-48 overflow-y-auto' : 'flex-1 min-h-0'}>
+        <AlphaRankingTable />
+      </div>
+      {viewMode === 'detail' && (
+        <div className="flex-1 min-h-0 overflow-y-auto border-t border-border">
+          <AlphaDetailView />
+        </div>
       )}
     </div>
   );
+}
+
+function LeftPanel() {
+  const viewMode = useAlphaStore(s => s.viewMode);
+  const isMulti = useAlphaStore(s => (s.result?.alphas?.length ?? 0) > 1);
+
+  if (isMulti) {
+    return <MultiAlphaPanel />;
+  }
+
+  if (viewMode === 'detail') {
+    return <SingleAlphaDetailPanel />;
+  }
+
+  return <SingleAlphaPanel />;
 }
 
 function RightPanel() {
@@ -85,10 +97,10 @@ function RightPanel() {
   return (
     <div className="flex flex-col h-full">
       {backtestError && (
-        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-950/40 text-red-200 border-b border-red-900">
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-metric-negative/10 text-metric-negative border-b border-metric-negative/20">
           <div className="text-sm truncate">{backtestError}</div>
           <button
-            className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-900/60"
+            className="text-xs px-2 py-1 bg-red-900/40 hover:bg-red-900/60"
             onClick={() => setBacktestError(null)}
             title="Dismiss"
           >

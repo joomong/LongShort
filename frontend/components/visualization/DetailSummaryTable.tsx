@@ -1,11 +1,13 @@
 'use client';
 
+import React from 'react';
 import { useMemo } from 'react';
 import type { BacktestAlphaResult } from '@/types';
 import { useAlphaStore } from '@/store/alphaStore';
+import { getSignCellColor, getMetricCellColor } from '@/lib/metricColors';
 
 const DEFAULT_CAPITAL = 100000;
-const ANNUALIZATION = 252; // approximation (D0/D1 모두 일단 252로 고정)
+const ANNUALIZATION = 365; // crypto markets trade 24/7
 
 function toYear(date: string): string {
   // expecting YYYY-MM-DD
@@ -39,7 +41,10 @@ export default function DetailSummaryTable({ alpha, initialCapital }: { alpha: B
     const retSeries = alpha.isRetSeries;
     if (!retSeries) return [];
 
-    const retEntries = Object.entries(retSeries).sort(([a], [b]) => a.localeCompare(b));
+    const retEntries = Object.entries(retSeries)
+      .filter(([, r]) => typeof r === 'number' && Number.isFinite(r))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, r]) => [date, r as number] as const);
     const byYear = new Map<string, Array<[string, number]>>();
     for (const [date, r] of retEntries) {
       const y = toYear(date);
@@ -47,14 +52,14 @@ export default function DetailSummaryTable({ alpha, initialCapital }: { alpha: B
       byYear.get(y)!.push([date, r]);
     }
 
-    // turnover series (optional)
+    const turnoverByDate = new Map<string, number | null>();
     const turnoverSeries = alpha.isTurnoverSeries ?? null;
-    const turnoverByYear = new Map<string, number[]>();
     if (turnoverSeries) {
       for (const [date, v] of Object.entries(turnoverSeries)) {
-        const y = toYear(date);
-        if (!turnoverByYear.has(y)) turnoverByYear.set(y, []);
-        turnoverByYear.get(y)!.push(v);
+        turnoverByDate.set(
+          date,
+          typeof v === 'number' && Number.isFinite(v) ? v : null
+        );
       }
     }
 
@@ -64,37 +69,45 @@ export default function DetailSummaryTable({ alpha, initialCapital }: { alpha: B
     return Array.from(byYear.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([year, entries]) => {
-        const returns = entries.map(([, r]) => r);
-        const equity = returns.reduce((e, r) => e * (1 + r), 1);
-        const pnlPct = (equity - 1) * 100;
+        const netReturns = entries.map(([, r]) => r);
+        let grossAvailable = true;
+        const grossReturns: number[] = [];
+        for (const [date, r] of entries) {
+          const to = turnoverByDate.get(date);
+          if (typeof to !== 'number') {
+            grossAvailable = false;
+            break;
+          }
+          grossReturns.push(r + to * transactionFeeRate);
+        }
 
-        const mean = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
-        const std = safeStd(returns);
+        const netEquity = netReturns.reduce((e, r) => e * (1 + r), 1);
+        const grossEquity = grossAvailable
+          ? grossReturns.reduce((e, r) => e * (1 + r), 1)
+          : null;
+        const pnlNetPct = (netEquity - 1) * 100;
+        const pnlGrossPct = grossEquity !== null ? (grossEquity - 1) * 100 : null;
+
+        const mean = netReturns.length ? netReturns.reduce((a, b) => a + b, 0) / netReturns.length : 0;
+        const std = safeStd(netReturns);
         const sharpe = std === 0 ? 0 : (mean / std) * Math.sqrt(ANNUALIZATION);
 
         const mddPct = computeYearMddPct(entries);
-
-        // fee estimate from turnover (if present); otherwise fallback to isMetrics.turnover
-        const tvals = turnoverByYear.get(year) ?? [];
-        let avgTurnoverPct: number;
-        if (tvals.length) {
-          const avg = tvals.reduce((a, b) => a + b, 0) / tvals.length;
-          // heuristic: if avg <= 1, treat as ratio; else as percent
-          avgTurnoverPct = avg <= 1 ? avg * 100 : avg;
-        } else {
-          avgTurnoverPct = alpha.isMetrics.turnover ?? 0;
-        }
-        const tradingDays = returns.length;
-        const fee = (avgTurnoverPct / 100) * transactionFeeRate * tradingDays * capital;
+        const feeImpactUsd =
+          grossEquity !== null ? (grossEquity - netEquity) * capital : null;
+        const feeImpactPct =
+          pnlGrossPct !== null ? pnlGrossPct - pnlNetPct : null;
 
         return {
           year,
-          pnlPct,
+          pnlNetPct,
+          pnlGrossPct,
           sharpe,
           mddPct,
           longPct,
           shortPct,
-          fee,
+          feeImpactUsd,
+          feeImpactPct,
         };
       });
   }, [alpha, capital, transactionFeeRate]);
@@ -116,26 +129,34 @@ export default function DetailSummaryTable({ alpha, initialCapital }: { alpha: B
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
-            <tr className="text-[11px] font-medium text-foreground-secondary border-b border-border-strong">
-              <th className="text-left px-2.5 py-1">Year</th>
-              <th className="text-right px-2.5 py-1">PnL</th>
-              <th className="text-right px-2.5 py-1">Sharpe</th>
-              <th className="text-right px-2.5 py-1">MDD</th>
-              <th className="text-right px-2.5 py-1">Long</th>
-              <th className="text-right px-2.5 py-1">Short</th>
-              <th className="text-right px-2.5 py-1">Fee</th>
+            <tr className="text-xs uppercase tracking-wider font-medium text-foreground-secondary border-b border-border-strong">
+              <th className="text-left px-3 py-1.5">Year</th>
+              <th className="text-right px-3 py-1.5">PnL (Net)</th>
+              <th className="text-right px-3 py-1.5">PnL (No Fee)</th>
+              <th className="text-right px-3 py-1.5">Sharpe</th>
+              <th className="text-right px-3 py-1.5">MDD</th>
+              <th className="text-right px-3 py-1.5">Long</th>
+              <th className="text-right px-3 py-1.5">Short</th>
+              <th className="text-right px-3 py-1.5">Fee Impact</th>
             </tr>
           </thead>
           <tbody>
             {yearlyRows.map((r) => (
               <tr key={r.year} className="border-b border-border/40 last:border-b-0 hover:bg-row-hover">
-                <td className="px-2.5 py-1 font-mono tabular-nums text-foreground-muted">{r.year}</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">{r.pnlPct >= 0 ? '+' : ''}{r.pnlPct.toFixed(1)}%</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">{r.sharpe.toFixed(2)}</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">{r.mddPct.toFixed(1)}%</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">{r.longPct.toFixed(1)}%</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">{r.shortPct.toFixed(1)}%</td>
-                <td className="px-2.5 py-1 text-right font-mono tabular-nums">${r.fee.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                <td className="px-3 py-1.5 font-mono tabular-nums text-foreground-muted">{r.year}</td>
+                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getSignCellColor(r.pnlNetPct)}`}>{r.pnlNetPct >= 0 ? '+' : ''}{r.pnlNetPct.toFixed(1)}%</td>
+                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${r.pnlGrossPct !== null ? getSignCellColor(r.pnlGrossPct) : 'text-foreground-muted'}`}>
+                  {r.pnlGrossPct === null ? '-' : `${r.pnlGrossPct >= 0 ? '+' : ''}${r.pnlGrossPct.toFixed(1)}%`}
+                </td>
+                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getMetricCellColor('sharpe', r.sharpe)}`}>{r.sharpe.toFixed(2)}</td>
+                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getMetricCellColor('mdd', r.mddPct)}`}>{r.mddPct.toFixed(1)}%</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{r.longPct.toFixed(1)}%</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{r.shortPct.toFixed(1)}%</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">
+                  {r.feeImpactPct === null || r.feeImpactUsd === null
+                    ? '-'
+                    : `+${r.feeImpactPct.toFixed(2)}% / $${r.feeImpactUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                </td>
               </tr>
             ))}
           </tbody>

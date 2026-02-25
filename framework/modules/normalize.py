@@ -37,6 +37,10 @@ class NormalizeBySymbol(Signal):
         )
         self._buf: list[float] = []  # benchmark history for zscore
 
+    def reset(self):
+        self._buf = []
+        super().reset()
+
     def _update_bench_history(self, value: float):
         self._buf.append(value)
         if self.window is not None and len(self._buf) > self.window:
@@ -55,11 +59,11 @@ class NormalizeBySymbol(Signal):
                 break
 
         if bench_idx is None:
-            return np.zeros(N, dtype=np.float64)
+            return np.full(N, np.nan, dtype=np.float64)
 
         b = float(s[bench_idx])
         if not np.isfinite(b):
-            return np.zeros(N, dtype=np.float64)
+            return np.full(N, np.nan, dtype=np.float64)
 
         if self.mode == "diff":
             res = s - b
@@ -70,14 +74,14 @@ class NormalizeBySymbol(Signal):
             arr = np.asarray(self._buf, dtype=float)
             valid = arr[np.isfinite(arr)]
             if len(valid) < self.min_count:
-                return np.zeros(N, dtype=np.float64)
+                return np.full(N, np.nan, dtype=np.float64)
             mean_b = valid.mean()
             std_b = valid.std(ddof=1)
             if (not np.isfinite(std_b)) or (std_b < self.eps):
-                return np.zeros(N, dtype=np.float64)
+                return np.full(N, np.nan, dtype=np.float64)
             res = (s - mean_b) / (std_b + self.eps)
 
-        res = np.where(np.isfinite(res), res, 0.0)
+        res = np.where(np.isfinite(res), res, np.nan)
         return res
 
 

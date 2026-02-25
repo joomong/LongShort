@@ -3,44 +3,24 @@ import numpy as np
 from ..signal_base import Signal
 from framework.exceptions import XmlCompileError
 
-try:
-    import numba
-    _HAS_NUMBA = True
-except ImportError:
-    _HAS_NUMBA = False
+import numba
 
 
-def _delay_kernel_numpy(vals, buf, write_pos, period, count):
-    """Numpy fallback: circular buffer read/write for delay."""
+@numba.jit(nopython=True, cache=True)
+def _delay_kernel_numba(vals, buf, write_pos, period, count):
     N = len(vals)
     buf_size = period + 1
+    out = np.empty(N, dtype=np.float64)
     if count > period:
         read_pos = (write_pos - period) % buf_size
-        out = buf[:, read_pos].copy()
+        for i in range(N):
+            out[i] = buf[i, read_pos]
     else:
-        out = np.full(N, np.nan, dtype=np.float64)
+        out[:] = np.nan
     buf[:, write_pos] = vals
     return out
 
-
-if _HAS_NUMBA:
-    @numba.jit(nopython=True, cache=True)
-    def _delay_kernel_numba(vals, buf, write_pos, period, count):
-        N = len(vals)
-        buf_size = period + 1
-        out = np.empty(N, dtype=np.float64)
-        if count > period:
-            read_pos = (write_pos - period) % buf_size
-            for i in range(N):
-                out[i] = buf[i, read_pos]
-        else:
-            out[:] = np.nan
-        buf[:, write_pos] = vals
-        return out
-
-    _delay_kernel = _delay_kernel_numba
-else:
-    _delay_kernel = _delay_kernel_numpy
+_delay_kernel = _delay_kernel_numba
 
 
 class Delay(Signal):
@@ -62,6 +42,12 @@ class Delay(Signal):
         self._buf: np.ndarray | None = None  # (N, p+1) circular buffer
         self._pos: int = 0  # write position in circular buffer
         self._count: int = 0  # number of values written so far
+
+    def reset(self):
+        self._buf = None
+        self._pos = 0
+        self._count = 0
+        super().reset()
 
     def compute(self, t_idx: int, arrays: dict[str, np.ndarray]) -> np.ndarray:
         vals = self.x.compute(t_idx, arrays)

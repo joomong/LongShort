@@ -20,7 +20,7 @@ export default function SignalDistribution() {
   const maxCount = distribution ? distribution.reduce((a, b) => a > b ? a : b, 0) : 0;
 
   return (
-    <div className="px-4 py-2 bg-background-tertiary border-b border-border">
+    <div className="px-4 py-2 bg-background-tertiary border-b border-border panel-inset">
       {/* Range Info */}
       <div className="flex justify-end items-center mb-1">
         <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
@@ -38,7 +38,7 @@ export default function SignalDistribution() {
           return (
             <div
               key={i}
-              className="flex-1 bg-foreground-muted"
+              className="flex-1 bg-foreground-muted opacity-60"
               style={{
                 height: `${height}%`,
                 marginRight: i < distribution.length - 1 ? '1px' : '0',
