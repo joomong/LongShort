@@ -60,11 +60,21 @@ struct MTsRank : public Module {
     }
 
     void save_state(std::ostream& os) const override {
-        // circular buffer state
+        os.write(reinterpret_cast<const char*>(&pos_), sizeof(pos_));
+        os.write(reinterpret_cast<const char*>(&count_), sizeof(count_));
+        unsigned w = static_cast<unsigned>(days.value);
+        for (unsigned ii = 0; ii < numAssets; ++ii)
+            os.write(reinterpret_cast<const char*>(buf_[ii].data()),
+                     static_cast<std::streamsize>(w * sizeof(float)));
     }
 
     void load_state(std::istream& is) override {
-        // circular buffer state
+        is.read(reinterpret_cast<char*>(&pos_), sizeof(pos_));
+        is.read(reinterpret_cast<char*>(&count_), sizeof(count_));
+        unsigned w = static_cast<unsigned>(days.value);
+        for (unsigned ii = 0; ii < numAssets; ++ii)
+            is.read(reinterpret_cast<char*>(buf_[ii].data()),
+                    static_cast<std::streamsize>(w * sizeof(float)));
     }
 
 private:

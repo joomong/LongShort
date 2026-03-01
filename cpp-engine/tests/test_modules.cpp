@@ -260,6 +260,6 @@ TEST(MDiv, DivByZero) {
     SignalVector sv{buf.data(), 2};
 
     mod.calculate(0, sv);
-    // 10/0 -> inf or NaN depending on float behavior
-    EXPECT_TRUE(std::isinf(sv[0]) || std::isnan(sv[0]));
+    // 10/0 -> NaN per STAR spec (MDiv guards rhs==0)
+    EXPECT_TRUE(std::isnan(sv[0]));
 }

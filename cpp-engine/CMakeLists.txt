@@ -84,7 +84,10 @@ target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_compile_options(engine PUBLIC -include ${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h)
+target_compile_options(engine PUBLIC
+    $<$<CXX_COMPILER_ID:MSVC>:SHELL:/FI "${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h">
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:SHELL:-include "${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h">
+)
 
 target_link_libraries(engine PUBLIC
     Arrow::arrow_shared
