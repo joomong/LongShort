@@ -16,10 +16,10 @@ struct MDelay : public Module {
     }
 
     void save_state(std::ostream& os) const override {
-        // TODO: serialize ModuleInput ring buffer
+        input.save(os);
     }
 
     void load_state(std::istream& is) override {
-        // TODO: deserialize ModuleInput ring buffer
+        input.load(is);
     }
 };

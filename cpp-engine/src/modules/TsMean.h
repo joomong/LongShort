@@ -1,57 +1,74 @@
 #pragma once
 
-// MTsMean: rolling mean over a window (circular buffer, O(window) per bar).
-// O(1) incremental upgrade planned for Phase C.
+// MTsMean: rolling mean over a window (O(1) incremental per instrument).
+// Uses ModuleInput ring buffer for outgoing value access.
+// State: running_sum, running_count per instrument.
 struct MTsMean : public Module {
+    ModuleInput input;
     IntParameter days;
 
     void init() override {
         unsigned w = static_cast<unsigned>(days.value);
-        buf_.assign(numAssets, std::vector<float>(w, std::numeric_limits<float>::quiet_NaN()));
-        pos_   = 0;
-        count_ = 0;
+        input.init(w, numAssets);
+        running_sum_.assign(numAssets, 0.0);
+        running_count_.assign(numAssets, 0);
+        bar_count_ = 0;
     }
 
     void calculate(unsigned di, SignalVector& output) override {
         unsigned w = static_cast<unsigned>(days.value);
-
-        for (unsigned ii = 0; ii < numAssets; ++ii)
-            buf_[ii][pos_] = output[ii];
-        pos_ = (pos_ + 1) % w;
-        if (count_ < w)
-            ++count_;
-
-        if (count_ < w) {
-            output.fill_nan();
-            return;
-        }
+        input.push(output);
+        ++bar_count_;
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
-            float sum   = 0.0f;
-            int   valid = 0;
-            for (unsigned j = 0; j < w; ++j) {
-                float v = buf_[ii][j];
-                if (!std::isnan(v)) {
-                    sum += v;
-                    ++valid;
+            float new_val = input(0)[ii];
+
+            // Add incoming
+            if (std::isfinite(new_val)) {
+                running_sum_[ii] += static_cast<double>(new_val);
+                running_count_[ii] += 1;
+            }
+
+            // Remove outgoing (only after window is full)
+            if (bar_count_ > w) {
+                float old_val = input(w)[ii];
+                if (std::isfinite(old_val)) {
+                    running_sum_[ii] -= static_cast<double>(old_val);
+                    running_count_[ii] -= 1;
                 }
             }
-            output[ii] = (valid > 0)
-                ? sum / static_cast<float>(valid)
-                : std::numeric_limits<float>::quiet_NaN();
+
+            // Output
+            if (bar_count_ < w) {
+                output[ii] = std::numeric_limits<float>::quiet_NaN();
+            } else if (running_count_[ii] > 0) {
+                output[ii] = static_cast<float>(running_sum_[ii] / running_count_[ii]);
+            } else {
+                output[ii] = std::numeric_limits<float>::quiet_NaN();
+            }
         }
     }
 
     void save_state(std::ostream& os) const override {
-        // TODO: checkpoint for O(1) incremental
+        input.save(os);
+        os.write(reinterpret_cast<const char*>(running_sum_.data()),
+                 static_cast<std::streamsize>(numAssets * sizeof(double)));
+        os.write(reinterpret_cast<const char*>(running_count_.data()),
+                 static_cast<std::streamsize>(numAssets * sizeof(int)));
+        os.write(reinterpret_cast<const char*>(&bar_count_), sizeof(bar_count_));
     }
 
     void load_state(std::istream& is) override {
-        // TODO: checkpoint for O(1) incremental
+        input.load(is);
+        is.read(reinterpret_cast<char*>(running_sum_.data()),
+                static_cast<std::streamsize>(numAssets * sizeof(double)));
+        is.read(reinterpret_cast<char*>(running_count_.data()),
+                static_cast<std::streamsize>(numAssets * sizeof(int)));
+        is.read(reinterpret_cast<char*>(&bar_count_), sizeof(bar_count_));
     }
 
 private:
-    std::vector<std::vector<float>> buf_;
-    unsigned pos_ = 0;
-    unsigned count_ = 0;
+    StarVector<double> running_sum_;
+    StarVector<int> running_count_;
+    unsigned bar_count_ = 0;
 };

@@ -3,7 +3,8 @@
 #include <vector>
 #include <limits>
 #include <cmath>
-#include <iosfwd>
+#include <ostream>
+#include <istream>
 #include "signal_vector.h"
 #include "star_vector.h"
 
@@ -68,6 +69,24 @@ public:
     }
 
     const SignalVector& operator()() const { return (*this)(0); }
+
+    void save(std::ostream& os) const {
+        os.write(reinterpret_cast<const char*>(&head_), sizeof(head_));
+        os.write(reinterpret_cast<const char*>(&push_count_), sizeof(push_count_));
+        unsigned cap = static_cast<unsigned>(ring_.size());
+        for (unsigned slot = 0; slot < cap; ++slot)
+            os.write(reinterpret_cast<const char*>(ring_[slot].data()),
+                     static_cast<std::streamsize>(num_assets_ * sizeof(float)));
+    }
+
+    void load(std::istream& is) {
+        is.read(reinterpret_cast<char*>(&head_), sizeof(head_));
+        is.read(reinterpret_cast<char*>(&push_count_), sizeof(push_count_));
+        unsigned cap = static_cast<unsigned>(ring_.size());
+        for (unsigned slot = 0; slot < cap; ++slot)
+            is.read(reinterpret_cast<char*>(ring_[slot].data()),
+                    static_cast<std::streamsize>(num_assets_ * sizeof(float)));
+    }
 
 private:
     unsigned                         num_assets_;

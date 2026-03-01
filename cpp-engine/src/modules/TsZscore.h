@@ -1,67 +1,71 @@
 #pragma once
 
-// MTsZscore: rolling z-score (circular buffer, O(window) per bar).
-// O(1) incremental upgrade planned for Phase C.
+// MTsZscore: rolling z-score (O(1) incremental per instrument).
+// Uses one-pass formula: variance = (sum_sq - sum^2/n) / (n - ddof)
+// State: running_sum, running_sum_sq, running_count per instrument.
 struct MTsZscore : public Module {
+    ModuleInput input;
     IntParameter days;
     IntParameter ddof{1};
-    IntParameter min_count{-1};   // -1 → resolved to days in init()
+    IntParameter min_count{-1};
     FloatParameter eps{1e-12};
 
     void init() override {
         if (min_count.value < 0)
             min_count = IntParameter(days.value);
         unsigned w = static_cast<unsigned>(days.value);
-        buf_.assign(numAssets, std::vector<float>(w, std::numeric_limits<float>::quiet_NaN()));
-        pos_   = 0;
-        count_ = 0;
+        input.init(w, numAssets);
+        running_sum_.assign(numAssets, 0.0);
+        running_sum_sq_.assign(numAssets, 0.0);
+        running_count_.assign(numAssets, 0);
+        bar_count_ = 0;
     }
 
     void calculate(unsigned di, SignalVector& output) override {
         unsigned w = static_cast<unsigned>(days.value);
-
-        for (unsigned ii = 0; ii < numAssets; ++ii)
-            buf_[ii][pos_] = output[ii];
-        pos_ = (pos_ + 1) % w;
-        if (count_ < w)
-            ++count_;
+        input.push(output);
+        ++bar_count_;
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
-            unsigned cur_slot = (pos_ + w - 1) % w;
-            float cur = buf_[ii][cur_slot];
+            float new_val = input(0)[ii];
 
-            if (std::isnan(cur)) {
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-                continue;
+            // Add incoming
+            if (std::isfinite(new_val)) {
+                running_sum_[ii] += static_cast<double>(new_val);
+                running_sum_sq_[ii] += static_cast<double>(new_val) * new_val;
+                running_count_[ii] += 1;
             }
 
-            double sum  = 0.0;
-            int n_valid = 0;
-            for (unsigned j = 0; j < w; ++j) {
-                float v = buf_[ii][j];
-                if (!std::isnan(v)) {
-                    sum += v;
-                    ++n_valid;
+            // Remove outgoing (only after window is full)
+            if (bar_count_ > w) {
+                float old_val = input(w)[ii];
+                if (std::isfinite(old_val)) {
+                    running_sum_[ii] -= static_cast<double>(old_val);
+                    running_sum_sq_[ii] -= static_cast<double>(old_val) * old_val;
+                    running_count_[ii] -= 1;
                 }
             }
 
-            if (n_valid < min_count.value) {
+            int n = running_count_[ii];
+
+            if (n < min_count.value) {
                 output[ii] = 0.0f;
                 continue;
             }
 
-            double mean = sum / n_valid;
-            double sq_sum = 0.0;
-            for (unsigned j = 0; j < w; ++j) {
-                float v = buf_[ii][j];
-                if (!std::isnan(v)) {
-                    double diff = v - mean;
-                    sq_sum += diff * diff;
-                }
+            float cur = new_val;
+            if (!std::isfinite(cur)) {
+                output[ii] = std::numeric_limits<float>::quiet_NaN();
+                continue;
             }
 
-            int denom = n_valid - ddof.value;
-            double std_dev = (denom > 0) ? std::sqrt(sq_sum / denom) : 0.0;
+            double mean = running_sum_[ii] / n;
+            int denom = n - ddof.value;
+            double variance = (denom > 0)
+                ? (running_sum_sq_[ii] - running_sum_[ii] * running_sum_[ii] / n) / denom
+                : 0.0;
+            if (variance < 0.0) variance = 0.0;  // guard against floating point artifact
+            double std_dev = std::sqrt(variance);
 
             if (std_dev < eps.value) {
                 output[ii] = 0.0f;
@@ -72,15 +76,30 @@ struct MTsZscore : public Module {
     }
 
     void save_state(std::ostream& os) const override {
-        // TODO: checkpoint for O(1) incremental
+        input.save(os);
+        os.write(reinterpret_cast<const char*>(running_sum_.data()),
+                 static_cast<std::streamsize>(numAssets * sizeof(double)));
+        os.write(reinterpret_cast<const char*>(running_sum_sq_.data()),
+                 static_cast<std::streamsize>(numAssets * sizeof(double)));
+        os.write(reinterpret_cast<const char*>(running_count_.data()),
+                 static_cast<std::streamsize>(numAssets * sizeof(int)));
+        os.write(reinterpret_cast<const char*>(&bar_count_), sizeof(bar_count_));
     }
 
     void load_state(std::istream& is) override {
-        // TODO: checkpoint for O(1) incremental
+        input.load(is);
+        is.read(reinterpret_cast<char*>(running_sum_.data()),
+                static_cast<std::streamsize>(numAssets * sizeof(double)));
+        is.read(reinterpret_cast<char*>(running_sum_sq_.data()),
+                static_cast<std::streamsize>(numAssets * sizeof(double)));
+        is.read(reinterpret_cast<char*>(running_count_.data()),
+                static_cast<std::streamsize>(numAssets * sizeof(int)));
+        is.read(reinterpret_cast<char*>(&bar_count_), sizeof(bar_count_));
     }
 
 private:
-    std::vector<std::vector<float>> buf_;
-    unsigned pos_ = 0;
-    unsigned count_ = 0;
+    StarVector<double> running_sum_;
+    StarVector<double> running_sum_sq_;
+    StarVector<int> running_count_;
+    unsigned bar_count_ = 0;
 };
