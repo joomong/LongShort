@@ -28,6 +28,18 @@ export interface PnlSeriesPoint {
   gross: number;
 }
 
+interface IsOsPnlPoint {
+  date: string;
+  isNet?: number;
+  osNet?: number;
+}
+
+interface IsOsSeriesPoint {
+  date: string;
+  isValue?: number;
+  osValue?: number;
+}
+
 const DEFAULT_CAPITAL = 100000;
 
 export function seriesToChartData(
@@ -103,106 +115,58 @@ export function buildMddDataFromEquity(
   });
 }
 
-function BigChart({
-  title,
-  data,
-  color,
-  formatValue,
-}: {
-  title: string;
-  data: SingleSeriesPoint[];
-  color: string;
-  formatValue?: (v: number) => string;
-}) {
-  const fmt = formatValue ?? ((v: number) => v.toFixed(4));
-  const { theme } = useThemeStore();
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  const colors = useMemo(() => {
-    void theme;
-    return getThemeColors();
-  }, [theme]);
-
-  const monthlyTicks = useMemo(() => {
-    if (data.length === 0) return [];
-    const indices: number[] = [];
-    let lastMonth = '';
-    data.forEach((d, i) => {
-      const month = d.date.slice(0, 7);
-      if (month !== lastMonth) {
-        indices.push(i);
-        lastMonth = month;
-      }
-    });
-    return indices;
-  }, [data]);
-
-  if (data.length === 0) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="px-3 py-2">
-          <span className="text-xs text-foreground-muted">{title}</span>
-        </div>
-        <div className="flex-1 bg-chart-background" />
-      </div>
-    );
+function mergeIsOsPnl(
+  isPnl: PnlSeriesPoint[],
+  osPnl: PnlSeriesPoint[]
+): IsOsPnlPoint[] {
+  const merged: IsOsPnlPoint[] = [];
+  for (const p of isPnl) {
+    merged.push({ date: p.date, isNet: p.net, osNet: undefined });
   }
-
-  return (
-    <div className="h-full flex flex-col">
-      <div className="px-3 py-2">
-        <span className="text-xs text-foreground-muted">{title}</span>
-      </div>
-      <div className="flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 10, bottom: 20, left: 10 }}>
-            <XAxis
-              dataKey="date"
-              ticks={monthlyTicks.map((i) => data[i]?.date).filter(Boolean)}
-              tickFormatter={(d: string) => d.slice(0, 7)}
-              tick={{ fontSize: 10, fill: colors.chartText }}
-              axisLine={false}
-              tickLine={false}
-              interval={0}
-              angle={-45}
-              textAnchor="end"
-              height={30}
-            />
-            <YAxis hide domain={['auto', 'auto']} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: colors.backgroundElevated,
-                border: `1px solid ${colors.chartGrid}`,
-                borderRadius: 0,
-                fontSize: 12,
-                color: colors.chartText,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-              }}
-              labelStyle={{ color: colors.chartText, fontSize: 11 }}
-              formatter={(value) => {
-                const n = typeof value === 'number' ? value : Number(value);
-                return [Number.isFinite(n) ? fmt(n) : 'N/A', title];
-              }}
-              labelFormatter={(_label, payload) => {
-                const entry = payload?.[0]?.payload as SingleSeriesPoint | undefined;
-                return entry?.date ?? '';
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              dot={false}
-              strokeWidth={2}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
+  if (isPnl.length > 0 && osPnl.length > 0) {
+    const lastIs = isPnl[isPnl.length - 1];
+    const isOffset = lastIs.net;
+    for (const p of osPnl) {
+      merged.push({ date: p.date, isNet: undefined, osNet: p.net + isOffset });
+    }
+    // Make the first OS point also have isNet (overlap)
+    if (merged.length > isPnl.length) {
+      merged[isPnl.length].isNet = lastIs.net;
+    }
+  } else {
+    for (const p of osPnl) {
+      merged.push({ date: p.date, isNet: undefined, osNet: p.net });
+    }
+  }
+  return merged;
 }
 
-function PnlDualChart({ data }: { data: PnlSeriesPoint[] }) {
+function mergeIsOsSeries(
+  isData: SingleSeriesPoint[],
+  osData: SingleSeriesPoint[]
+): IsOsSeriesPoint[] {
+  const merged: IsOsSeriesPoint[] = [];
+  for (const p of isData) {
+    merged.push({ date: p.date, isValue: p.value, osValue: undefined });
+  }
+  if (isData.length > 0 && osData.length > 0) {
+    const lastIs = isData[isData.length - 1];
+    for (const p of osData) {
+      merged.push({ date: p.date, isValue: undefined, osValue: p.value });
+    }
+    // Overlap: first OS point also has isValue
+    if (merged.length > isData.length) {
+      merged[isData.length].isValue = lastIs.value;
+    }
+  } else {
+    for (const p of osData) {
+      merged.push({ date: p.date, isValue: undefined, osValue: p.value });
+    }
+  }
+  return merged;
+}
+
+function PnlDualChart({ data }: { data: IsOsPnlPoint[] }) {
   const { theme } = useThemeStore();
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   const colors = useMemo(() => {
@@ -273,23 +237,21 @@ function PnlDualChart({ data }: { data: PnlSeriesPoint[] }) {
                 const n = typeof value === 'number' ? value : Number(value);
                 return [
                   Number.isFinite(n) ? formatUsd(n) : 'N/A',
-                  name === 'net' ? 'Fee Included' : 'No Fee',
+                  name === 'isNet' ? 'IS' : 'OS',
                 ];
               }}
               labelFormatter={(_label, payload) => {
-                const entry = payload?.[0]?.payload as PnlSeriesPoint | undefined;
+                const entry = payload?.[0]?.payload as IsOsPnlPoint | undefined;
                 return entry?.date ?? '';
               }}
             />
             <Legend
               wrapperStyle={{ fontSize: 11 }}
-              formatter={(value) =>
-                value === 'net' ? 'Fee Included (10bps RT)' : 'No Fee'
-              }
+              formatter={(value) => (value === 'isNet' ? 'IS' : 'OS')}
             />
             <Line
               type="monotone"
-              dataKey="net"
+              dataKey="isNet"
               stroke="#4af6c3"
               dot={false}
               strokeWidth={2}
@@ -297,13 +259,157 @@ function PnlDualChart({ data }: { data: PnlSeriesPoint[] }) {
             />
             <Line
               type="monotone"
-              dataKey="gross"
+              dataKey="osNet"
               stroke="#ff9800"
-              strokeDasharray="4 2"
               dot={false}
               strokeWidth={2}
               isAnimationActive={false}
             />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function BigChart({
+  title,
+  data,
+  color,
+  osData,
+  osColor,
+  formatValue,
+}: {
+  title: string;
+  data: SingleSeriesPoint[];
+  color: string;
+  osData?: SingleSeriesPoint[];
+  osColor?: string;
+  formatValue?: (v: number) => string;
+}) {
+  const fmt = formatValue ?? ((v: number) => v.toFixed(4));
+  const { theme } = useThemeStore();
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  const colors = useMemo(() => {
+    void theme;
+    return getThemeColors();
+  }, [theme]);
+
+  const hasOs = osData && osData.length > 0;
+
+  const mergedData = useMemo(() => {
+    if (!hasOs) return null;
+    return mergeIsOsSeries(data, osData);
+  }, [data, osData, hasOs]);
+
+  const chartData = hasOs ? mergedData! : data;
+
+  const monthlyTicks = useMemo(() => {
+    if (chartData.length === 0) return [];
+    const indices: number[] = [];
+    let lastMonth = '';
+    chartData.forEach((d, i) => {
+      const month = d.date.slice(0, 7);
+      if (month !== lastMonth) {
+        indices.push(i);
+        lastMonth = month;
+      }
+    });
+    return indices;
+  }, [chartData]);
+
+  if (data.length === 0) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="px-3 py-2">
+          <span className="text-xs text-foreground-muted">{title}</span>
+        </div>
+        <div className="flex-1 bg-chart-background" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="px-3 py-2">
+        <span className="text-xs text-foreground-muted">{title}</span>
+      </div>
+      <div className="flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 20, left: 10 }}>
+            <XAxis
+              dataKey="date"
+              ticks={monthlyTicks.map((i) => chartData[i]?.date).filter(Boolean)}
+              tickFormatter={(d: string) => d.slice(0, 7)}
+              tick={{ fontSize: 10, fill: colors.chartText }}
+              axisLine={false}
+              tickLine={false}
+              interval={0}
+              angle={-45}
+              textAnchor="end"
+              height={30}
+            />
+            <YAxis hide domain={['auto', 'auto']} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: colors.backgroundElevated,
+                border: `1px solid ${colors.chartGrid}`,
+                borderRadius: 0,
+                fontSize: 12,
+                color: colors.chartText,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              }}
+              labelStyle={{ color: colors.chartText, fontSize: 11 }}
+              formatter={(value: unknown, name: unknown) => {
+                const n = typeof value === 'number' ? value : Number(value);
+                if (hasOs) {
+                  return [
+                    Number.isFinite(n) ? fmt(n) : 'N/A',
+                    name === 'isValue' ? 'IS' : 'OS',
+                  ];
+                }
+                return [Number.isFinite(n) ? fmt(n) : 'N/A', title];
+              }}
+              labelFormatter={(_label, payload) => {
+                const entry = payload?.[0]?.payload as { date: string } | undefined;
+                return entry?.date ?? '';
+              }}
+            />
+            {hasOs && (
+              <Legend
+                wrapperStyle={{ fontSize: 11 }}
+                formatter={(value) => (value === 'isValue' ? 'IS' : 'OS')}
+              />
+            )}
+            {hasOs ? (
+              <>
+                <Line
+                  type="monotone"
+                  dataKey="isValue"
+                  stroke={color}
+                  dot={false}
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="osValue"
+                  stroke={osColor}
+                  dot={false}
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                />
+              </>
+            ) : (
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke={color}
+                dot={false}
+                strokeWidth={2}
+                isAnimationActive={false}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -321,7 +427,7 @@ export default function DetailTimeSeries({
   initialCapital?: number;
 }) {
   const transactionFeeRate = useAlphaStore(
-    (s) => s.dataRange?.transactionFeeRate ?? 0.001
+    (s) => s.config?.feeRate ?? 0.001
   );
   const capital = initialCapital ?? DEFAULT_CAPITAL;
 
@@ -352,9 +458,17 @@ export default function DetailTimeSeries({
     return { pnlData, netEquityData };
   }, [alpha.isRetSeries, alpha.isTurnoverSeries, alpha.isEquitySeries, capital, transactionFeeRate]);
 
+  const osPnlBundle = useMemo(() => {
+    return buildPnlBundleFromRet(alpha.osRetSeries, alpha.osTurnoverSeries ?? null, capital, transactionFeeRate);
+  }, [alpha.osRetSeries, alpha.osTurnoverSeries, capital, transactionFeeRate]);
+
   const mddData = useMemo(() => {
     return buildMddDataFromEquity(pnlBundle.netEquityData);
   }, [pnlBundle.netEquityData]);
+
+  const osMddData = useMemo(() => {
+    return buildMddDataFromEquity(osPnlBundle.netEquityData);
+  }, [osPnlBundle.netEquityData]);
 
   const minBetData = useMemo(
     () => seriesToChartData(alpha.isMinBetSeries),
@@ -369,8 +483,22 @@ export default function DetailTimeSeries({
     [alpha.isNonzeroPositionSeries]
   );
 
+  const osMinBetData = useMemo(
+    () => seriesToChartData(alpha.osMinBetSeries),
+    [alpha.osMinBetSeries]
+  );
+  const osMaxWeightData = useMemo(
+    () => seriesToChartData(alpha.osMaxWeightSeries),
+    [alpha.osMaxWeightSeries]
+  );
+  const osNonZeroData = useMemo(
+    () => seriesToChartData(alpha.osNonzeroPositionSeries),
+    [alpha.osNonzeroPositionSeries]
+  );
+
   if (metric === 'pnl') {
-    return <PnlDualChart data={pnlBundle.pnlData} />;
+    const mergedPnl = mergeIsOsPnl(pnlBundle.pnlData, osPnlBundle.pnlData);
+    return <PnlDualChart data={mergedPnl} />;
   }
 
   if (metric === 'mdd') {
@@ -379,6 +507,8 @@ export default function DetailTimeSeries({
         title="MDD (%)"
         data={mddData}
         color="#ff433d"
+        osData={osMddData}
+        osColor="#ff9800"
         formatValue={(v) => `${v.toFixed(2)}%`}
       />
     );
@@ -390,6 +520,8 @@ export default function DetailTimeSeries({
         title="Min Bet"
         data={minBetData}
         color="#0078ff"
+        osData={osMinBetData}
+        osColor="#ff9800"
         formatValue={(v) => v.toFixed(4)}
       />
     );
@@ -400,7 +532,9 @@ export default function DetailTimeSeries({
       <BigChart
         title="Max Weight"
         data={maxWeightData}
-        color="#ff9800"
+        color="#0078ff"
+        osData={osMaxWeightData}
+        osColor="#ff9800"
         formatValue={(v) => `${(v * 100).toFixed(2)}%`}
       />
     );
@@ -411,6 +545,8 @@ export default function DetailTimeSeries({
       title="Non-zero Position"
       data={nonZeroData}
       color="#0078ff"
+      osData={osNonZeroData}
+      osColor="#ff9800"
       formatValue={(v) => `${v.toFixed(0)}`}
     />
   );

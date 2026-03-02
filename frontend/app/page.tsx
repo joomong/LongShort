@@ -116,15 +116,15 @@ function RightPanel() {
 
 export default function Home() {
   useEffect(() => {
-    useAlphaStore.getState().fetchDataRange();
-    useAlphaStore.getState().fetchSymbols();
+    useAlphaStore.getState().fetchConfig();
   }, []);
 
   return (
     <>
       <MainLayout
-        leftPanel={<LeftPanel />}
-        rightPanel={<RightPanel />}
+        leftPanel={<RightPanel />}
+        rightPanel={<LeftPanel />}
+        minLeftWidth={15}
       />
       <SaveAlphaModal />
       <LoadAlphaModal />

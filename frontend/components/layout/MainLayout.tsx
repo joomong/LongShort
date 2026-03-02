@@ -15,7 +15,7 @@ export default function MainLayout({
   topBar,
   leftPanel,
   rightPanel,
-  defaultLeftWidth = 75,
+  defaultLeftWidth = 25,
   minLeftWidth = 30,
   maxLeftWidth = 80,
 }: MainLayoutProps) {
@@ -65,7 +65,7 @@ export default function MainLayout({
 
       {/* Split panels below */}
       <div ref={containerRef} className="flex flex-1 min-h-0 w-full overflow-hidden">
-        {/* Left Panel - Visualization */}
+        {/* Left Panel - Editor */}
         <div
           className="h-full min-w-0 overflow-y-auto overflow-x-hidden"
           style={{ width: `${leftWidth}%` }}
@@ -88,7 +88,7 @@ export default function MainLayout({
           }}
         />
 
-        {/* Right Panel - Editor */}
+        {/* Right Panel - Visualization */}
         <div
           className="h-full overflow-hidden flex flex-col"
           style={{ width: `${100 - leftWidth}%` }}
