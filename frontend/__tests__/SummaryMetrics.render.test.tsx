@@ -19,11 +19,12 @@ describe('SummaryMetrics render formatting', () => {
     render(<SummaryMetrics />);
 
     expect(screen.getByText('Combined Portfolio')).toBeInTheDocument();
+    // IS: Return, Sharpe, Turnover
     expect(screen.getByText('+947.5%')).toBeInTheDocument();
     expect(screen.getByText('5.06')).toBeInTheDocument();
-    expect(screen.getByText('-2.0%')).toBeInTheDocument();
-    expect(screen.getByText('27')).toBeInTheDocument();
+    expect(screen.getByText('26.7')).toBeInTheDocument();
 
+    // OS: Return, Sharpe
     expect(screen.getByText('-60.3%')).toBeInTheDocument();
     expect(screen.getByText('-4.50')).toBeInTheDocument();
   });

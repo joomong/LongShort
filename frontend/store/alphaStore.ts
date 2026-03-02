@@ -1,11 +1,15 @@
 import { create } from 'zustand';
-import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress } from '@/types';
-import { getDataRange, getSymbols } from '@/lib/api';
+import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress, StarConfigResponse } from '@/types';
+import { getConfig } from '@/lib/api';
 
 interface AlphaState {
   // XML Editor
   xmlCode: string;
   setXmlCode: (code: string) => void;
+
+  // Alpha Name
+  alphaName: string;
+  setAlphaName: (name: string) => void;
 
   // UI Error
   backtestError: string | null;
@@ -37,6 +41,7 @@ interface AlphaState {
 
   // Alpha Selection (multi-alpha save)
   selectedAlphaIndices: number[];
+  selectedAlphaIndexSet: Set<number>; // O(1) .has() lookup (js-set-map-lookups)
   toggleAlphaSelection: (index: number) => void;
   clearAlphaSelection: () => void;
 
@@ -46,13 +51,9 @@ interface AlphaState {
   isLoadModalOpen: boolean;
   setIsLoadModalOpen: (open: boolean) => void;
 
-  // Data Range
-  dataRange: { minDate: string; maxDate: string; transactionFeeRate: number } | null;
-  fetchDataRange: () => Promise<void>;
-
-  // Symbols
-  symbols: string[];
-  fetchSymbols: () => Promise<void>;
+  // Config
+  config: StarConfigResponse | null;
+  fetchConfig: () => Promise<void>;
 
   // GA Progress
   gaProgress: GAProgress | null;
@@ -67,9 +68,7 @@ interface AlphaState {
 
 const defaultSettings: BacktestSettings = {
   isStart: '2023-01-01',
-  isEnd: '2023-06-30',
-  osStart: '2023-07-01',
-  osEnd: '2023-12-31',
+  osStart: '2024-01-01',
   barInterval: 'D1',
   nJobs: 5,
   gaPopulation: 50,
@@ -77,7 +76,7 @@ const defaultSettings: BacktestSettings = {
 
 const defaultXml = `<data expr="close" delay="1"/>`;
 
-/** Ensure isStart <= isEnd < osStart <= osEnd, clamped to [min, max] if provided. */
+/** Ensure isStart < osStart, both clamped to [minDate, maxDate] if provided. */
 export function enforceSettingsDates(
   s: BacktestSettings,
   minDate?: string,
@@ -90,34 +89,17 @@ export function enforceSettingsDates(
     return d;
   };
   const nextDay = (d: string) => {
-    const dt = new Date(d + 'T12:00:00Z'); // noon UTC avoids DST/timezone issues
+    const dt = new Date(d + 'T12:00:00Z');
     dt.setUTCDate(dt.getUTCDate() + 1);
     return dt.toISOString().slice(0, 10);
   };
 
-  // Clamp all to data range
   r.isStart = clamp(r.isStart);
-  r.isEnd = clamp(r.isEnd);
   r.osStart = clamp(r.osStart);
-  r.osEnd = clamp(r.osEnd);
 
-  // Enforce ordering: isStart <= isEnd
-  if (r.isStart > r.isEnd) r.isEnd = r.isStart;
-  // Enforce isEnd < osStart
-  if (r.isEnd >= r.osStart) r.osStart = clamp(nextDay(r.isEnd));
-  // Enforce osStart <= osEnd
-  if (r.osStart > r.osEnd) r.osEnd = r.osStart;
-
-  // After all enforcement, final safety check.
-  // Note: if the data range is only 1 day, isEnd will fall below minDate here.
-  // This is acceptable since the backend validator will reject such ranges.
-  if (r.isEnd >= r.osStart) {
-    // osStart is at maxDate boundary, push isEnd back
-    const pd = new Date(r.osStart + 'T12:00:00Z'); // noon UTC avoids DST/timezone issues
-    pd.setUTCDate(pd.getUTCDate() - 1);
-    r.isEnd = pd.toISOString().slice(0, 10);
-    // isStart may need adjustment too
-    if (r.isStart > r.isEnd) r.isStart = r.isEnd;
+  // Enforce isStart < osStart
+  if (r.isStart >= r.osStart) {
+    r.osStart = clamp(nextDay(r.isStart));
   }
 
   return r;
@@ -129,6 +111,10 @@ export const useAlphaStore = create<AlphaState>((set) => ({
   setXmlCode: (code) =>
     set((state) => (state.xmlCode === code ? state : { xmlCode: code })),
 
+  // Alpha Name
+  alphaName: '',
+  setAlphaName: (name) => set({ alphaName: name }),
+
   // UI Error
   backtestError: null,
   setBacktestError: (message) => set({ backtestError: message }),
@@ -139,8 +125,8 @@ export const useAlphaStore = create<AlphaState>((set) => ({
     set((state) => ({
       settings: enforceSettingsDates(
         { ...state.settings, ...newSettings },
-        state.dataRange?.minDate,
-        state.dataRange?.maxDate,
+        state.config?.simStart,
+        state.config?.simEnd,
       ),
     })),
 
@@ -160,6 +146,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
           viewMode,
           selectedAlphaIndex: state.viewMode === 'detail' ? state.selectedAlphaIndex : null,
           selectedAlphaIndices: [],
+          selectedAlphaIndexSet: new Set<number>(),
         };
       }
       return {
@@ -199,16 +186,16 @@ export const useAlphaStore = create<AlphaState>((set) => ({
 
   // Alpha Selection (multi-alpha save)
   selectedAlphaIndices: [],
+  selectedAlphaIndexSet: new Set<number>(),
   toggleAlphaSelection: (index) =>
     set((state) => {
       const exists = state.selectedAlphaIndices.includes(index);
-      return {
-        selectedAlphaIndices: exists
-          ? state.selectedAlphaIndices.filter((i) => i !== index)
-          : [...state.selectedAlphaIndices, index],
-      };
+      const selectedAlphaIndices = exists
+        ? state.selectedAlphaIndices.filter((i) => i !== index)
+        : [...state.selectedAlphaIndices, index];
+      return { selectedAlphaIndices, selectedAlphaIndexSet: new Set(selectedAlphaIndices) };
     }),
-  clearAlphaSelection: () => set({ selectedAlphaIndices: [] }),
+  clearAlphaSelection: () => set({ selectedAlphaIndices: [], selectedAlphaIndexSet: new Set() }),
 
   // Modal States
   isSaveModalOpen: false,
@@ -216,49 +203,33 @@ export const useAlphaStore = create<AlphaState>((set) => ({
   isLoadModalOpen: false,
   setIsLoadModalOpen: (open) => set({ isLoadModalOpen: open }),
 
-  // Data Range
-  dataRange: null,
-  fetchDataRange: async () => {
+  // Config (replaces separate dataRange + symbols)
+  config: null,
+  fetchConfig: async () => {
     try {
-      const range = await getDataRange();
+      const config = await getConfig();
       set((state) => {
         let s = { ...state.settings };
-        // If current settings are largely outside data range, compute fresh defaults
-        const outOfRange =
-          s.isStart < range.minDate || s.isStart > range.maxDate ||
-          s.osEnd < range.minDate || s.osEnd > range.maxDate;
+        const minDate = config.simStart;
+        const maxDate = config.simEnd;
+        // If current settings are outside data range, compute fresh defaults
+        const outOfRange = s.isStart < minDate || s.isStart > maxDate ||
+          s.osStart < minDate || s.osStart > maxDate;
         if (outOfRange) {
           // Compute a ~70/30 IS/OS split
-          const start = new Date(range.minDate + 'T12:00:00Z');
-          const end = new Date(range.maxDate + 'T12:00:00Z');
+          const start = new Date(minDate + 'T12:00:00Z');
+          const end = new Date(maxDate + 'T12:00:00Z');
           const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000);
           const isDays = Math.max(1, Math.round(totalDays * 0.7));
-          const isEndDate = new Date(start);
-          isEndDate.setUTCDate(isEndDate.getUTCDate() + isDays);
-          const osStartDate = new Date(isEndDate);
-          osStartDate.setUTCDate(osStartDate.getUTCDate() + 1);
-          s.isStart = range.minDate;
-          s.isEnd = isEndDate.toISOString().slice(0, 10);
+          const osStartDate = new Date(start);
+          osStartDate.setUTCDate(osStartDate.getUTCDate() + isDays);
+          s.isStart = minDate;
           s.osStart = osStartDate.toISOString().slice(0, 10);
-          s.osEnd = range.maxDate;
-        } else {
-          s.osEnd = range.maxDate;
         }
-        return { dataRange: range, settings: enforceSettingsDates(s, range.minDate, range.maxDate) };
+        return { config, settings: enforceSettingsDates(s, minDate, maxDate) };
       });
     } catch {
       // On failure, keep current hardcoded defaults
-    }
-  },
-
-  // Symbols
-  symbols: [],
-  fetchSymbols: async () => {
-    try {
-      const symbols = await getSymbols();
-      set({ symbols });
-    } catch {
-      // silently ignore – symbols count is non-critical
     }
   },
 

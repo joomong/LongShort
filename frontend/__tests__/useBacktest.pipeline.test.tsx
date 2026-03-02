@@ -4,18 +4,22 @@ import { act, render } from '@testing-library/react';
 
 import { useAlphaStore } from '@/store/alphaStore';
 import { useBacktest } from '@/hooks/useBacktest';
-import { runGAStream } from '@/lib/api';
-import { gaStreamEventsFixture, multiAlphaFixture } from './pipelineFixtures';
 
 vi.mock('@/lib/api', () => ({
-  runBacktest: vi.fn(),
+  runSimulate: vi.fn(),
   runGAStream: vi.fn(),
-  getDataRange: vi.fn(),
-  getSymbols: vi.fn(),
+  adaptSingleResponse: vi.fn(),
+  adaptBatchResponse: vi.fn(),
+  adaptGACompleteToResponse: vi.fn(),
+  getConfig: vi.fn(),
   saveAlpha: vi.fn(),
   getAlphaList: vi.fn(),
   getAlpha: vi.fn(),
+  deleteAlpha: vi.fn(),
 }));
+
+import { runSimulate, adaptSingleResponse, adaptBatchResponse } from '@/lib/api';
+import type { StarSimulateResponse } from '@/types';
 
 const initialState = useAlphaStore.getState();
 
@@ -24,7 +28,7 @@ beforeEach(() => {
   useAlphaStore.setState(initialState, true);
 });
 
-function renderHookHarness() {
+function renderHookHarness(): ReturnType<typeof useBacktest> {
   let hookApi: ReturnType<typeof useBacktest> | null = null;
 
   function Harness() {
@@ -37,41 +41,32 @@ function renderHookHarness() {
   if (!hookApi) {
     throw new Error('useBacktest hook did not initialize');
   }
-  return hookApi;
-}
-
-function parseNdjsonEvents() {
-  return gaStreamEventsFixture
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line));
+  return hookApi as ReturnType<typeof useBacktest>;
 }
 
 describe('useBacktest pipeline behavior', () => {
-  it('applies stream events to store state and auto-selects first heatmap cell', async () => {
-    const events = parseNdjsonEvents();
-
-    const finalWithHeatmap = {
-      ...multiAlphaFixture,
-      heatmap: {
-        timestamps: ['2024-01-02T00:00:00+00:00'],
-        symbols: ['AAA'],
-        values: [[1.0]],
-      },
+  it('run() calls runSimulate and adapts single response', async () => {
+    const starResponse = {
+      summary: { is: { return: 1.0, sharpe: 0.5, mdd: -10, turnover: 20, maxWeight: 0.08, minBet: 3, pnl: 100, winRate: 0.55, margin: 0.02, longRatio: 0.5, shortRatio: 0.5, nonzeroPosition: 15 },
+                 os: { return: 0.8, sharpe: 0.4, mdd: -12, turnover: 18, maxWeight: 0.09, minBet: 2, pnl: 80, winRate: 0.52, margin: 0.01, longRatio: 0.5, shortRatio: 0.5, nonzeroPosition: 14 } },
+      yearly: [],
+      timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] },
+      isStartIndex: 0,
+      osStartIndex: 100,
+      signalPlot: { timestamps: ['2024-01-01'], symbols: ['BTCUSDT'], values: [[0.5]] },
+      signalRange: { min: -1, max: 1 },
     };
 
-    vi.mocked(runGAStream).mockImplementation(async (_xml, _settings, _topN, onEvent) => {
-      onEvent(events[0]);
-      onEvent(events[1]);
-      onEvent({ type: 'complete', data: finalWithHeatmap });
-    });
+    const adapted = {
+      combined: { isMetrics: { pnl: 100, sharpe: 0.5 }, osMetrics: { pnl: 80, sharpe: 0.4 } },
+      alphas: [{ name: 'alpha_0', rank: 1, isMetrics: { pnl: 100, sharpe: 0.5 }, osMetrics: { pnl: 80, sharpe: 0.4 } }],
+      heatmap: { timestamps: ['2024-01-01'], symbols: ['BTCUSDT'], values: [[0.5]] },
+      signalRange: { min: -1, max: 1 },
+      distribution: null,
+    };
 
-    const transitions: Array<unknown> = [];
-    const unsubscribe = useAlphaStore.subscribe((state, prev) => {
-      if (state.result !== prev.result && state.result) {
-        transitions.push(state.result);
-      }
-    });
+    vi.mocked(runSimulate).mockResolvedValue(starResponse as unknown as StarSimulateResponse);
+    vi.mocked(adaptSingleResponse).mockReturnValue(adapted as never);
 
     const hook = renderHookHarness();
 
@@ -79,24 +74,36 @@ describe('useBacktest pipeline behavior', () => {
       await hook.run();
     });
 
-    unsubscribe();
-
-    expect(runGAStream).toHaveBeenCalledTimes(1);
-    expect(transitions.length).toBeGreaterThanOrEqual(2); // partial + complete
+    expect(runSimulate).toHaveBeenCalledTimes(1);
+    expect(adaptSingleResponse).toHaveBeenCalledWith(starResponse);
 
     const state = useAlphaStore.getState();
     expect(state.isRunning).toBe(false);
-    expect(state.gaProgress).toBeNull();
     expect(state.backtestError).toBeNull();
-    expect(state.result).toEqual(finalWithHeatmap);
-    expect(state.selectedSymbol).toBe('AAA');
-    expect(state.selectedTimestamp).toBe('2024-01-02T00:00:00+00:00');
+    expect(state.result).toEqual(adapted);
+    expect(state.selectedSymbol).toBe('BTCUSDT');
+    expect(state.selectedTimestamp).toBe('2024-01-01');
   });
 
-  it('handles stream error events and resets running state', async () => {
-    vi.mocked(runGAStream).mockImplementation(async (_xml, _settings, _topN, onEvent) => {
-      onEvent({ type: 'error', message: 'stream failed' });
-    });
+  it('run() adapts batch response when batches present', async () => {
+    const batchResponse = {
+      batches: [{ index: 0, summary: { is: {}, os: {} } }],
+      yearly: [],
+      timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] },
+      isStartIndex: 0,
+      osStartIndex: 100,
+    };
+
+    const adapted = {
+      combined: null,
+      alphas: [{ name: 'alpha_0', rank: 1, isMetrics: {}, osMetrics: {} }],
+      heatmap: null,
+      signalRange: null,
+      distribution: null,
+    };
+
+    vi.mocked(runSimulate).mockResolvedValue(batchResponse as never);
+    vi.mocked(adaptBatchResponse).mockReturnValue(adapted as never);
 
     const hook = renderHookHarness();
 
@@ -104,14 +111,12 @@ describe('useBacktest pipeline behavior', () => {
       await hook.run();
     });
 
-    const state = useAlphaStore.getState();
-    expect(state.backtestError).toBe('stream failed');
-    expect(state.isRunning).toBe(false);
-    expect(state.gaProgress).toBeNull();
+    expect(adaptBatchResponse).toHaveBeenCalledWith(batchResponse);
+    expect(useAlphaStore.getState().result).toEqual(adapted);
   });
 
-  it('handles thrown transport errors from runGAStream', async () => {
-    vi.mocked(runGAStream).mockRejectedValue(new Error('network down'));
+  it('handles thrown transport errors from runSimulate', async () => {
+    vi.mocked(runSimulate).mockRejectedValue(new Error('network down'));
 
     const hook = renderHookHarness();
 
@@ -122,6 +127,5 @@ describe('useBacktest pipeline behavior', () => {
     const state = useAlphaStore.getState();
     expect(state.backtestError).toContain('network down');
     expect(state.isRunning).toBe(false);
-    expect(state.gaProgress).toBeNull();
   });
 });

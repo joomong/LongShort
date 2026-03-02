@@ -12,7 +12,7 @@ import {
 import { useAlphaStore } from '@/store/alphaStore';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
-import { getNextColor } from '@/lib/snapshotColors';
+
 
 interface ChartDataPoint {
   date: string;
@@ -58,7 +58,6 @@ export default function SignalChart() {
   const heatmap = useAlphaStore(s => s.result?.heatmap);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const pinnedSnapshots = useAlphaStore(s => s.pinnedSnapshots);
-  const addSnapshot = useAlphaStore(s => s.addSnapshot);
   const { theme } = useThemeStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +99,8 @@ export default function SignalChart() {
   isDraggingRef.current = isDragging;
   const dragStartRef = useRef(dragStart);
   dragStartRef.current = dragStart;
+  // RAF id for throttling mousemove state updates (one update per animation frame)
+  const rafRef = useRef<number | null>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   const colors = useMemo(() => { void theme; return getThemeColors(); }, [theme]);
@@ -163,11 +164,12 @@ export default function SignalChart() {
   }, [data]);
   dataYRangeRef.current = dataYRange;
 
-  // Reset view range when symbol changes
+  // Reset view range when data changes (symbol changed): default to last 365 bars
   useEffect(() => {
-    setViewRange(null);
+    const len = data.length;
+    setViewRange(len > 365 ? { start: len - 365, end: len - 1 } : null);
     setYViewRange(null);
-  }, [selectedSymbol]);
+  }, [data]);
 
   // Merge snapshot series into chart data
   const mergedData = useMemo(() => {
@@ -211,23 +213,6 @@ export default function SignalChart() {
   }, [visibleData.length]);
 
   // Handle pinning current chart as snapshot
-  const handlePin = useCallback(() => {
-    if (data.length === 0) return;
-    const retSeries: Record<string, number> = {};
-    for (const pt of data) {
-      if (pt.value !== null) retSeries[pt.date] = pt.value;
-    }
-    const usedColors = pinnedSnapshots.map((s) => s.color);
-    const color = getNextColor(usedColors);
-    const name = selectedSymbol ?? `Snapshot ${pinnedSnapshots.length + 1}`;
-    addSnapshot({
-      id: Date.now().toString(36),
-      name,
-      color,
-      retSeries,
-    });
-  }, [data, pinnedSnapshots, selectedSymbol, addSnapshot]);
-
   // Handle mouse wheel for zoom (stable callback — reads refs, no state deps)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     const len = dataLenRef.current;
@@ -289,36 +274,50 @@ export default function SignalChart() {
     });
   }, []);
 
-  // Handle mouse move for dragging (stable callback)
+  // Handle mouse move for dragging — throttled to one React state update per animation frame
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const ds = dragStartRef.current;
     if (!isDraggingRef.current || !ds || !containerRef.current) return;
-    const len = dataLenRef.current;
-    if (len === 0) return;
 
-    const containerWidth = containerRef.current.clientWidth;
-    const containerHeight = containerRef.current.clientHeight;
-    const deltaX = e.clientX - ds.x;
-    const deltaY = e.clientY - ds.y;
+    // Capture synthetic event values before RAF fires (React pools events)
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
-    const xRangeSize = Math.max(1, ds.xRange.end - ds.xRange.start);
-    const indexDelta = (deltaX / containerWidth) * xRangeSize * -1;
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const len = dataLenRef.current;
+      const containerEl = containerRef.current;
+      if (len === 0 || !containerEl) return;
 
-    let newStart = ds.xRange.start + indexDelta;
-    let newEnd = ds.xRange.end + indexDelta;
+      const containerWidth = containerEl.clientWidth;
+      const containerHeight = containerEl.clientHeight;
+      const deltaX = clientX - ds.x;
+      const deltaY = clientY - ds.y;
 
-    if (newStart < 0) { newStart = 0; newEnd = xRangeSize; }
-    if (newEnd >= len) { newEnd = len - 1; newStart = newEnd - xRangeSize; }
+      const xRangeSize = Math.max(1, ds.xRange.end - ds.xRange.start);
+      const indexDelta = (deltaX / containerWidth) * xRangeSize * -1;
 
-    setViewRange({ start: Math.max(0, Math.round(newStart)), end: Math.min(len - 1, Math.round(newEnd)) });
+      let newStart = ds.xRange.start + indexDelta;
+      let newEnd = ds.xRange.end + indexDelta;
 
-    const yRangeSize = ds.yRange.max - ds.yRange.min;
-    const valueDelta = (deltaY / containerHeight) * yRangeSize;
-    setYViewRange({ min: ds.yRange.min + valueDelta, max: ds.yRange.max + valueDelta });
+      if (newStart < 0) { newStart = 0; newEnd = xRangeSize; }
+      if (newEnd >= len) { newEnd = len - 1; newStart = newEnd - xRangeSize; }
+
+      setViewRange({ start: Math.max(0, Math.round(newStart)), end: Math.min(len - 1, Math.round(newEnd)) });
+
+      const yRangeSize = ds.yRange.max - ds.yRange.min;
+      const valueDelta = (deltaY / containerHeight) * yRangeSize;
+      setYViewRange({ min: ds.yRange.min + valueDelta, max: ds.yRange.max + valueDelta });
+    });
   }, []);
 
-  // Handle mouse up to stop dragging
+  // Handle mouse up to stop dragging — also cancel any pending RAF
   const handleMouseUp = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     setIsDragging(false);
     setDragStart(null);
   }, []);
@@ -341,6 +340,7 @@ export default function SignalChart() {
   }, [visibleData.length, isDragging]);
 
   const hasData = visibleData.length > 0;
+  const [tablePosition, setTablePosition] = useState<'left' | 'right'>('left');
 
   return (
     <div className="flex-1 flex flex-col bg-background-tertiary min-h-0 panel-inset">
@@ -354,15 +354,52 @@ export default function SignalChart() {
         onMouseLeave={handleMouseUp}
         style={cursorStyle}
       >
-        <button
-          className="absolute top-2 right-2 z-10 text-xs px-2 py-1 border border-border text-foreground-secondary bg-background-elevated/90 backdrop-blur-sm shadow-card hover:bg-border-hover disabled:opacity-30 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
-          disabled={data.length === 0 || pinnedSnapshots.length >= 8}
-          onClick={handlePin}
-          title="Pin current chart as snapshot"
-          aria-label="Pin current chart as snapshot"
-        >
-          + Pin
-        </button>
+        {/* Data table overlay — date / signal values */}
+        {hasData ? (
+          <div
+            className={
+              'absolute top-1 z-10 border border-border/50 bg-background-secondary/90 ' +
+              (tablePosition === 'left' ? 'left-1' : 'right-1')
+            }
+            style={{ maxHeight: 200, minWidth: 140 }}
+          >
+            <div className="flex items-center justify-between px-1.5 py-0.5 border-b border-border/40 bg-background-elevated/60">
+              <span className="text-[10px] text-foreground-muted font-semibold tracking-wide">
+                date / signal
+              </span>
+              <button
+                onClick={() => setTablePosition(p => p === 'left' ? 'right' : 'left')}
+                className="text-[10px] text-foreground-muted hover:text-foreground px-1 ml-2"
+                title={tablePosition === 'left' ? 'Move right' : 'Move left'}
+              >
+                {tablePosition === 'left' ? '→' : '←'}
+              </button>
+            </div>
+            <div style={{ maxHeight: 176, overflowY: 'auto' }}>
+              <table className="w-full border-collapse">
+                <thead className="sticky top-0 bg-background-elevated/90">
+                  <tr className="text-[10px] text-foreground-muted">
+                    <th className="text-left px-1.5 py-0.5 font-medium">date</th>
+                    <th className="text-right px-1.5 py-0.5 font-medium">signal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleData.map(row => {
+                    const v = (row as Record<string, unknown>)['value'] as number | null;
+                    return (
+                      <tr key={row.date} className="text-[10px] font-mono border-t border-border/20 hover:bg-row-hover">
+                        <td className="px-1.5 py-0.5 text-foreground-muted whitespace-nowrap">{row.date}</td>
+                        <td className="text-right px-1.5 py-0.5 text-data-color">
+                          {v !== null && v !== undefined ? v.toFixed(4) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
         {size.width > 0 && size.height > 0 && (
           <LineChart
             width={size.width}

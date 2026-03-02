@@ -18,15 +18,23 @@ describe('BacktestMetrics render formatting', () => {
 
     render(<BacktestMetrics />);
 
-    expect(screen.getAllByText('CAGR').length).toBeGreaterThanOrEqual(2);
+    // Column headers present
+    expect(screen.getAllByText('Return').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Sharpe').length).toBeGreaterThanOrEqual(2);
+
+    // IS metrics: Return, Sharpe, Turnover, MinBet, MaxWt, Alpha, Margin
     expect(screen.getByText('+947.5%')).toBeInTheDocument();
     expect(screen.getByText('5.06')).toBeInTheDocument();
-    expect(screen.getByText('-2.0%')).toBeInTheDocument();
-    expect(screen.getByText('27')).toBeInTheDocument();
+    expect(screen.getByText('26.7')).toBeInTheDocument();
+    expect(screen.getByText('0.35')).toBeInTheDocument();
     expect(screen.getByText('60.0%')).toBeInTheDocument();
+    // Alpha = nonzeroPosition = 3
+    expect(screen.getByText('3')).toBeInTheDocument();
+    // Margin = 0.000974 -> 0.0010
+    expect(screen.getByText('0.0010')).toBeInTheDocument();
 
+    // OS metrics: Return, Sharpe
     expect(screen.getByText('-60.3%')).toBeInTheDocument();
     expect(screen.getByText('-4.50')).toBeInTheDocument();
-    expect(screen.getByText('-1.0%')).toBeInTheDocument();
   });
 });

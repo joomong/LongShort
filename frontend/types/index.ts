@@ -1,7 +1,117 @@
-// Types aligned to the current backend API contract.
-// Source of truth:
-// - backend: api/models/schemas.py
-// - backtest responses: api/services/backtest_service.py + framework/backtester.py
+// Types for C++ STAR API + backward-compatible frontend types.
+// Source of truth: cpp-engine/src/api/json_serializer.h
+
+// ---------------------------------------------------------------------------
+// C++ STAR API response types (raw from server)
+// ---------------------------------------------------------------------------
+
+export interface StarSummary {
+  return: number;
+  sharpe: number;
+  mdd: number;
+  turnover: number;
+  maxWeight: number;
+  minBet: number;
+  pnl: number;
+  winRate: number;
+  margin: number;
+  longRatio: number;
+  shortRatio: number;
+  nonzeroPosition: number;
+}
+
+export interface StarTimeseries {
+  timestamps: string[];
+  cumPnl: number[];
+  cumPnlGross: number[];
+  turnover: number[];
+  maxWeight: number[];
+  nonzeroCount: number[];
+  drawdown: number[];
+}
+
+export interface StarYearly {
+  year: number;
+  longSM: number;
+  shortSM: number;
+  pnl: number;
+  annRet: number;
+  sharpe: number;
+  maxDD: number;
+  dailyTvr: number;
+  margin: number;
+}
+
+export interface StarDistribution {
+  bins: number[];
+  counts: number[];
+  min: number;
+  max: number;
+}
+
+export interface StarSimulateResponse {
+  summary: { is: StarSummary; os: StarSummary };
+  yearly: StarYearly[];
+  timeseries: StarTimeseries;
+  isStartIndex: number;
+  osStartIndex: number;
+  signalPlot?: HeatmapData;
+  signalRange?: SignalRange;
+  distribution?: StarDistribution;
+}
+
+export interface StarBatchEntry {
+  index: number;
+  summary: { is: StarSummary; os: StarSummary };
+}
+
+export interface StarBatchResponse {
+  batches: StarBatchEntry[];
+  yearly: StarYearly[];
+  timeseries: StarTimeseries;
+  isStartIndex: number;
+  osStartIndex: number;
+}
+
+export interface StarConfigResponse {
+  symbols: string[];
+  simStart: string;
+  simEnd: string;
+  feeRate: number;
+  barsPerYear: number;
+  T: number;
+  N: number;
+  columns: string[];
+}
+
+export interface StarGAGenerationEvent {
+  type: 'generation_end';
+  generation: number;
+  totalGenerations: number;
+  bestSharpe: number;
+  bestXml: string;
+}
+
+export interface StarGACompleteEvent {
+  type: 'complete';
+  bestXml: string;
+  summary: { is: StarSummary; os: StarSummary };
+  yearly: StarYearly[];
+  timeseries: StarTimeseries;
+  isStartIndex: number;
+  osStartIndex: number;
+}
+
+export interface StarGAErrorEvent {
+  type: 'error';
+  error: string;
+}
+
+export type StarGAEvent = StarGAGenerationEvent | StarGACompleteEvent | StarGAErrorEvent;
+
+// ---------------------------------------------------------------------------
+// Frontend display types (backward-compatible with existing components)
+// ---------------------------------------------------------------------------
 
 export interface HeatmapData {
   timestamps: string[];
@@ -15,23 +125,32 @@ export interface SignalRange {
 }
 
 export interface ISMetrics {
-  // backend returns a superset depending on path; keep fields optional-friendly
   pnl: number;
   sharpe: number;
   mdd?: number;
+  /** Percentage points, e.g. 26.7 means 26.7% daily turnover */
   turnover?: number;
-  cagr?: number;
+  ann_ret?: number;
+  /** Percentage points, e.g. 0.35 means 0.35 active symbols */
   min_bet?: number;
+  /** Raw fraction, e.g. 0.6 means 60% — display layer multiplies by 100 */
   max_weight?: number;
+  margin?: number;
+  nonzeroPosition?: number;
   ir?: number;
   corr?: number;
 }
 
 export interface OSMetrics {
   pnl: number;
-  cagr?: number;
+  ann_ret?: number;
   sharpe: number;
   mdd?: number;
+  turnover?: number;
+  min_bet?: number;
+  max_weight?: number;
+  margin?: number;
+  nonzeroPosition?: number;
   ir?: number;
   corr?: number;
 }
@@ -41,15 +160,12 @@ export interface BacktestAlphaResult {
   rank: number;
   isMetrics: ISMetrics;
   osMetrics: OSMetrics;
-
-  // Optional: the fully-expanded per-alpha XML pipeline (used for detail view)
   xml?: string;
+  yearly?: StarYearly[];
 
-  // present in multi-alpha path
   isRetSeries?: Record<string, number | null>;
   osRetSeries?: Record<string, number | null>;
 
-  // detail view time series
   isTurnoverSeries?: Record<string, number | null> | null;
   osTurnoverSeries?: Record<string, number | null> | null;
   isMinBetSeries?: Record<string, number | null> | null;
@@ -60,6 +176,7 @@ export interface BacktestAlphaResult {
   osNonzeroPositionSeries?: Record<string, number | null> | null;
   isEquitySeries?: Record<string, number | null> | null;
   osEquitySeries?: Record<string, number | null> | null;
+  osStartDate?: string;
   longRatio?: number;
   shortRatio?: number;
 }
@@ -74,21 +191,17 @@ export interface BacktestCombinedResult {
 export interface BacktestRunResponse {
   combined: BacktestCombinedResult | null;
   alphas: BacktestAlphaResult[];
+  yearly?: StarYearly[];
   initialCapital?: number;
   sortedBy?: string;
-
-  // single-alpha path returns viz bundle
   heatmap?: HeatmapData | null;
   signalRange?: SignalRange | null;
   distribution?: number[] | null;
 }
 
 export interface BacktestSettings {
-  osStart: string;
-  osEnd: string;
   isStart: string;
-  isEnd: string;
-  // D0: 당일, D1: 익일, intraday: 장중 고정시간
+  osStart: string;
   barInterval: 'D0' | 'D1' | 'intraday';
   nJobs: number;
   gaPopulation: number;
@@ -98,7 +211,7 @@ export interface BacktestSettings {
 
 export interface AlphaInfo {
   name: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface AlphaListResponse {
@@ -108,7 +221,7 @@ export interface AlphaListResponse {
 export interface AlphaDetailResponse {
   name: string;
   xml: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 // Snapshot
@@ -117,7 +230,7 @@ export interface PinnedSnapshot {
   id: string;
   name: string;
   color: string;
-  retSeries: Record<string, number>; // date → value
+  retSeries: Record<string, number>;
 }
 
 // UI
@@ -127,6 +240,7 @@ export interface GAProgress {
   totalGenerations: number;
   evaluated: number;
   populationSize: number;
+  bestSharpe?: number;
 }
 
 export type ViewMode = 'single' | 'multi' | 'detail';

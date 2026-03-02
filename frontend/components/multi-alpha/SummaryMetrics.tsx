@@ -37,24 +37,22 @@ export default function SummaryMetrics() {
         {/* IS Section */}
         <div>
           <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted mb-1">IS</div>
-          <div className="grid grid-cols-4 gap-x-3 gap-y-0.5">
-            <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">CAGR</div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-0.5">
+            <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Return</div>
             <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Sharpe</div>
-            <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">MDD</div>
             <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Turnover</div>
-            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('pnl', isMetrics.cagr ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.cagr ?? isMetrics.pnl)}</div>
+            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</div>
             <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</div>
-            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('mdd', isMetrics.mdd)}`}>{formatPnl(isMetrics.mdd)}</div>
-            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(0) : '-'}</div>
+            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) : '-'}</div>
           </div>
         </div>
         {/* OS Section */}
         <div>
           <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted mb-1">OS</div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-            <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">CAGR</div>
+            <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Return</div>
             <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Sharpe</div>
-            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('pnl', osMetrics.cagr ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.cagr ?? osMetrics.pnl)}</div>
+            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('pnl', osMetrics.ann_ret ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.ann_ret ?? osMetrics.pnl)}</div>
             <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</div>
           </div>
         </div>

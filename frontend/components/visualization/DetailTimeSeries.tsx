@@ -15,7 +15,7 @@ import { useAlphaStore } from '@/store/alphaStore';
 import { getThemeColors } from '@/lib/themeColors';
 import type { BacktestAlphaResult } from '@/types';
 
-export type DetailMetricKey = 'pnl' | 'mdd' | 'minBet' | 'maxWeight' | 'nonZero';
+export type DetailMetricKey = 'pnl' | 'turnover' | 'nonZero' | 'maxWeight' | 'mdd' | 'minBet';
 
 interface SingleSeriesPoint {
   date: string;
@@ -72,8 +72,10 @@ export function buildPnlBundleFromRet(
     }
   }
 
-  let netEquity = capital;
-  let grossEquity = capital;
+  // STAR uses additive (simple) PnL: cumRet is the running sum of daily return fractions.
+  // Daily dollar PnL = cumRet * capital. Do NOT compound (multiply equity by 1+r).
+  let cumRet = 0;
+  let cumGrossRet = 0;
   let grossKnown = true;
   const pnlData: PnlSeriesPoint[] = [];
   const netEquityData: SingleSeriesPoint[] = [];
@@ -85,19 +87,19 @@ export function buildPnlBundleFromRet(
         ? r + to * transactionFeeRate
         : Number.NaN;
 
-    netEquity *= 1 + r;
+    cumRet += r;
     if (Number.isFinite(grossRet)) {
-      grossEquity *= 1 + grossRet;
+      cumGrossRet += grossRet;
     } else {
       grossKnown = false;
     }
 
     pnlData.push({
       date,
-      net: netEquity - capital,
-      gross: grossKnown ? grossEquity - capital : Number.NaN,
+      net: cumRet * capital,
+      gross: grossKnown ? cumGrossRet * capital : Number.NaN,
     });
-    netEquityData.push({ date, value: netEquity });
+    netEquityData.push({ date, value: capital + cumRet * capital });
   }
 
   return { pnlData, netEquityData };
@@ -115,30 +117,20 @@ export function buildMddDataFromEquity(
   });
 }
 
-function mergeIsOsPnl(
-  isPnl: PnlSeriesPoint[],
-  osPnl: PnlSeriesPoint[]
+function splitPnlByOs(
+  pnlData: PnlSeriesPoint[],
+  osStartDate: string | undefined
 ): IsOsPnlPoint[] {
-  const merged: IsOsPnlPoint[] = [];
-  for (const p of isPnl) {
-    merged.push({ date: p.date, isNet: p.net, osNet: undefined });
-  }
-  if (isPnl.length > 0 && osPnl.length > 0) {
-    const lastIs = isPnl[isPnl.length - 1];
-    const isOffset = lastIs.net;
-    for (const p of osPnl) {
-      merged.push({ date: p.date, isNet: undefined, osNet: p.net + isOffset });
-    }
-    // Make the first OS point also have isNet (overlap)
-    if (merged.length > isPnl.length) {
-      merged[isPnl.length].isNet = lastIs.net;
-    }
-  } else {
-    for (const p of osPnl) {
-      merged.push({ date: p.date, isNet: undefined, osNet: p.net });
-    }
-  }
-  return merged;
+  return pnlData.map((p, i, arr) => {
+    const isOs = osStartDate !== undefined && p.date >= osStartDate;
+    const isBoundary = isOs && i > 0 && arr[i - 1].date < osStartDate!;
+    return {
+      date: p.date,
+      // IS 구간이거나, IS→OS 경계점에서 연결선 유지
+      isNet: !isOs || isBoundary ? p.net : undefined,
+      osNet: isOs ? p.net : undefined,
+    };
+  });
 }
 
 function mergeIsOsSeries(
@@ -166,7 +158,8 @@ function mergeIsOsSeries(
   return merged;
 }
 
-function PnlDualChart({ data }: { data: IsOsPnlPoint[] }) {
+function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osStartDate?: string }) {
+  const data = useMemo(() => splitPnlByOs(pnlData, osStartDate), [pnlData, osStartDate]);
   const { theme } = useThemeStore();
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   const colors = useMemo(() => {
@@ -431,45 +424,44 @@ export default function DetailTimeSeries({
   );
   const capital = initialCapital ?? DEFAULT_CAPITAL;
 
+  const fullRetSeries = useMemo(() => ({
+    ...alpha.isRetSeries,
+    ...alpha.osRetSeries,
+  }), [alpha.isRetSeries, alpha.osRetSeries]);
+
+  const fullTurnoverSeries = useMemo(() => ({
+    ...alpha.isTurnoverSeries,
+    ...alpha.osTurnoverSeries,
+  }), [alpha.isTurnoverSeries, alpha.osTurnoverSeries]);
+
   const pnlBundle = useMemo(() => {
-    const ret = alpha.isRetSeries;
-    const turnover = alpha.isTurnoverSeries ?? null;
+    return buildPnlBundleFromRet(fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate);
+  }, [fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate]);
 
-    if (ret) {
-      return buildPnlBundleFromRet(ret, turnover, capital, transactionFeeRate);
+  const { isMddData, osMddData } = useMemo(() => {
+    const isEntries: SingleSeriesPoint[] = [];
+    const osEntries: SingleSeriesPoint[] = [];
+    for (const p of pnlBundle.netEquityData) {
+      if (alpha.osStartDate && p.date >= alpha.osStartDate) {
+        osEntries.push(p);
+      } else {
+        isEntries.push(p);
+      }
     }
+    return {
+      isMddData: buildMddDataFromEquity(isEntries),
+      osMddData: buildMddDataFromEquity(osEntries),
+    };
+  }, [pnlBundle.netEquityData, alpha.osStartDate]);
 
-    // Fallback when return series is missing.
-    const eq = alpha.isEquitySeries;
-    if (!eq) return { pnlData: [], netEquityData: [] };
-    const entries = Object.entries(eq)
-      .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, value]) => [date, value as number] as const);
-    const pnlData: PnlSeriesPoint[] = entries.map(([date, value]) => ({
-      date,
-      net: value - capital,
-      gross: Number.NaN,
-    }));
-    const netEquityData: SingleSeriesPoint[] = entries.map(([date, value]) => ({
-      date,
-      value,
-    }));
-    return { pnlData, netEquityData };
-  }, [alpha.isRetSeries, alpha.isTurnoverSeries, alpha.isEquitySeries, capital, transactionFeeRate]);
-
-  const osPnlBundle = useMemo(() => {
-    return buildPnlBundleFromRet(alpha.osRetSeries, alpha.osTurnoverSeries ?? null, capital, transactionFeeRate);
-  }, [alpha.osRetSeries, alpha.osTurnoverSeries, capital, transactionFeeRate]);
-
-  const mddData = useMemo(() => {
-    return buildMddDataFromEquity(pnlBundle.netEquityData);
-  }, [pnlBundle.netEquityData]);
-
-  const osMddData = useMemo(() => {
-    return buildMddDataFromEquity(osPnlBundle.netEquityData);
-  }, [osPnlBundle.netEquityData]);
-
+  const turnoverData = useMemo(
+    () => seriesToChartData(alpha.isTurnoverSeries),
+    [alpha.isTurnoverSeries]
+  );
+  const osTurnoverData = useMemo(
+    () => seriesToChartData(alpha.osTurnoverSeries),
+    [alpha.osTurnoverSeries]
+  );
   const minBetData = useMemo(
     () => seriesToChartData(alpha.isMinBetSeries),
     [alpha.isMinBetSeries]
@@ -497,15 +489,27 @@ export default function DetailTimeSeries({
   );
 
   if (metric === 'pnl') {
-    const mergedPnl = mergeIsOsPnl(pnlBundle.pnlData, osPnlBundle.pnlData);
-    return <PnlDualChart data={mergedPnl} />;
+    return <PnlDualChart pnlData={pnlBundle.pnlData} osStartDate={alpha.osStartDate} />;
+  }
+
+  if (metric === 'turnover') {
+    return (
+      <BigChart
+        title="Turnover (%)"
+        data={turnoverData}
+        color="#0078ff"
+        osData={osTurnoverData}
+        osColor="#ff9800"
+        formatValue={(v) => `${v.toFixed(1)}%`}
+      />
+    );
   }
 
   if (metric === 'mdd') {
     return (
       <BigChart
         title="MDD (%)"
-        data={mddData}
+        data={isMddData}
         color="#ff433d"
         osData={osMddData}
         osColor="#ff9800"

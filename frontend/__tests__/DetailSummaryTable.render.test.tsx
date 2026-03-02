@@ -13,48 +13,40 @@ beforeEach(() => {
 });
 
 describe('DetailSummaryTable render output', () => {
-  it('renders yearly net/gross/sharpe/mdd/fee strings with fixed format', () => {
-    useAlphaStore.setState({
-      dataRange: {
-        minDate: '2024-01-01',
-        maxDate: '2024-12-31',
-        transactionFeeRate: 0.001,
-      },
-    });
-
+  it('renders yearly columns from C++ yearly data', () => {
     render(
       <DetailSummaryTable
         alpha={multiAlphaFixture.alphas[1]}
-        initialCapital={100000}
       />
     );
 
-    expect(screen.getByText('1Y Table (calendar year)')).toBeInTheDocument();
+    expect(screen.getByText('Yearly Table')).toBeInTheDocument();
     expect(screen.getByText('2024')).toBeInTheDocument();
-    expect(screen.getAllByText('+2.2%').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('6.00')).toBeInTheDocument();
-    expect(screen.getByText('-1.8%')).toBeInTheDocument();
+
+    // Long SM = 0.62 * 100 = 62.0%
     expect(screen.getByText('62.0%')).toBeInTheDocument();
+    // Short SM = 0.38 * 100 = 38.0%
     expect(screen.getByText('38.0%')).toBeInTheDocument();
-    expect(screen.getByText('+0.08% / $79')).toBeInTheDocument();
+    // PnL = +2.2%
+    expect(screen.getByText('+2.2%')).toBeInTheDocument();
+    // Ann.Ret = +268.1%
+    expect(screen.getByText('+268.1%')).toBeInTheDocument();
+    // Sharpe = 6.00
+    expect(screen.getByText('6.00')).toBeInTheDocument();
+    // Max DD = -1.8%
+    expect(screen.getByText('-1.8%')).toBeInTheDocument();
+    // Daily TVR = 0.26 * 100 = 26.0
+    expect(screen.getByText('26.0')).toBeInTheDocument();
+    // Margin = 0.028 -> 0.0280
+    expect(screen.getByText('0.0280')).toBeInTheDocument();
   });
 
-  it('applies transactionFeeRate from store to fee impact output', () => {
-    useAlphaStore.setState({
-      dataRange: {
-        minDate: '2024-01-01',
-        maxDate: '2024-12-31',
-        transactionFeeRate: 0.002,
-      },
-    });
-
+  it('renders empty state when no yearly data', () => {
+    const alphaNoYearly = { ...multiAlphaFixture.alphas[1], yearly: undefined };
     render(
-      <DetailSummaryTable
-        alpha={multiAlphaFixture.alphas[1]}
-        initialCapital={100000}
-      />
+      <DetailSummaryTable alpha={alphaNoYearly} />
     );
 
-    expect(screen.getByText('+0.16% / $159')).toBeInTheDocument();
+    expect(screen.getByText('No yearly summary (missing yearly data from engine)')).toBeInTheDocument();
   });
 });

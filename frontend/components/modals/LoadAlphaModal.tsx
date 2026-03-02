@@ -97,7 +97,7 @@ export default function LoadAlphaModal() {
                   <div>
                     <h3 className="font-medium text-foreground">{alpha.name}</h3>
                     <p className="text-xs text-foreground-secondary">
-                      {new Date(alpha.createdAt).toLocaleString()}
+                      {alpha.createdAt ? new Date(alpha.createdAt).toLocaleString() : ''}
                     </p>
                   </div>
                   <button

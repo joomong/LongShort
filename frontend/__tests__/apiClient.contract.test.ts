@@ -1,17 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { runBacktest, runGAStream } from '@/lib/api';
-import type { BacktestSettings } from '@/types';
-
-const settings: BacktestSettings = {
-  isStart: '2024-01-02',
-  isEnd: '2024-01-04',
-  osStart: '2024-01-05',
-  osEnd: '2024-01-07',
-  barInterval: 'D1',
-  nJobs: 2,
-  gaPopulation: 10,
-};
+import { runSimulate, runGAStream } from '@/lib/api';
 
 function makeStreamResponse(chunks: string[]): Response {
   let idx = 0;
@@ -48,19 +37,19 @@ describe('api client contract', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('runBacktest returns parsed payload on success', async () => {
-    const payload = { combined: null, alphas: [], sortedBy: 'sharpe' };
+  it('runSimulate returns parsed payload on success', async () => {
+    const payload = { summary: { is: {}, os: {} }, yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 };
 
     vi.mocked(globalThis.fetch).mockResolvedValue({
       ok: true,
       json: async () => payload,
     } as unknown as Response);
 
-    const result = await runBacktest('<data expr="close" delay="1"/>', settings);
+    const result = await runSimulate('<data expr="close" delay="1"/>', '2021-01-01', '2024-01-01');
     expect(result).toEqual(payload);
   });
 
-  it('runBacktest surfaces detail messages on http error', async () => {
+  it('runSimulate surfaces detail messages on http error', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue({
       ok: false,
       status: 400,
@@ -68,34 +57,31 @@ describe('api client contract', () => {
       json: async () => ({ detail: 'validation failed' }),
     } as unknown as Response);
 
-    await expect(runBacktest('<bad/>', settings)).rejects.toThrow(
-      'Backtest failed (400): validation failed'
+    await expect(runSimulate('<bad/>', '2021-01-01', '2024-01-01')).rejects.toThrow(
+      'Simulate failed (400): validation failed'
     );
   });
 
   it('runGAStream parses split NDJSON events across chunk boundaries', async () => {
     const events: Array<Record<string, unknown>> = [];
     const payloadLines = [
-      JSON.stringify({ type: 'progress', generation: 1 }) + '\n',
-      JSON.stringify({ type: 'generation_end', generation: 1, partialResult: { alphas: [] } }) + '\n',
-      JSON.stringify({ type: 'complete', data: { combined: null, alphas: [] } }) + '\n',
+      JSON.stringify({ type: 'generation_end', generation: 1, totalGenerations: 20, bestSharpe: 0.5, bestXml: '<x/>' }) + '\n',
+      JSON.stringify({ type: 'complete', bestXml: '<x/>', summary: { is: {}, os: {} }, yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 }) + '\n',
     ];
     const chunked = [
-      payloadLines[0] + payloadLines[1].slice(0, 14),
-      payloadLines[1].slice(14) + payloadLines[2],
+      payloadLines[0].slice(0, 30),
+      payloadLines[0].slice(30) + payloadLines[1],
     ];
 
     vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse(chunked));
 
-    await runGAStream('<data expr="close" delay="1"/>', settings, 10, (event) => {
-      events.push(event);
+    await runGAStream('<data expr="close" delay="1"/>', '2021-01-01', '2024-01-01', 50, 20, 4, (event) => {
+      events.push(event as unknown as Record<string, unknown>);
     });
 
-    expect(events).toEqual([
-      { type: 'progress', generation: 1 },
-      { type: 'generation_end', generation: 1, partialResult: { alphas: [] } },
-      { type: 'complete', data: { combined: null, alphas: [] } },
-    ]);
+    expect(events).toHaveLength(2);
+    expect((events[0] as Record<string, unknown>).type).toBe('generation_end');
+    expect((events[1] as Record<string, unknown>).type).toBe('complete');
   });
 
   it('runGAStream throws detail on non-2xx response', async () => {
@@ -106,7 +92,7 @@ describe('api client contract', () => {
     } as unknown as Response);
 
     await expect(
-      runGAStream('<xml/>', settings, 10, () => {
+      runGAStream('<xml/>', '2021-01-01', '2024-01-01', 50, 20, 4, () => {
         // no-op
       })
     ).rejects.toThrow('internal error');

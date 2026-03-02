@@ -63,20 +63,22 @@ function ResultRow({ item, index }: { item: BacktestAlphaResult; index: number }
       <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5">#{index + 1}</td>
 
       {/* IS Metrics */}
-      <td className={`${cellClass} ${metricClass('pnl', isMetrics.cagr ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.cagr ?? isMetrics.pnl)}</td>
+      <td className={`${cellClass} ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('mdd', isMetrics.mdd)}`}>{formatPnl(isMetrics.mdd)}</td>
-      <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(0) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.min_bet) ? isMetrics.min_bet.toFixed(0) : '-'}</td>
+      <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.min_bet) ? isMetrics.min_bet.toFixed(2) : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(isMetrics.max_weight) ? `${(isMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
-      <td className={`${cellClass} ${metricClass('ir', isMetrics.ir)}`}>{formatNumber(isMetrics.ir)}</td>
-      <td className={`${cellClass} ${metricClass('corr', isMetrics.corr)}`}>{formatNumber(isMetrics.corr)}</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.nonzeroPosition) ? isMetrics.nonzeroPosition : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.margin) ? isMetrics.margin.toFixed(4) : '-'}</td>
 
       {/* OS Metrics — thicker left border for group separator */}
-      <td className={`${cellClass} border-l border-border-strong ${metricClass('pnl', osMetrics.cagr ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.cagr ?? osMetrics.pnl)}</td>
+      <td className={`${cellClass} border-l border-border-strong ${metricClass('pnl', osMetrics.ann_ret ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.ann_ret ?? osMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('mdd', osMetrics.mdd)}`}>{formatPnl(osMetrics.mdd)}</td>
-      <td className={`${cellClass} ${metricClass('ir', osMetrics.ir)}`}>{formatNumber(osMetrics.ir)}</td>
+      <td className={`${cellClass} ${metricClass('turnover', osMetrics.turnover)}`}>{isFiniteNumber(osMetrics.turnover) ? osMetrics.turnover.toFixed(1) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.min_bet) ? osMetrics.min_bet.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.max_weight) ? `${(osMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.nonzeroPosition) ? osMetrics.nonzeroPosition : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.margin) ? osMetrics.margin.toFixed(4) : '-'}</td>
     </tr>
   );
 }
@@ -94,25 +96,27 @@ export default function BacktestMetrics() {
             <tr className="text-[11px] uppercase tracking-wider font-semibold text-foreground-secondary border-b-2 border-border-strong">
               <th className="w-6"></th>
               <th className="text-left w-10">#</th>
-              <th className="text-center py-0.5" colSpan={8}>IS</th>
-              <th className="text-center py-0.5 border-l border-border-strong" colSpan={4}>OS</th>
+              <th className="text-center py-0.5" colSpan={7}>IS</th>
+              <th className="text-center py-0.5 border-l border-border-strong" colSpan={7}>OS</th>
             </tr>
             {/* Metric Header Row */}
             <tr className="text-xs font-medium text-foreground-secondary border-b border-border-strong">
               <th className="w-6"></th>
               <th className="text-left w-10 px-2.5">#</th>
-              <th className="text-right px-2.5">CAGR</th>
+              <th className="text-right px-2.5">Return</th>
               <th className="text-right px-2.5">Sharpe</th>
-              <th className="text-right px-2.5">MDD</th>
               <th className="text-right px-2.5">Turn</th>
               <th className="text-right px-2.5">MinBet</th>
               <th className="text-right px-2.5">MaxWt</th>
-              <th className="text-right px-2.5">IR</th>
-              <th className="text-right px-2.5">Corr</th>
-              <th className="text-right px-2.5 border-l border-border-strong">CAGR</th>
+              <th className="text-right px-2.5">Alpha</th>
+              <th className="text-right px-2.5">Margin</th>
+              <th className="text-right px-2.5 border-l border-border-strong">Return</th>
               <th className="text-right px-2.5">Sharpe</th>
-              <th className="text-right px-2.5">MDD</th>
-              <th className="text-right px-2.5">IR</th>
+              <th className="text-right px-2.5">Turn</th>
+              <th className="text-right px-2.5">MinBet</th>
+              <th className="text-right px-2.5">MaxWt</th>
+              <th className="text-right px-2.5">Alpha</th>
+              <th className="text-right px-2.5">Margin</th>
             </tr>
           </thead>
           <tbody>

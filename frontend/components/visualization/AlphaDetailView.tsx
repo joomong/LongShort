@@ -7,11 +7,19 @@ import DetailSummaryTable from './DetailSummaryTable';
 
 const METRICS: Array<{ key: DetailMetricKey; label: string }> = [
   { key: 'pnl', label: 'PnL' },
-  { key: 'mdd', label: 'MDD' },
-  { key: 'minBet', label: 'MinBet' },
-  { key: 'maxWeight', label: 'MaxWeight' },
-  { key: 'nonZero', label: 'Non-zero Position' },
+  { key: 'turnover', label: 'Turnover%' },
+  { key: 'nonZero', label: 'Non-zero Pos' },
+  { key: 'maxWeight', label: 'Max Weight%' },
+  { key: 'mdd', label: 'Drawdown' },
 ];
+
+// Grid background for chart container — visible behind Recharts (rendering-hoist-jsx pattern)
+const CHART_GRID_STYLE: React.CSSProperties = {
+  backgroundImage:
+    'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),' +
+    'linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
+  backgroundSize: '48px 48px',
+};
 
 export default function AlphaDetailView() {
   const result = useAlphaStore(s => s.result);
@@ -42,7 +50,7 @@ export default function AlphaDetailView() {
           ✕
         </button>
       </div>
-      {/* ① metric selector row (like the wireframe small boxes) */}
+      {/* metric selector row */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
         {METRICS.map((m) => {
           const active = m.key === metric;
@@ -64,17 +72,22 @@ export default function AlphaDetailView() {
         })}
       </div>
 
-      {/* ② chart + ③ yearly table stacked vertically */}
+      {/* chart + yearly table */}
       <div className="flex flex-col gap-2 px-2 py-2">
-        <div className="min-w-0 h-[220px] border border-border bg-background-secondary overflow-hidden">
+        {/* Chart container */}
+        <div
+          className="min-w-0 h-[220px] border border-border overflow-hidden"
+          style={CHART_GRID_STYLE}
+        >
           <DetailTimeSeries
             alpha={alpha}
             metric={metric}
             initialCapital={result?.initialCapital}
           />
         </div>
+
         <div className="min-w-0 border border-border bg-background-secondary overflow-hidden">
-          <DetailSummaryTable alpha={alpha} initialCapital={result?.initialCapital} />
+          <DetailSummaryTable alpha={alpha} />
         </div>
       </div>
     </div>

@@ -25,7 +25,7 @@ describe('DetailTimeSeries derived data', () => {
     expect(out.pnlData[0].date).toBe('2024-01-02');
     expect(out.pnlData[0].net).toBeCloseTo(1000, 9);
     expect(out.pnlData[0].gross).toBeCloseTo(1050, 9);
-    expect(out.netEquityData[2].value).toBeCloseTo(101949.4, 9);
+    expect(out.netEquityData[2].value).toBeCloseTo(102000, 9);
   });
 
   it('marks gross series unknown when turnover is missing on any bar', () => {

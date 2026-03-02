@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { BacktestRunResponse } from '@/types';
 
 function readJson<T = unknown>(relativePath: string): T {
   const url = new URL(relativePath, import.meta.url);
@@ -10,6 +11,6 @@ function readText(relativePath: string): string {
   return readFileSync(url, 'utf-8');
 }
 
-export const singleAlphaFixture = readJson('../../tests/fixtures/pipeline/single_alpha_full_payload.json');
-export const multiAlphaFixture = readJson('../../tests/fixtures/pipeline/multi_alpha_full_payload.json');
-export const gaStreamEventsFixture = readText('../../tests/fixtures/pipeline/ga_stream_events.ndjson');
+export const singleAlphaFixture = readJson<BacktestRunResponse>('../../python-engine/tests/fixtures/pipeline/single_alpha_full_payload.json');
+export const multiAlphaFixture = readJson<BacktestRunResponse>('../../python-engine/tests/fixtures/pipeline/multi_alpha_full_payload.json');
+export const gaStreamEventsFixture = readText('../../python-engine/tests/fixtures/pipeline/ga_stream_events.ndjson');

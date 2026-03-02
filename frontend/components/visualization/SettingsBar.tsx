@@ -12,62 +12,16 @@ const BAR_INTERVALS: { value: BacktestSettings['barInterval']; label: string; di
 export default function SettingsBar() {
   const settings = useAlphaStore(s => s.settings);
   const setSettings = useAlphaStore(s => s.setSettings);
-  const dataRange = useAlphaStore(s => s.dataRange);
-  const symbols = useAlphaStore(s => s.symbols);
+  const config = useAlphaStore(s => s.config);
   const gaProgress = useAlphaStore(s => s.gaProgress);
 
   const handleChange = (key: keyof BacktestSettings, value: string) => {
     if (!value) return;
 
-    // Only update if value actually changed
     const currentValue = settings[key];
     if (currentValue === value) return;
 
-    const nextDay = (d: string) => {
-      const dt = new Date(d + 'T12:00:00Z'); // noon UTC avoids DST/timezone issues
-      dt.setUTCDate(dt.getUTCDate() + 1);
-      return dt.toISOString().slice(0, 10);
-    };
-    const prevDay = (d: string) => {
-      const dt = new Date(d + 'T12:00:00Z'); // noon UTC avoids DST/timezone issues
-      dt.setUTCDate(dt.getUTCDate() - 1);
-      return dt.toISOString().slice(0, 10);
-    };
-
-    if (key === 'isEnd') {
-      const newOsStart = nextDay(value);
-      if (settings.isEnd !== value || settings.osStart !== newOsStart) {
-        setSettings({ isEnd: value, osStart: newOsStart });
-      }
-    } else if (key === 'isStart') {
-      const patch: Partial<BacktestSettings> = { isStart: value };
-      if (value > settings.isEnd) {
-        patch.isEnd = value;
-        patch.osStart = nextDay(value);
-      }
-      // Only update if something actually changed
-      const hasChanges = settings.isStart !== value || 
-        ('isEnd' in patch && patch.isEnd !== settings.isEnd) ||
-        ('osStart' in patch && patch.osStart !== settings.osStart);
-      if (hasChanges) {
-        setSettings(patch);
-      }
-    } else if (key === 'osEnd') {
-      const patch: Partial<BacktestSettings> = { osEnd: value };
-      if (value < settings.osStart) {
-        patch.osStart = value;
-        patch.isEnd = prevDay(value);
-      }
-      // Only update if something actually changed
-      const hasChanges = settings.osEnd !== value ||
-        ('osStart' in patch && patch.osStart !== settings.osStart) ||
-        ('isEnd' in patch && patch.isEnd !== settings.isEnd);
-      if (hasChanges) {
-        setSettings(patch);
-      }
-    } else {
-      setSettings({ [key]: value });
-    }
+    setSettings({ [key]: value });
   };
 
   return (
@@ -78,20 +32,10 @@ export default function SettingsBar() {
         <input
           type="date"
           value={settings.isStart}
-          min={dataRange?.minDate}
-          max={dataRange?.maxDate}
+          min={config?.simStart}
+          max={config?.simEnd}
           onChange={(e) => handleChange('isStart', e.target.value)}
           aria-label="IS start date"
-          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <span className="text-foreground-muted">~</span>
-        <input
-          type="date"
-          value={settings.isEnd}
-          min={dataRange?.minDate}
-          max={dataRange?.maxDate}
-          onChange={(e) => handleChange('isEnd', e.target.value)}
-          aria-label="IS end date"
           className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
         />
       </div>
@@ -102,21 +46,14 @@ export default function SettingsBar() {
         <input
           type="date"
           value={settings.osStart}
-          readOnly
-          tabIndex={-1}
+          min={config?.simStart}
+          max={config?.simEnd}
+          onChange={(e) => handleChange('osStart', e.target.value)}
           aria-label="OS start date"
-          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground-muted cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <span className="text-foreground-muted">~</span>
-        <input
-          type="date"
-          value={settings.osEnd}
-          min={dataRange?.minDate}
-          max={dataRange?.maxDate}
-          onChange={(e) => handleChange('osEnd', e.target.value)}
-          aria-label="OS end date"
           className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
         />
+        <span className="text-[10px] text-foreground-muted">~</span>
+        <span className="px-2 py-1 text-xs font-mono text-foreground-muted">{config?.simEnd ?? '...'}</span>
       </div>
 
       {/* Bar Interval */}
@@ -173,7 +110,7 @@ export default function SettingsBar() {
             {gaProgress.generation} : {gaProgress.evaluated}/{gaProgress.populationSize}
           </span>
         ) : (
-          symbols.length > 0 && <span className="text-xs text-foreground-muted">{symbols.length} symbols</span>
+          config && config.N > 0 && <span className="text-xs text-foreground-muted">{config.N} symbols</span>
         )}
       </div>
     </div>

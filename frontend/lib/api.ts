@@ -22,7 +22,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 // C++ STAR engine returns fractions (0.874 = 87.4%). Frontend displays
 // percentage points, so pnl/ann_ret/mdd/turnover/min_bet are ×100 here.
 // max_weight stays as fraction — the display layer does ×100 itself.
-// OS intentionally omits turnover/min_bet (STAR convention).
 // ---------------------------------------------------------------------------
 
 function adaptStarToIS(s: StarSummary): ISMetrics {
@@ -45,6 +44,11 @@ function adaptStarToOS(s: StarSummary): OSMetrics {
     sharpe: s.sharpe,
     mdd: s.mdd * 100,
     ann_ret: s.return * 100,
+    turnover: s.turnover * 100,
+    min_bet: s.minBet * 100,
+    max_weight: s.maxWeight,
+    margin: s.margin,
+    nonzeroPosition: s.nonzeroPosition,
   };
 }
 
@@ -60,10 +64,10 @@ function tsArrayToRecord(timestamps: string[], values: number[]): Record<string,
 // STAR uses additive (simple) PnL with fixed book size, so daily return =
 // cumPnl[i] - cumPnl[i-1], NOT log or compounded. Values stay as raw
 // fractions (no ×100) because downstream equity curve math needs them as-is.
-function cumPnlToDailyReturns(timestamps: string[], cumPnl: number[]): Record<string, number | null> {
+function cumPnlToDailyReturns(timestamps: string[], cumPnl: number[], prevCumPnl: number = 0): Record<string, number | null> {
   const rec: Record<string, number | null> = {};
   for (let i = 0; i < timestamps.length; i++) {
-    rec[timestamps[i]] = i === 0 ? (cumPnl[0] ?? 0) : (cumPnl[i] - cumPnl[i - 1]);
+    rec[timestamps[i]] = i === 0 ? (cumPnl[0] - prevCumPnl) : (cumPnl[i] - cumPnl[i - 1]);
   }
   return rec;
 }
@@ -85,8 +89,8 @@ export function adaptSingleResponse(resp: StarSimulateResponse): BacktestRunResp
     isMetrics,
     osMetrics,
     yearly: resp.yearly,
-    isRetSeries: cumPnlToDailyReturns(isTs, isCumPnl),
-    osRetSeries: cumPnlToDailyReturns(osTs, osCumPnl),
+    isRetSeries: cumPnlToDailyReturns(isTs, isCumPnl, resp.isStartIndex > 0 ? ts.cumPnl[resp.isStartIndex - 1] : 0),
+    osRetSeries: cumPnlToDailyReturns(osTs, osCumPnl, ts.cumPnl[resp.osStartIndex - 1]),
     isTurnoverSeries: tsArrayToRecord(isTs, ts.turnover.slice(resp.isStartIndex, resp.osStartIndex)),
     osTurnoverSeries: tsArrayToRecord(osTs, ts.turnover.slice(resp.osStartIndex)),
     isMaxWeightSeries: tsArrayToRecord(isTs, ts.maxWeight.slice(resp.isStartIndex, resp.osStartIndex)),
@@ -95,6 +99,7 @@ export function adaptSingleResponse(resp: StarSimulateResponse): BacktestRunResp
     osNonzeroPositionSeries: tsArrayToRecord(osTs, ts.nonzeroCount.slice(resp.osStartIndex)),
     isEquitySeries: tsArrayToRecord(isTs, isCumPnl),
     osEquitySeries: tsArrayToRecord(osTs, osCumPnl),
+    osStartDate: ts.timestamps[resp.osStartIndex],
     longRatio: resp.summary.is.longRatio,
     shortRatio: resp.summary.is.shortRatio,
   };
@@ -127,11 +132,13 @@ export function adaptBatchResponse(resp: StarBatchResponse): BacktestRunResponse
     osMetrics: adaptStarToOS(best.summary.os),
     isRetSeries: cumPnlToDailyReturns(
       ts.timestamps.slice(resp.isStartIndex, resp.osStartIndex),
-      ts.cumPnl.slice(resp.isStartIndex, resp.osStartIndex)
+      ts.cumPnl.slice(resp.isStartIndex, resp.osStartIndex),
+      resp.isStartIndex > 0 ? ts.cumPnl[resp.isStartIndex - 1] : 0,
     ),
     osRetSeries: cumPnlToDailyReturns(
       ts.timestamps.slice(resp.osStartIndex),
-      ts.cumPnl.slice(resp.osStartIndex)
+      ts.cumPnl.slice(resp.osStartIndex),
+      ts.cumPnl[resp.osStartIndex - 1],
     ),
   };
 
@@ -159,11 +166,13 @@ export function adaptGACompleteToResponse(ev: StarGACompleteEvent): BacktestRunR
     xml: ev.bestXml,
     isRetSeries: cumPnlToDailyReturns(
       ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.cumPnl.slice(ev.isStartIndex, ev.osStartIndex)
+      ts.cumPnl.slice(ev.isStartIndex, ev.osStartIndex),
+      ev.isStartIndex > 0 ? ts.cumPnl[ev.isStartIndex - 1] : 0,
     ),
     osRetSeries: cumPnlToDailyReturns(
       ts.timestamps.slice(ev.osStartIndex),
-      ts.cumPnl.slice(ev.osStartIndex)
+      ts.cumPnl.slice(ev.osStartIndex),
+      ts.cumPnl[ev.osStartIndex - 1],
     ),
     isTurnoverSeries: tsArrayToRecord(
       ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
@@ -197,6 +206,7 @@ export function adaptGACompleteToResponse(ev: StarGACompleteEvent): BacktestRunR
       ts.timestamps.slice(ev.osStartIndex),
       ts.cumPnl.slice(ev.osStartIndex)
     ),
+    osStartDate: ts.timestamps[ev.osStartIndex],
     longRatio: ev.summary.is.longRatio,
     shortRatio: ev.summary.is.shortRatio,
   };

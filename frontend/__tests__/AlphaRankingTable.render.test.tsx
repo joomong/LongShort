@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 describe('AlphaRankingTable rendering', () => {
-  it('renders ranking rows and combined IR/Corr fallback text', () => {
+  it('renders ranking rows with STAR-aligned columns', () => {
     useAlphaStore.setState({ result: multiAlphaFixture });
 
     render(<AlphaRankingTable />);
@@ -24,13 +24,14 @@ describe('AlphaRankingTable rendering', () => {
     expect(screen.getByText('alpha_1')).toBeInTheDocument();
     expect(screen.getByText('alpha_2')).toBeInTheDocument();
 
+    // Combined row: margin from fixture = 0.000974 -> 0.0010
     const combinedRow = screen.getByText('Combined').closest('tr');
     expect(combinedRow).not.toBeNull();
-    expect(within(combinedRow as HTMLElement).getAllByText('-').length).toBeGreaterThanOrEqual(2);
+    expect(within(combinedRow as HTMLElement).getByText('0.0010')).toBeInTheDocument();
 
+    // alpha_1 row: margin = 0.001315 -> 0.0013
     const alpha1Row = screen.getByText('alpha_1').closest('tr');
     expect(alpha1Row).not.toBeNull();
-    expect(within(alpha1Row as HTMLElement).getByText('0.11')).toBeInTheDocument();
-    expect(within(alpha1Row as HTMLElement).getByText('0.42')).toBeInTheDocument();
+    expect(within(alpha1Row as HTMLElement).getByText('0.0013')).toBeInTheDocument();
   });
 });

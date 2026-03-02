@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo, memo } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
@@ -17,23 +17,18 @@ const EMPTY_HEATMAP = (
   />
 );
 
-interface TooltipInfo {
-  x: number;
-  y: number;
-  symbol: string;
-  timestamp: string;
-  value: number | null;
-}
-
-export default function SignalHeatmap() {
+function SignalHeatmap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
-  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
+  // rerender-use-ref-transient-values: tooltip updated every mousemove — use ref + imperative DOM
+  const tooltipElemRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   // Store computed cell sizes so mouse handlers can use them
   const cellSizeRef = useRef({ w: MIN_CELL_WIDTH, h: MIN_CELL_HEIGHT });
+  // Cache canvas bounding rect — updated in drawBase (on resize/data change), avoids getBoundingClientRect() on every mousemove (js-cache-property)
+  const canvasRectRef = useRef<DOMRect | null>(null);
   // Granular selectors — avoid subscribing to the full result object for selection state
   const heatmap = useAlphaStore(s => s.result?.heatmap);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
@@ -50,6 +45,10 @@ export default function SignalHeatmap() {
   selectedTimestampRef.current = selectedTimestamp;
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  // Cached base heatmap pixels — restored on selection change to avoid full redraw
+  const baseImageDataRef = useRef<ImageData | null>(null);
+  // Cached theme colors — populated lazily in drawBase, avoids getThemeColors() on every render (rerender-lazy-state-init)
+  const themeColorsRef = useRef<ReturnType<typeof getThemeColors> | null>(null);
 
   // Build index Maps for O(1) lookup (js-index-maps)
   const symbolMap = useMemo(() => {
@@ -67,11 +66,10 @@ export default function SignalHeatmap() {
   const timeMapRef = useRef(timeMap);
   timeMapRef.current = timeMap;
 
-  // Compute filtered symbols for search
-  const filteredSymbols = useMemo(() => {
-    if (!searchQuery || !heatmap) return [];
-    return heatmap.symbols.filter(s => s.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [searchQuery, heatmap]);
+  // Compute filtered symbols for search — 17 symbols max, filter cost < useMemo overhead (rerender-simple-expression-in-memo)
+  const filteredSymbols = (!searchQuery || !heatmap)
+    ? []
+    : heatmap.symbols.filter(s => s.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Click outside handler for search dropdown
   useEffect(() => {
@@ -81,21 +79,42 @@ export default function SignalHeatmap() {
       }
     };
     if (isSearchOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleClickOutside, { passive: true });
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isSearchOpen]);
 
-   // Stable draw function that reads from refs to prevent infinite loops
-   const drawHeatmap = useCallback(() => {
+   // Overlay only: restore cached pixels then draw highlight. O(1) per click.
+   // Declared before drawBase so drawBase can call it directly.
+   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+     const currentSelectedSymbol = selectedSymbolRef.current;
+     const currentSelectedTimestamp = selectedTimestampRef.current;
+     const currentSymbolMap = symbolMapRef.current;
+     const currentTimeMap = timeMapRef.current;
+     const { w: cellW, h: cellH } = cellSizeRef.current;
+
+     if (baseImageDataRef.current) {
+       ctx.putImageData(baseImageDataRef.current, 0, 0);
+     }
+
+     if (currentSelectedSymbol && currentSelectedTimestamp) {
+       const symbolIdx = currentSymbolMap.get(currentSelectedSymbol);
+       const timeIdx = currentTimeMap.get(currentSelectedTimestamp);
+       if (symbolIdx !== undefined && timeIdx !== undefined) {
+         ctx.strokeStyle = themeColorsRef.current?.accent ?? '#0078ff';
+         ctx.lineWidth = 2;
+         ctx.strokeRect(Math.floor(timeIdx * cellW), Math.floor(symbolIdx * cellH), Math.ceil(cellW), Math.ceil(cellH));
+       }
+     }
+   }, []); // Stable identity: reads latest values from refs, not closures
+
+  // Full redraw: all cells + cache ImageData. Called only when heatmap data or theme changes.
+  const drawBase = useCallback(() => {
      const canvas = canvasRef.current;
      const container = containerRef.current;
      const currentHeatmap = heatmapRef.current;
-     const currentSelectedSymbol = selectedSymbolRef.current;
-     const currentSelectedTimestamp = selectedTimestampRef.current;
      const currentTheme = themeRef.current;
-     const currentSymbolMap = symbolMapRef.current;
-     const currentTimeMap = timeMapRef.current;
 
      if (!canvas || !container || !currentHeatmap) return;
 
@@ -104,112 +123,131 @@ export default function SignalHeatmap() {
 
      void currentTheme; // Trigger redraw on theme change (getThemeColors reads CSS variables)
      const colors = getThemeColors();
+     themeColorsRef.current = colors; // Cache for drawSelectionOverlay (avoids getComputedStyle per click)
      const { timestamps, symbols, values } = currentHeatmap;
-     if (timestamps.length === 0 || symbols.length === 0) return;
+     const numTimestamps = timestamps.length;
+     const numSymbols = symbols.length;
+     if (numTimestamps === 0 || numSymbols === 0) return;
 
-     // Fit canvas to container width; height = all symbols
      const containerWidth = container.clientWidth;
      const containerHeight = container.clientHeight;
 
-     const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / timestamps.length);
-     const cellH = containerHeight / symbols.length;
+     const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / numTimestamps);
+     const cellH = containerHeight / numSymbols;
      cellSizeRef.current = { w: cellW, h: cellH };
 
-     const width = Math.ceil(cellW * timestamps.length);
+     const width = Math.ceil(cellW * numTimestamps);
      const height = containerHeight;
 
      canvas.width = width;
      canvas.height = height;
      canvas.style.width = `${containerWidth}px`;
      canvas.style.height = `${containerHeight}px`;
+     // Invalidate cached rect — getCell will lazily re-read on first mousemove after resize/data change (js-cache-property)
+     canvasRectRef.current = null;
 
-     // Clear canvas
      ctx.fillStyle = colors.chartBackground;
      ctx.fillRect(0, 0, width, height);
 
-     // Draw heatmap cells (X=time, Y=symbol)
-     // Per-timestamp (column) rank-based normalization for cross-sectional color mapping
-     const colSorted: number[][] = new Array(timestamps.length);
-     for (let t = 0; t < timestamps.length; t++) {
+     // Precompute rank-based color palettes per unique sortedLen (js-cache-function-results)
+     // signalToColor() constructs rgb() strings — cache to avoid ~6k calls per draw
+     const NAN_COLOR = signalToColor(NaN, -1, 1);
+     const ZERO_COLOR = signalToColor(0, -1, 1);
+     const colorPalettes = new Map<number, string[]>();
+
+     // Per-timestamp rank-based normalization
+     const colSorted: number[][] = new Array(numTimestamps);
+     for (let t = 0; t < numTimestamps; t++) {
        const col = values[t];
        const finite: number[] = [];
        if (col) {
-         for (let s = 0; s < symbols.length; s++) {
+         for (let s = 0; s < numSymbols; s++) {
            const v = col[s];
            if (typeof v === 'number' && isFinite(v)) finite.push(v);
          }
        }
-       finite.sort((a, b) => a - b);
-       colSorted[t] = finite;
+       colSorted[t] = finite.toSorted((a, b) => a - b);
+
+       // Build palette for this sortedLen if not already cached
+       const sortedLen = colSorted[t].length;
+       if (sortedLen > 1 && !colorPalettes.has(sortedLen)) {
+         const palette = new Array<string>(sortedLen);
+         for (let r = 0; r < sortedLen; r++) {
+           palette[r] = signalToColor((r / (sortedLen - 1)) * 2 - 1, -1, 1);
+         }
+         colorPalettes.set(sortedLen, palette);
+       }
      }
 
-     symbols.forEach((_, symbolIdx) => {
-       timestamps.forEach((_, timeIdx) => {
-         const value = values[timeIdx]?.[symbolIdx];
+     for (let timeIdx = 0; timeIdx < numTimestamps; timeIdx++) {
+       const col = values[timeIdx]; // js-cache-property: cache per-timestamp column
+       for (let symbolIdx = 0; symbolIdx < numSymbols; symbolIdx++) {
+         const value = col?.[symbolIdx];
          let color: string;
          if (typeof value !== 'number' || !isFinite(value)) {
-           color = signalToColor(NaN, -1, 1);
+           color = NAN_COLOR;
          } else {
            const sorted = colSorted[timeIdx];
-           if (sorted.length <= 1) {
-             color = signalToColor(0, -1, 1);
+           const sortedLen = sorted.length;
+           if (sortedLen <= 1) {
+             color = ZERO_COLOR;
            } else {
-             // Binary search for rank
-             let lo = 0, hi = sorted.length;
+             let lo = 0, hi = sortedLen;
              while (lo < hi) {
                const mid = (lo + hi) >> 1;
                if (sorted[mid] < value) lo = mid + 1;
                else hi = mid;
              }
-             const rank01 = lo / (sorted.length - 1); // 0 ~ 1
-             const normalized = rank01 * 2 - 1;       // -1 ~ +1
-             color = signalToColor(normalized, -1, 1);
+             color = colorPalettes.get(sortedLen)![lo];
            }
          }
 
-         const x = Math.floor(timeIdx * cellW);
-         const y = Math.floor(symbolIdx * cellH);
-         const w = Math.ceil(cellW);
-         const h = Math.ceil(cellH);
-
          ctx.fillStyle = color;
-         ctx.fillRect(x, y, w, h);
-       });
-     });
-
-     // Draw selection highlight — O(1) Map lookup instead of indexOf
-     if (currentSelectedSymbol && currentSelectedTimestamp) {
-       const symbolIdx = currentSymbolMap.get(currentSelectedSymbol);
-       const timeIdx = currentTimeMap.get(currentSelectedTimestamp);
-       if (symbolIdx !== undefined && timeIdx !== undefined) {
-         const x = Math.floor(timeIdx * cellW);
-         const y = Math.floor(symbolIdx * cellH);
-         ctx.strokeStyle = colors.accent;
-         ctx.lineWidth = 2;
-         ctx.strokeRect(x, y, Math.ceil(cellW), Math.ceil(cellH));
+         ctx.fillRect(Math.floor(timeIdx * cellW), Math.floor(symbolIdx * cellH), Math.ceil(cellW), Math.ceil(cellH));
        }
      }
-   }, []); // Empty dependency array - all values accessed via refs
 
-   // Redraw when data, selection, or theme changes
+     // Cache pixels after drawing base — selection overlay restores from this
+     baseImageDataRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+     // Draw initial selection if any
+     drawSelectionOverlay(ctx, canvas);
+  }, []); // Stable identity: reads latest values from refs, not closures
+
+  const drawSelection = useCallback(() => {
+     const canvas = canvasRef.current;
+     if (!canvas) return;
+     const ctx = canvas.getContext('2d');
+     if (!ctx) return;
+     drawSelectionOverlay(ctx, canvas);
+  }, []); // Stable identity: reads latest values from refs, not closures
+
+   // Full redraw only when heatmap data or theme changes
    useEffect(() => {
-     drawHeatmap();
-   }, [drawHeatmap, heatmap, selectedSymbol, selectedTimestamp, theme]);
+     drawBase();
+   }, [drawBase, heatmap, theme]);
+
+   // Fast overlay-only redraw when selection changes
+   useEffect(() => {
+     drawSelection();
+   }, [drawSelection, selectedSymbol, selectedTimestamp]);
 
   // Redraw on container resize
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(() => drawHeatmap());
+    const observer = new ResizeObserver(() => drawBase());
     observer.observe(container);
     return () => observer.disconnect();
-  }, [drawHeatmap]);
+  }, [drawBase]);
 
   const getCell = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !heatmap) return null;
+    const currentHeatmap = heatmapRef.current;
+    if (!canvas || !currentHeatmap) return null;
 
-    const rect = canvas.getBoundingClientRect();
+    // Use cached rect — lazily populated on first mousemove after drawBase invalidates it (js-cache-property)
+    const rect = canvasRectRef.current ?? (canvasRectRef.current = canvas.getBoundingClientRect());
     // Account for CSS scaling (canvas pixel size vs display size)
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -220,46 +258,89 @@ export default function SignalHeatmap() {
     const timeIdx = Math.floor(x / w);
     const symbolIdx = Math.floor(y / h);
 
-    if (timeIdx >= 0 && timeIdx < heatmap.timestamps.length &&
-        symbolIdx >= 0 && symbolIdx < heatmap.symbols.length) {
+    if (timeIdx >= 0 && timeIdx < currentHeatmap.timestamps.length &&
+        symbolIdx >= 0 && symbolIdx < currentHeatmap.symbols.length) {
       return { timeIdx, symbolIdx };
     }
     return null;
-  }, [heatmap]);
+  }, []); // Stable identity: reads latest heatmap via ref, not closure
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = getCell(e);
-    if (!cell || !heatmap) { setTooltip(null); return; }
+    const el = tooltipElemRef.current;
+    const currentHeatmap = heatmapRef.current;
+    if (!cell || !currentHeatmap) {
+      if (el) el.style.display = 'none';
+      return;
+    }
 
-    const value = heatmap.values[cell.timeIdx]?.[cell.symbolIdx];
-    setTooltip({
-      x: e.clientX,
-      y: e.clientY,
-      symbol: heatmap.symbols[cell.symbolIdx],
-      timestamp: heatmap.timestamps[cell.timeIdx],
-      value: typeof value === 'number' ? value : null,
-    });
-  }, [heatmap, getCell]);
+    if (el) {
+      const rawValue = currentHeatmap.values[cell.timeIdx]?.[cell.symbolIdx];
+      const value = typeof rawValue === 'number' && isFinite(rawValue) ? rawValue : null;
+      // Update text content directly — no React re-render on every pixel (rerender-use-ref-transient-values)
+      const children = el.children as HTMLCollectionOf<HTMLElement>;
+      children[0].textContent = currentHeatmap.symbols[cell.symbolIdx];
+      children[1].textContent = currentHeatmap.timestamps[cell.timeIdx];
+      children[2].textContent = value === null ? 'N/A' : value.toFixed(4);
+      children[2].className = `font-mono ${
+        value === null ? 'text-foreground-muted' :
+        value > 0 ? 'text-metric-negative' :
+        value < 0 ? 'text-accent' : 'text-foreground-muted'
+      }`;
+      el.style.left = `${e.clientX + 10}px`;
+      el.style.top = `${e.clientY + 10}px`;
+      // flip computed in handler (window always defined in event callbacks)
+      el.style.transform = e.clientX > window.innerWidth * 0.6
+        ? 'translateX(calc(-100% - 20px))' : '';
+      el.style.display = 'block';
+    }
+  }, []); // Stable identity: reads latest heatmap via ref, not closure
 
   const handleMouseLeave = useCallback(() => {
-    setTooltip(null);
+    const el = tooltipElemRef.current;
+    if (el) el.style.display = 'none';
   }, []);
+
+  // searchQueryRef keeps handleSearchFocus identity stable (advanced-use-latest)
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setIsSearchOpen(e.target.value.length > 0);
+  }, []);
+
+  const handleSearchFocus = useCallback(() => {
+    setIsSearchOpen(searchQueryRef.current.length > 0);
+  }, []); // stable identity: reads latest searchQuery via ref
+
+  // Stable handler for symbol dropdown items — reads symbol from data attribute (rerender-memo)
+  const handleSymbolClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const symbol = e.currentTarget.dataset.symbol;
+    if (symbol) {
+      setSelectedCell(symbol, null);
+      setSearchQuery('');
+      setIsSearchOpen(false);
+    }
+  }, [setSelectedCell]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = getCell(e);
-    if (!cell || !heatmap) return;
+    const currentHeatmap = heatmapRef.current;
+    if (!cell || !currentHeatmap) return;
 
-    const symbol = heatmap.symbols[cell.symbolIdx];
-    const timestamp = heatmap.timestamps[cell.timeIdx];
+    const symbol = currentHeatmap.symbols[cell.symbolIdx];
+    const timestamp = currentHeatmap.timestamps[cell.timeIdx];
 
     if (symbol && timestamp) {
-      if (symbol === selectedSymbol && timestamp === selectedTimestamp) {
+      // Use refs for toggle check — stable callback, no stale-closure risk (advanced-use-latest)
+      if (symbol === selectedSymbolRef.current && timestamp === selectedTimestampRef.current) {
         setSelectedCell(null, null);
       } else {
         setSelectedCell(symbol, timestamp);
       }
     }
-  }, [heatmap, selectedSymbol, selectedTimestamp, setSelectedCell, getCell]);
+  }, [setSelectedCell]); // Stable identity: reads latest heatmap via ref, not closure
 
   if (!heatmap) {
     return EMPTY_HEATMAP;
@@ -272,31 +353,25 @@ export default function SignalHeatmap() {
         <input
           type="text"
           value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setIsSearchOpen(e.target.value.length > 0);
-          }}
-          onFocus={() => setIsSearchOpen(searchQuery.length > 0)}
+          onChange={handleSearchChange}
+          onFocus={handleSearchFocus}
           placeholder="Search symbol"
           className="w-28 px-2 py-1 text-xs font-mono bg-background-elevated border border-border text-data-color focus:outline-none focus:border-accent"
         />
-        {isSearchOpen && filteredSymbols.length > 0 && (
+        {isSearchOpen && filteredSymbols.length > 0 ? (
           <div className="absolute top-full left-0 mt-1 w-28 max-h-48 overflow-y-auto bg-background-elevated border border-border shadow-elevated">
             {filteredSymbols.map((symbol) => (
               <div
                 key={symbol}
+                data-symbol={symbol}
                 className="px-2 py-1 text-xs font-mono text-data-color cursor-pointer hover:bg-row-active"
-                onClick={() => {
-                  setSelectedCell(symbol, null);
-                  setSearchQuery('');
-                  setIsSearchOpen(false);
-                }}
+                onClick={handleSymbolClick}
               >
                 {symbol}
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
       <canvas
@@ -306,25 +381,19 @@ export default function SignalHeatmap() {
         onMouseLeave={handleMouseLeave}
         className="cursor-pointer block"
       />
-      {tooltip && (
-        <div
-          className="fixed z-50 px-3 py-2 text-xs bg-background-elevated border border-border-strong shadow-elevated pointer-events-none"
-          style={{
-            left: tooltip.x + 10,
-            top: tooltip.y + 10,
-          }}
-        >
-          <div className="font-medium text-foreground">{tooltip.symbol}</div>
-          <div className="text-foreground-secondary">{tooltip.timestamp}</div>
-          <div className={`font-mono ${
-            tooltip.value === null ? 'text-foreground-muted' :
-            tooltip.value > 0 ? 'text-metric-negative' :
-            tooltip.value < 0 ? 'text-accent' : 'text-foreground-muted'
-          }`}>
-            {tooltip.value === null ? 'N/A' : tooltip.value.toFixed(4)}
-          </div>
-        </div>
-      )}
+      {/* Persistent tooltip — content/position updated imperatively in handleMouseMove (rerender-use-ref-transient-values) */}
+      {/* Signal context: positive = short bias (bearish) → red; negative = long bias (bullish) → blue */}
+      <div
+        ref={tooltipElemRef}
+        className="fixed z-50 px-3 py-2 text-xs bg-background-elevated border border-border-strong shadow-elevated pointer-events-none"
+        style={{ display: 'none' }}
+      >
+        <div className="font-medium text-foreground" />
+        <div className="text-foreground-secondary" />
+        <div className="font-mono" />
+      </div>
     </div>
   );
 }
+
+export default memo(SignalHeatmap);

@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useRef, useMemo, useEffect } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
-import { runGAStream } from '@/lib/api';
-import type { BacktestRunResponse } from '@/types';
+import { runSimulate, runGAStream, adaptSingleResponse, adaptBatchResponse, adaptGACompleteToResponse } from '@/lib/api';
+import type { StarGAEvent, StarSimulateResponse } from '@/types';
 
 export function useBacktest() {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -28,59 +28,94 @@ export function useBacktest() {
   }, []);
 
   const run = useCallback(async () => {
-    // Cancel any existing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-
     abortControllerRef.current = new AbortController();
 
-    // Read setters from getState() — no subscription needed
     const store = useAlphaStore.getState();
     store.setIsRunning(true);
     store.setBacktestError(null);
     store.setResult(null);
     store.setSelectedCell(null, null);
-    store.setGAProgress({ generation: 0, totalGenerations: 0, evaluated: 0, populationSize: settingsRef.current.gaPopulation });
+    store.setGAProgress(null);
+
+    try {
+      const settings = settingsRef.current;
+      const resp = await runSimulate(xmlCodeRef.current, settings.isStart, settings.osStart);
+
+      // Detect single vs batch response
+      const adapted = 'batches' in resp
+        ? adaptBatchResponse(resp)
+        : adaptSingleResponse(resp as StarSimulateResponse);
+
+      const s = useAlphaStore.getState();
+      s.setResult(adapted);
+
+      // Auto-select first heatmap cell if available
+      const firstSymbol = adapted.heatmap?.symbols?.[0] ?? null;
+      const firstTimestamp = adapted.heatmap?.timestamps?.[0] ?? null;
+      if (firstSymbol && firstTimestamp) {
+        s.setSelectedCell(firstSymbol, firstTimestamp);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // cancelled
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        useAlphaStore.getState().setBacktestError(message);
+      }
+    } finally {
+      const s = useAlphaStore.getState();
+      s.setIsRunning(false);
+    }
+  }, []);
+
+  const runGA = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    const store = useAlphaStore.getState();
+    store.setIsRunning(true);
+    store.setBacktestError(null);
+    store.setResult(null);
+    store.setSelectedCell(null, null);
+
+    const settings = settingsRef.current;
+    store.setGAProgress({
+      generation: 0,
+      totalGenerations: 0,
+      evaluated: 0,
+      populationSize: settings.gaPopulation,
+    });
 
     try {
       await runGAStream(
         xmlCodeRef.current,
-        settingsRef.current,
-        10,
-        (event) => {
+        settings.isStart,
+        settings.osStart,
+        settings.gaPopulation,
+        20,  // generations (default)
+        settings.nJobs,
+        (event: StarGAEvent) => {
           const s = useAlphaStore.getState();
-          const type = event.type as string;
-          if (type === 'progress') {
+          if (event.type === 'generation_end') {
             s.setGAProgress({
-              generation: event.generation as number,
-              totalGenerations: event.totalGenerations as number,
-              evaluated: event.evaluated as number,
-              populationSize: event.populationSize as number,
-            });
-          } else if (type === 'generation_end') {
-            s.setGAProgress({
-              generation: event.generation as number,
-              totalGenerations: event.totalGenerations as number,
+              generation: event.generation,
+              totalGenerations: event.totalGenerations,
               evaluated: 0,
-              populationSize: (event as Record<string, unknown>).populationSize as number || settingsRef.current.gaPopulation,
+              populationSize: settings.gaPopulation,
+              bestSharpe: event.bestSharpe,
             });
-            const partial = event.partialResult as BacktestRunResponse | undefined;
-            if (partial && partial.alphas && partial.alphas.length > 0) {
-              s.setResult(partial);
-            }
-          } else if (type === 'complete') {
-            const final = event.data as BacktestRunResponse;
-            s.setResult(final);
-
-            // UX: auto-select a default cell so the time series chart is not empty
-            const firstSymbol = final?.heatmap?.symbols?.[0] ?? null;
-            const firstTimestamp = final?.heatmap?.timestamps?.[0] ?? null;
-            if (firstSymbol && firstTimestamp) {
-              s.setSelectedCell(firstSymbol, firstTimestamp);
-            }
-          } else if (type === 'error') {
-            s.setBacktestError(event.message as string);
+          } else if (event.type === 'complete') {
+            const adapted = adaptGACompleteToResponse(event);
+            s.setResult(adapted);
+            // Update XML to best found
+            s.setXmlCode(event.bestXml);
+          } else if (event.type === 'error') {
+            s.setBacktestError(event.error);
           }
         },
         abortControllerRef.current.signal,
@@ -109,5 +144,5 @@ export function useBacktest() {
     s.setGAProgress(null);
   }, []);
 
-  return { run, stop };
+  return { run, runGA, stop };
 }
