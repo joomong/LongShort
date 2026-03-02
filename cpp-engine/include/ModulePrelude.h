@@ -9,10 +9,10 @@
 #include <cstring>
 #include <limits>
 #include <algorithm>
-#include <ostream>
-#include <istream>
-
 #include "signal_vector.h"
 #include "star_vector.h"
 #include "module.h"
 #include "data/data_panel.h"
+
+using std::isfinite;
+using std::isnan;

@@ -2,13 +2,9 @@
 
 // MZscore: cross-sectional z-score (stateless).
 struct MZscore : public Module {
-    IntParameter ddof{1};
-    IntParameter min_count{2};
-    FloatParameter eps{1e-12};
-
-    void init() override {}
-
-    void calculate(unsigned di, SignalVector& output) override {
+    void init() {}
+    void calculate(unsigned /*di*/, SignalVector &output)
+    {
         double sum   = 0.0;
         int    count = 0;
         for (unsigned ii = 0; ii < numAssets; ++ii) {
@@ -18,7 +14,7 @@ struct MZscore : public Module {
             }
         }
 
-        if (count < min_count.value) {
+        if (count < min_count) {
             output.fill_nan();
             return;
         }
@@ -32,19 +28,23 @@ struct MZscore : public Module {
             }
         }
 
-        double denom = static_cast<double>(count - ddof.value);
+        double denom = (double)(count - ddof);
         double scale = (denom > 0.0) ? std::sqrt(sq_sum / denom) : 0.0;
 
-        if (scale < eps.value) {
+        if (scale < eps) {
             output.fill_nan();
             return;
         }
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
             if (std::isfinite(output[ii]))
-                output[ii] = static_cast<float>((output[ii] - mean) / (scale + eps.value));
+                output[ii] = (float)((output[ii] - mean) / (scale + eps));
             else
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
         }
     }
+
+    IntParameter ddof{1};
+    IntParameter min_count{2};
+    FloatParameter eps{1e-12};
 };

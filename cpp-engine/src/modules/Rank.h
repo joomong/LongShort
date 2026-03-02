@@ -2,19 +2,18 @@
 
 // MRank: cross-sectional percentile rank (stateless).
 struct MRank : public Module {
-    IntParameter pct{1};  // 1=percentile, 0=raw rank
-
-    void init() override {
-        input_copy_.resize(numAssets);
+    void init()
+    {
+        input_copy.resize(numAssets);
     }
-
-    void calculate(unsigned di, SignalVector& output) override {
+    void calculate(unsigned /*di*/, SignalVector &output)
+    {
         for (unsigned ii = 0; ii < numAssets; ++ii)
-            input_copy_[ii] = output[ii];
+            input_copy[ii] = output[ii];
 
         int n_finite = 0;
         for (unsigned ii = 0; ii < numAssets; ++ii)
-            if (std::isfinite(input_copy_[ii]))
+            if (std::isfinite(input_copy[ii]))
                 ++n_finite;
 
         if (n_finite == 0) {
@@ -23,7 +22,7 @@ struct MRank : public Module {
         }
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
-            float vi = input_copy_[ii];
+            float vi = input_copy[ii];
             if (!std::isfinite(vi)) {
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
                 continue;
@@ -31,18 +30,17 @@ struct MRank : public Module {
 
             int n_less = 0, n_equal = 0;
             for (unsigned jj = 0; jj < numAssets; ++jj) {
-                float vj = input_copy_[jj];
+                float vj = input_copy[jj];
                 if (!std::isfinite(vj)) continue;
                 if (vj < vi) ++n_less;
                 else if (vj == vi) ++n_equal;
             }
 
             double rank = n_less + 1.0 + (n_equal - 1.0) / 2.0;
-            output[ii] = static_cast<float>(
-                pct.value ? rank / n_finite : rank);
+            output[ii] = (float)(pct ? rank / n_finite : rank);
         }
     }
 
-private:
-    std::vector<float> input_copy_;
+    std::vector<float> input_copy;
+    IntParameter pct{1};
 };

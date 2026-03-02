@@ -53,25 +53,25 @@ std::vector<YearlyMetrics> compute_yearly(
                 yr_ret.push_back(ret[idx]);
         }
 
-        // Equity curve (starts at 1.0 each year)
-        std::vector<double> equity;
-        equity.reserve(yr_ret.size());
-        double eq = 1.0;
+        // Cumulative PnL (additive, STAR-style fixed book size)
+        std::vector<double> cum_pnl;
+        cum_pnl.reserve(yr_ret.size());
+        double cp = 0.0;
         for (double r : yr_ret) {
-            eq *= (1.0 + r);
-            equity.push_back(eq);
+            cp += r;
+            cum_pnl.push_back(cp);
         }
 
-        // pnl_pct
-        double yearly_pnl = equity.empty() ? 0.0 : equity.back() - 1.0;
+        // pnl_pct = sum of daily returns * 100
+        double yearly_pnl = cum_pnl.empty() ? 0.0 : cum_pnl.back();
         ym.pnl_pct = yearly_pnl * 100.0;
 
-        // ann_ret with partial year correction
-        double n_days = static_cast<double>(n);
-        if (n_days >= static_cast<double>(bars_per_year)) {
-            ym.ann_ret = yearly_pnl * 100.0;
-        } else if (n_days > 0.0) {
-            ym.ann_ret = (std::pow(1.0 + yearly_pnl, static_cast<double>(bars_per_year) / n_days) - 1.0) * 100.0;
+        // ann_ret = mean(daily_ret) * bars_per_year * 100
+        if (!yr_ret.empty()) {
+            double sum_r = 0.0;
+            for (double v : yr_ret) sum_r += v;
+            double mean_r = sum_r / static_cast<double>(yr_ret.size());
+            ym.ann_ret = mean_r * static_cast<double>(bars_per_year) * 100.0;
         } else {
             ym.ann_ret = 0.0;
         }
@@ -94,13 +94,13 @@ std::vector<YearlyMetrics> compute_yearly(
             ym.sharpe = 0.0;
         }
 
-        // max_dd
+        // max_dd (additive: peak cumPnL - current cumPnL)
         {
-            double peak = equity.empty() ? 1.0 : equity[0];
+            double peak = cum_pnl.empty() ? 0.0 : cum_pnl[0];
             double mdd = 0.0;
-            for (double e : equity) {
-                if (e > peak) peak = e;
-                double dd = e / (peak + 1e-12) - 1.0;
+            for (double c : cum_pnl) {
+                if (c > peak) peak = c;
+                double dd = c - peak;  // negative when in drawdown
                 if (dd < mdd) mdd = dd;
             }
             ym.max_dd = mdd * 100.0;

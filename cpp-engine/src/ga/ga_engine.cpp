@@ -89,7 +89,7 @@ double GAEngine::get_fitness(const SummaryMetrics& m) const {
     const auto& metric = config_.fitness_metric;
     if (metric == "sharpe")    return m.sharpe;
     if (metric == "pnl")       return m.pnl;
-    if (metric == "cagr")      return m.cagr;
+    if (metric == "ann_ret")   return m.ann_ret;
     if (metric == "mdd")       return m.mdd;
     if (metric == "turnover")  return m.turnover;
     if (metric == "win_rate")  return m.win_rate;

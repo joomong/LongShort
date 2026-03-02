@@ -1,25 +1,26 @@
 #pragma once
 
 struct MDelay : public Module {
-    ModuleInput input;
-    IntParameter days;
-
-    void init() override {
-        input.init(static_cast<unsigned>(days.value), numAssets);
+    void init()
+    {
+        input.maxLookBack = days;
     }
-
-    void calculate(unsigned di, SignalVector& output) override {
+    void calculate(unsigned /*di*/, SignalVector &output)
+    {
         input.push(output);
-        const SignalVector& delayed = input(static_cast<unsigned>(days.value));
+        const float* delayed = input(days).data();
         for (unsigned ii = 0; ii < numAssets; ++ii)
             output[ii] = delayed[ii];
     }
-
-    void save_state(std::ostream& os) const override {
-        input.save(os);
+    void checkpoint(boost::archive::binary_iarchive &ar)
+    {
+        ar & input;
+    }
+    void checkpoint(boost::archive::binary_oarchive &ar)
+    {
+        ar & input;
     }
 
-    void load_state(std::istream& is) override {
-        input.load(is);
-    }
+    ModuleInput input;
+    IntParameter days;
 };

@@ -19,16 +19,16 @@ TimeseriesOutput compute_timeseries(
     const size_t n = (T > 1) ? T - 1 : 0;
 
     out.timestamps.reserve(n);
-    out.equity.reserve(n);
-    out.pnl_gross.reserve(n);
+    out.cum_pnl.reserve(n);
+    out.cum_pnl_gross.reserve(n);
     out.turnover_pct.reserve(n);
     out.nonzero_positions.reserve(n);
     out.max_weight_pct.reserve(n);
     out.drawdown.reserve(n);
 
-    double eq_net = 1.0;
-    double eq_gross = 1.0;
-    double peak_net = 1.0;
+    double cp_net = 0.0;
+    double cp_gross = 0.0;
+    double peak_net = 0.0;
 
     for (size_t i = 1; i < T; ++i) {
         double r = (i < ret.size()) ? ret[i] : 0.0;
@@ -36,20 +36,20 @@ TimeseriesOutput compute_timeseries(
         double mw = (i < max_weight.size()) ? max_weight[i] : 0.0;
         int nz = (i < nonzero_count.size()) ? nonzero_count[i] : 0;
 
-        // Net equity
-        eq_net *= (1.0 + r);
+        // Net cumulative PnL (additive)
+        cp_net += r;
 
-        // Gross equity: restore fee to get gross return
+        // Gross cumulative PnL: restore fee to get gross return
         double r_gross = r + tvr * fee_rate;
-        eq_gross *= (1.0 + r_gross);
+        cp_gross += r_gross;
 
-        // Drawdown
-        if (eq_net > peak_net) peak_net = eq_net;
-        double dd = eq_net / (peak_net + 1e-12) - 1.0;
+        // Drawdown (additive: peak - current)
+        if (cp_net > peak_net) peak_net = cp_net;
+        double dd = cp_net - peak_net;
 
         out.timestamps.push_back(timestamps[i]);
-        out.equity.push_back(eq_net);
-        out.pnl_gross.push_back(eq_gross);
+        out.cum_pnl.push_back(cp_net);
+        out.cum_pnl_gross.push_back(cp_gross);
         out.turnover_pct.push_back(tvr * 100.0);
         out.nonzero_positions.push_back(nz);
         out.max_weight_pct.push_back(mw * 100.0);

@@ -12,6 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------------------------------------------------------------------
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
+find_package(Boost REQUIRED COMPONENTS serialization)
 
 # ---------------------------------------------------------------------------
 # FetchContent for pugixml, yaml-cpp, googletest
@@ -39,7 +40,30 @@ FetchContent_Declare(googletest
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(pugixml yaml-cpp googletest)
+# ---------------------------------------------------------------------------
+# Conda prefix (jsoncpp, c-ares for Drogon)
+# ---------------------------------------------------------------------------
+if(DEFINED ENV{CONDA_PREFIX})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+endif()
+
+find_package(jsoncpp REQUIRED)
+
+# Drogon options (disable unused features)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_CTL OFF CACHE BOOL "" FORCE)
+set(BUILD_ORM OFF CACHE BOOL "" FORCE)
+set(BUILD_BROTLI OFF CACHE BOOL "" FORCE)
+set(COZ_PROFILING OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(drogon
+    GIT_REPOSITORY https://github.com/drogonframework/drogon.git
+    GIT_TAG        v1.9.8
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_MakeAvailable(pugixml yaml-cpp googletest drogon)
 
 # ---------------------------------------------------------------------------
 # Engine library
@@ -77,6 +101,9 @@ add_library(engine STATIC
     src/ga/search_space.cpp
     src/ga/ga_engine.cpp
     src/ga/parallel_evaluator.cpp
+
+    # Phase 8: API
+    src/api/json_serializer.cpp
 )
 
 target_include_directories(engine PUBLIC
@@ -94,7 +121,15 @@ target_link_libraries(engine PUBLIC
     Parquet::parquet_shared
     pugixml
     yaml-cpp
+    Boost::serialization
+    JsonCpp::JsonCpp
 )
+
+# ---------------------------------------------------------------------------
+# Server executable
+# ---------------------------------------------------------------------------
+add_executable(longshort-server src/main.cpp)
+target_link_libraries(longshort-server PRIVATE engine drogon)
 
 # ---------------------------------------------------------------------------
 # Tests

@@ -5,7 +5,7 @@ constexpr unsigned BARS_PER_YEAR = 365;
 
 struct SummaryMetrics {
     double pnl = 0;
-    double cagr = 0;
+    double ann_ret = 0;
     double sharpe = 0;
     double mdd = 0;
     double turnover = 0;
@@ -19,7 +19,7 @@ struct SummaryMetrics {
 };
 
 SummaryMetrics compute_summary(
-    const std::vector<double>& ret,        // length T, first bar is 0
+    const std::vector<double>& ret,        // pre-sliced, no warmup bar — all elements processed
     const std::vector<double>& turnover,
     const std::vector<double>& min_bet,
     const std::vector<double>& max_weight,

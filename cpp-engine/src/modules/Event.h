@@ -3,76 +3,58 @@
 // MEvent: event-driven holding mask.
 // Composite module: owns signal_module and trigger_module.
 struct MEvent : public Module {
-    Module* signal_module = nullptr;
-    Module* trigger_module = nullptr;
-    FloatParameter threshold;
-    IntParameter maxHolddays;
-    IntParameter betAll{1};   // 1=hold-gated, 0=always output
-
-    void init() override {
-        hold_.assign(numAssets, 0);
-        sig_buf_.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
-        trig_buf_.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
+    void init()
+    {
+        hold.assign(numAssets, 0);
+        sig_buf.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
+        trig_buf.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
         signal_module->numAssets = numAssets;
         signal_module->init();
         trigger_module->numAssets = numAssets;
         trigger_module->init();
     }
-
-    void calculate(unsigned di, SignalVector& output) override {
-        SignalVector sig_sv{ sig_buf_.data(), numAssets };
+    void calculate(unsigned di, SignalVector &output)
+    {
+        SignalVector sig_sv{ sig_buf.data(), numAssets };
         for (unsigned ii = 0; ii < numAssets; ++ii)
             sig_sv[ii] = output[ii];
         signal_module->calculate(di, sig_sv);
 
-        SignalVector trig_sv{ trig_buf_.data(), numAssets };
+        SignalVector trig_sv{ trig_buf.data(), numAssets };
         for (unsigned ii = 0; ii < numAssets; ++ii)
             trig_sv[ii] = output[ii];
         trigger_module->calculate(di, trig_sv);
 
-        double thresh = threshold.value;
-        int    maxh   = maxHolddays.value;
-        bool   all    = betAll.value != 0;
-
         for (unsigned ii = 0; ii < numAssets; ++ii) {
-            if (hold_[ii] > 0)
-                hold_[ii] -= 1;
-
+            if (hold[ii] > 0) hold[ii] -= 1;
             float tv = trig_sv[ii];
-            if (std::isfinite(tv) && tv > static_cast<float>(thresh))
-                hold_[ii] = maxh;
-
-            if (all) {
-                output[ii] = (hold_[ii] > 0) ? sig_sv[ii] : 0.0f;
-            } else {
+            if (std::isfinite(tv) && tv > (float)threshold)
+                hold[ii] = maxHolddays;
+            if (betAll)
+                output[ii] = (hold[ii] > 0) ? sig_sv[ii] : 0.0f;
+            else
                 output[ii] = sig_sv[ii];
-            }
         }
     }
-
-    void save_state(std::ostream& os) const override {
-        // hold array
-        uint32_t n = static_cast<uint32_t>(hold_.size());
-        os.write(reinterpret_cast<const char*>(&n), sizeof(n));
-        os.write(reinterpret_cast<const char*>(hold_.data()),
-                 static_cast<std::streamsize>(n * sizeof(int)));
-        // recurse into sub-modules
-        signal_module->save_state(os);
-        trigger_module->save_state(os);
+    void checkpoint(boost::archive::binary_iarchive &ar)
+    {
+        ar & hold;
+        signal_module->checkpoint(ar);
+        trigger_module->checkpoint(ar);
+    }
+    void checkpoint(boost::archive::binary_oarchive &ar)
+    {
+        ar & hold;
+        signal_module->checkpoint(ar);
+        trigger_module->checkpoint(ar);
     }
 
-    void load_state(std::istream& is) override {
-        uint32_t n = 0;
-        is.read(reinterpret_cast<char*>(&n), sizeof(n));
-        hold_.resize(n);
-        is.read(reinterpret_cast<char*>(hold_.data()),
-                static_cast<std::streamsize>(n * sizeof(int)));
-        signal_module->load_state(is);
-        trigger_module->load_state(is);
-    }
-
-private:
-    StarVector<int> hold_;
-    std::vector<float> sig_buf_;
-    std::vector<float> trig_buf_;
+    Module* signal_module = nullptr;
+    Module* trigger_module = nullptr;
+    FloatParameter threshold;
+    IntParameter maxHolddays;
+    IntParameter betAll{1};
+    StarVector<int> hold;
+    std::vector<float> sig_buf;
+    std::vector<float> trig_buf;
 };

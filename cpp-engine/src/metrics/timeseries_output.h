@@ -4,8 +4,8 @@
 
 struct TimeseriesOutput {
     std::vector<int64_t> timestamps;
-    std::vector<double> equity;
-    std::vector<double> pnl_gross;
+    std::vector<double> cum_pnl;
+    std::vector<double> cum_pnl_gross;
     std::vector<double> turnover_pct;
     std::vector<int> nonzero_positions;
     std::vector<double> max_weight_pct;

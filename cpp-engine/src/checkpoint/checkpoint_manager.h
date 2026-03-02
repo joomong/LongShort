@@ -2,18 +2,24 @@
 
 #include <string>
 #include <vector>
-#include <iosfwd>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/serialization/vector.hpp>
 
 class Module;
 
 struct SimulatorState {
-    unsigned di;
+    unsigned di = 0;
     std::vector<double> prev_weights;
     std::vector<double> prev_target;
+
+    template<class Archive>
+    void serialize(Archive& ar, const unsigned int /*version*/) {
+        ar & di & prev_weights & prev_target;
+    }
 };
 
-// CheckpointManager: raw binary save/load of simulator + module state.
-// Uses Module::save_state/load_state virtuals (no ICheckpointable needed).
+// CheckpointManager: boost::archive binary save/load of simulator + module state.
 class CheckpointManager {
 public:
     static void save(const std::string& path,

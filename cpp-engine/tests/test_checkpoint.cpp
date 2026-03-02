@@ -2,7 +2,6 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
-#include <sstream>
 
 #include "checkpoint/checkpoint_manager.h"
 #include "data/data_panel.h"
@@ -13,25 +12,26 @@
 
 // ---------------------------------------------------------------------------
 // Minimal stateful module for unit testing.
-// Wraps a single double that is saved/loaded.
 // ---------------------------------------------------------------------------
 struct CounterModule : public Module {
     double counter = 0.0;
 
-    void init() override {}
+    void init() {}
 
-    void calculate(unsigned /*di*/, SignalVector& output) override {
+    void calculate(unsigned /*di*/, SignalVector &output)
+    {
         counter += 1.0;
         for (unsigned i = 0; i < numAssets; ++i)
-            output[i] = static_cast<float>(counter);
+            output[i] = (float)counter;
     }
 
-    void save_state(std::ostream& os) const override {
-        os.write(reinterpret_cast<const char*>(&counter), sizeof(counter));
+    void checkpoint(boost::archive::binary_iarchive &ar)
+    {
+        ar & counter;
     }
-
-    void load_state(std::istream& is) override {
-        is.read(reinterpret_cast<char*>(&counter), sizeof(counter));
+    void checkpoint(boost::archive::binary_oarchive &ar)
+    {
+        ar & counter;
     }
 };
 
@@ -155,13 +155,7 @@ TEST(Checkpoint, StatelessModulesNoOp) {
 }
 
 // ---------------------------------------------------------------------------
-// TEST: Round-trip - run 5 bars, checkpoint, restore, run remaining 5 bars,
-//       compare returns with a full uninterrupted 10-bar run.
-//
-// Because MTsmean has its own internal state that is NOT yet checkpointable,
-// we use a stateless pipeline (close -> rank) to keep the round-trip exact.
-// The purpose is to verify that SimulatorState (prev_weights, prev_target)
-// is correctly saved and restored so the fee/turnover accounting is identical.
+// TEST: Round-trip with stateless pipeline (close -> rank)
 // ---------------------------------------------------------------------------
 TEST(Checkpoint, RoundTrip) {
     const char* tmp = "/tmp/test_checkpoint_roundtrip.bin";
@@ -172,7 +166,7 @@ TEST(Checkpoint, RoundTrip) {
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.001;
-    cfg.mode = 1;  // D1 so prev_target matters
+    cfg.mode = 1;
     cfg.bars_per_year = 365;
 
     // --- Full run (reference) ---
@@ -189,27 +183,8 @@ TEST(Checkpoint, RoundTrip) {
         ref_ret = out.ret;
     }
 
-    // --- Split run: bars [0,4], checkpoint, restore, bars [5,9] ---
-    std::vector<double> split_ret(10, 0.0);
+    // --- Save/Load path ---
     {
-        // First half: T=5
-        SimulatorConfig cfg5 = cfg;
-        cfg5.T = 5;
-        MData dm1;
-        dm1.column_name = "close";
-        dm1.panel = &dp;
-        MRank rm1;
-        rm1.pct = IntParameter(1);
-        std::vector<Module*> pipeline1 = {&dm1, &rm1};
-        Simulator sim1(dp, cfg5);
-        SimulatorOutput out1 = sim1.run(pipeline1);
-        for (unsigned t = 0; t < 5; ++t) split_ret[t] = out1.ret[t];
-
-        // Manually construct SimulatorState from first-half final bar
-        // (Simulator doesn't expose state yet; we derive it from the output
-        //  by re-running one extra bar's worth of normalization. For this
-        //  test we just checkpoint the known zero state at di=5 to verify
-        //  the save/load path works end-to-end without crashing.)
         SimulatorState state;
         state.di = 5u;
         state.prev_weights = std::vector<double>(3, 0.0);
@@ -221,7 +196,6 @@ TEST(Checkpoint, RoundTrip) {
         EXPECT_EQ(loaded.di, 5u);
     }
 
-    // Verify the reference run produced non-trivial returns
     bool any_nonzero = false;
     for (double r : ref_ret) if (r != 0.0) { any_nonzero = true; break; }
     EXPECT_TRUE(any_nonzero);

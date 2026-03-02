@@ -31,6 +31,10 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
     std::vector<double> prev_target(N, 0.0);
     std::vector<double> target(N, 0.0);
 
+    const bool collect = config_.collect_signals;
+    if (collect)
+        out.signals.resize(T);
+
     // STAR-style init: set numAssets before calling init()
     for (Module* mod : pipeline) {
         mod->numAssets = N;
@@ -43,6 +47,10 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
             sv.fill_nan();
         for (Module* mod : pipeline)
             mod->calculate(di, sv);
+
+        // Collect raw signal (before normalization)
+        if (collect)
+            out.signals[di].assign(signal_buf.begin(), signal_buf.end());
 
         // 2. Normalize signal -> target weights
         const float* close_row = data_.row("close", di);
