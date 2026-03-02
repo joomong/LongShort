@@ -340,13 +340,23 @@ export default function SignalChart() {
   }, [visibleData.length, isDragging]);
 
   const hasData = visibleData.length > 0;
+  const tableScrollRef = useRef<HTMLDivElement>(null);
 
-  // Full data for the left-side table (all dates, not just visible range)
-  // Show NaN for dates where signal value is missing
-  const tableData = useMemo(() => {
-    if (!heatmap || !selectedSymbol) return data;
-    return data;
-  }, [data, heatmap, selectedSymbol]);
+  // Find first non-NaN row for auto-scroll
+  const firstDataIndex = useMemo(() => {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].value !== null) return i;
+    }
+    return 0;
+  }, [data]);
+
+  // Auto-scroll table to first data row when symbol changes
+  useEffect(() => {
+    if (firstDataIndex > 0 && tableScrollRef.current) {
+      const rowHeight = 18;
+      tableScrollRef.current.scrollTop = Math.max(0, (firstDataIndex - 3) * rowHeight);
+    }
+  }, [firstDataIndex, selectedSymbol]);
 
   return (
     <div className="flex-1 flex flex-row bg-background-tertiary min-h-0 panel-inset">
@@ -357,7 +367,7 @@ export default function SignalChart() {
             {selectedSymbol ?? 'signal'} data
           </span>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
           <table className="w-full text-[11px] border-collapse font-mono">
             <thead className="sticky top-0 bg-background-secondary">
               <tr className="border-b border-border-strong">
@@ -366,7 +376,7 @@ export default function SignalChart() {
               </tr>
             </thead>
             <tbody>
-              {tableData.map(row => {
+              {data.map(row => {
                 const v = row.value;
                 const hasValue = v !== null && v !== undefined;
                 return (

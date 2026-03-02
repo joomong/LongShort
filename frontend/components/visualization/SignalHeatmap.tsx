@@ -133,16 +133,16 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
      const containerHeight = container.clientHeight;
 
      const cellW = Math.max(MIN_CELL_WIDTH, containerWidth / numTimestamps);
-     const cellH = containerHeight / numSymbols;
+     const cellH = Math.max(MIN_CELL_HEIGHT, containerHeight / numSymbols);
      cellSizeRef.current = { w: cellW, h: cellH };
 
      const width = Math.ceil(cellW * numTimestamps);
-     const height = containerHeight;
+     const height = Math.ceil(cellH * numSymbols);
 
      canvas.width = width;
      canvas.height = height;
      canvas.style.width = `${containerWidth}px`;
-     canvas.style.height = `${containerHeight}px`;
+     canvas.style.height = `${height}px`;
      // Invalidate cached rect — getCell will lazily re-read on first mousemove after resize/data change (js-cache-property)
      canvasRectRef.current = null;
 
@@ -347,7 +347,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
   }
 
   return (
-    <div ref={containerRef} className="h-32 shrink-0 overflow-hidden bg-background border-b border-border relative">
+    <div ref={containerRef} className="h-48 shrink-0 overflow-y-auto bg-background border-b border-border relative" onScroll={() => { canvasRectRef.current = null; }}>
       {/* Symbol search box */}
       <div ref={searchContainerRef} className="absolute top-2 left-2 z-10">
         <input
