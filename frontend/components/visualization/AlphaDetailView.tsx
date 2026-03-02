@@ -13,7 +13,7 @@ const METRICS: Array<{ key: DetailMetricKey; label: string }> = [
   { key: 'mdd', label: 'Drawdown' },
 ];
 
-// Grid background for chart container — visible behind Recharts (rendering-hoist-jsx pattern)
+// Grid background for chart container
 const CHART_GRID_STYLE: React.CSSProperties = {
   backgroundImage:
     'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),' +
@@ -36,9 +36,9 @@ export default function AlphaDetailView() {
   if (!alpha) return null;
 
   return (
-    <div className="flex flex-col bg-background-tertiary border-b border-border">
+    <div className="flex flex-col bg-background-tertiary border-b border-border h-full">
       {/* header: alpha name + close button */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-border">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border shrink-0">
         <span className="text-[11px] text-foreground-muted">
           #{alpha.rank} {alpha.name}
         </span>
@@ -51,7 +51,7 @@ export default function AlphaDetailView() {
         </button>
       </div>
       {/* metric selector row */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-border shrink-0">
         {METRICS.map((m) => {
           const active = m.key === metric;
           return (
@@ -73,12 +73,9 @@ export default function AlphaDetailView() {
       </div>
 
       {/* chart + yearly table */}
-      <div className="flex flex-col gap-2 px-2 py-2">
-        {/* Chart container */}
-        <div
-          className="min-w-0 h-[220px] border border-border overflow-hidden"
-          style={CHART_GRID_STYLE}
-        >
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Chart */}
+        <div className="flex-1 min-h-0 min-w-0 border-b border-border overflow-hidden" style={CHART_GRID_STYLE}>
           <DetailTimeSeries
             alpha={alpha}
             metric={metric}
@@ -86,7 +83,8 @@ export default function AlphaDetailView() {
           />
         </div>
 
-        <div className="min-w-0 border border-border bg-background-secondary overflow-hidden">
+        {/* Yearly table */}
+        <div className="shrink-0 min-w-0 bg-background-secondary overflow-x-auto max-h-[200px]">
           <DetailSummaryTable alpha={alpha} />
         </div>
       </div>

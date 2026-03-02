@@ -22,12 +22,20 @@ const AlphaRankingTable = dynamic(
   () => import('@/components/multi-alpha/AlphaRankingTable'),
   { loading: () => LOADING_PLACEHOLDER }
 );
+const SignalDistribution = dynamic(
+  () => import('@/components/visualization/SignalDistribution'),
+  { loading: () => LOADING_PLACEHOLDER }
+);
 const SignalHeatmap = dynamic(
   () => import('@/components/visualization/SignalHeatmap'),
   { loading: () => LOADING_PLACEHOLDER }
 );
 const SignalChart = dynamic(
   () => import('@/components/visualization/SignalChart'),
+  { loading: () => LOADING_PLACEHOLDER }
+);
+const SnapshotManager = dynamic(
+  () => import('@/components/visualization/SnapshotManager'),
   { loading: () => LOADING_PLACEHOLDER }
 );
 const SaveAlphaModal = dynamic(() => import('@/components/modals/SaveAlphaModal'));
@@ -80,13 +88,15 @@ function ChartArea() {
   return (
     <div className="flex-1 min-h-0 flex flex-col" style={GRID_BG}>
       {viewMode === 'detail' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0">
           <AlphaDetailView />
         </div>
       ) : (
         <>
+          <SignalDistribution />
           <SignalHeatmap />
           <SignalChart />
+          <SnapshotManager />
         </>
       )}
     </div>
@@ -115,7 +125,7 @@ function MainContent() {
       <SettingsBar />
       {/* Ranking table: bounded height, scrollable */}
       <div className={
-        'overflow-y-auto ' +
+        'overflow-y-auto min-h-[180px] ' +
         (viewMode === 'detail' ? 'max-h-48' : 'max-h-[40%]')
       }>
         <AlphaRankingTable />

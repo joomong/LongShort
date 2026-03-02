@@ -340,125 +340,121 @@ export default function SignalChart() {
   }, [visibleData.length, isDragging]);
 
   const hasData = visibleData.length > 0;
-  const [tablePosition, setTablePosition] = useState<'left' | 'right'>('left');
+
+  // Full data for the left-side table (all dates, not just visible range)
+  // Show NaN for dates where signal value is missing
+  const tableData = useMemo(() => {
+    if (!heatmap || !selectedSymbol) return data;
+    return data;
+  }, [data, heatmap, selectedSymbol]);
 
   return (
-    <div className="flex-1 flex flex-col bg-background-tertiary min-h-0 panel-inset">
-      <div
-        ref={containerRef}
-        className="relative flex-1 w-full min-h-0 p-2 select-none overflow-hidden"
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={cursorStyle}
-      >
-        {/* Data table overlay — date / signal values */}
-        {hasData ? (
-          <div
-            className={
-              'absolute top-1 z-10 border border-border/50 bg-background-secondary/90 ' +
-              (tablePosition === 'left' ? 'left-1' : 'right-1')
-            }
-            style={{ maxHeight: 200, minWidth: 140 }}
-          >
-            <div className="flex items-center justify-between px-1.5 py-0.5 border-b border-border/40 bg-background-elevated/60">
-              <span className="text-[10px] text-foreground-muted font-semibold tracking-wide">
-                date / signal
-              </span>
-              <button
-                onClick={() => setTablePosition(p => p === 'left' ? 'right' : 'left')}
-                className="text-[10px] text-foreground-muted hover:text-foreground px-1 ml-2"
-                title={tablePosition === 'left' ? 'Move right' : 'Move left'}
-              >
-                {tablePosition === 'left' ? '→' : '←'}
-              </button>
-            </div>
-            <div style={{ maxHeight: 176, overflowY: 'auto' }}>
-              <table className="w-full border-collapse">
-                <thead className="sticky top-0 bg-background-elevated/90">
-                  <tr className="text-[10px] text-foreground-muted">
-                    <th className="text-left px-1.5 py-0.5 font-medium">date</th>
-                    <th className="text-right px-1.5 py-0.5 font-medium">signal</th>
+    <div className="flex-1 flex flex-row bg-background-tertiary min-h-0 panel-inset">
+      {/* Left: STAR-style data table */}
+      <div className="w-[190px] shrink-0 border-r border-border overflow-hidden flex flex-col">
+        <div className="px-2 py-1 border-b border-border bg-background-secondary/50">
+          <span className="text-[10px] text-foreground-muted font-semibold uppercase tracking-wide">
+            {selectedSymbol ?? 'signal'} data
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-[11px] border-collapse font-mono">
+            <thead className="sticky top-0 bg-background-secondary">
+              <tr className="border-b border-border-strong">
+                <th className="text-left px-2 py-0.5 text-foreground-secondary font-medium">dates</th>
+                <th className="text-right px-2 py-0.5 text-foreground-secondary font-medium">signal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableData.map(row => {
+                const v = row.value;
+                const hasValue = v !== null && v !== undefined;
+                return (
+                  <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover">
+                    <td className="px-2 py-px tabular-nums text-foreground-muted whitespace-nowrap">{row.date}</td>
+                    <td className={`px-2 py-px tabular-nums text-right whitespace-nowrap ${hasValue ? 'text-data-color' : 'text-foreground-muted'}`}>
+                      {hasValue ? v.toFixed(4) : 'NaN'}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {visibleData.map(row => {
-                    const v = (row as Record<string, unknown>)['value'] as number | null;
-                    return (
-                      <tr key={row.date} className="text-[10px] font-mono border-t border-border/20 hover:bg-row-hover">
-                        <td className="px-1.5 py-0.5 text-foreground-muted whitespace-nowrap">{row.date}</td>
-                        <td className="text-right px-1.5 py-0.5 text-data-color">
-                          {v !== null && v !== undefined ? v.toFixed(4) : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
-        {size.width > 0 && size.height > 0 && (
-          <LineChart
-            width={size.width}
-            height={size.height}
-            data={hasData ? visibleData : []}
-            margin={CHART_MARGIN}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke={colors.chartGrid} strokeOpacity={0.5} />
-            <XAxis
-              dataKey="date"
-              stroke={colors.chartText}
-              tick={xTickStyle}
-              tickLine={xTickLineStyle}
-              tickFormatter={formatXTick}
-              interval={xInterval}
-              minTickGap={40}
-            />
-            <YAxis
-              stroke={colors.chartText}
-              tick={yTickStyle}
-              tickLine={yTickLineStyle}
-              domain={yDomain}
-              tickFormatter={formatYTick}
-              width={60}
-              allowDataOverflow={true}
-            />
-            {hasData && (
-              <>
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  labelFormatter={formatTooltipLabel}
-                  formatter={formatTooltipValue}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="linear"
-                  dataKey="value"
-                  stroke={colors.chartLine}
-                  dot={dotStyle}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                />
-                {pinnedSnapshots.map((snap) => (
-                  <Line
-                    key={snap.id}
-                    type="linear"
-                    dataKey={`snap_${snap.id}`}
-                    stroke={snap.color}
-                    strokeWidth={1.5}
-                    dot={false}
-                    connectNulls
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Right: chart */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <div
+          ref={containerRef}
+          className="relative flex-1 w-full min-h-0 p-2 select-none overflow-hidden"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={cursorStyle}
+        >
+          {size.width > 0 && size.height > 0 && (
+            <LineChart
+              width={size.width}
+              height={size.height}
+              data={hasData ? visibleData : []}
+              margin={CHART_MARGIN}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.chartGrid} strokeOpacity={0.5} />
+              <XAxis
+                dataKey="date"
+                stroke={colors.chartText}
+                tick={xTickStyle}
+                tickLine={xTickLineStyle}
+                tickFormatter={formatXTick}
+                interval={xInterval}
+                minTickGap={40}
+              />
+              <YAxis
+                stroke={colors.chartText}
+                tick={yTickStyle}
+                tickLine={yTickLineStyle}
+                domain={yDomain}
+                tickFormatter={formatYTick}
+                width={60}
+                allowDataOverflow={true}
+              />
+              {hasData && (
+                <>
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    labelFormatter={formatTooltipLabel}
+                    formatter={formatTooltipValue}
                     isAnimationActive={false}
-                    name={snap.name}
                   />
-                ))}
-              </>
-            )}
-          </LineChart>
-        )}
+                  <Line
+                    type="linear"
+                    dataKey="value"
+                    stroke={colors.chartLine}
+                    dot={dotStyle}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                  {pinnedSnapshots.map((snap) => (
+                    <Line
+                      key={snap.id}
+                      type="linear"
+                      dataKey={`snap_${snap.id}`}
+                      stroke={snap.color}
+                      strokeWidth={1.5}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                      name={snap.name}
+                    />
+                  ))}
+                </>
+              )}
+            </LineChart>
+          )}
+        </div>
       </div>
     </div>
   );
