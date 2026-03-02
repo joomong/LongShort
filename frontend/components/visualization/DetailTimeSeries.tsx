@@ -8,7 +8,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
 } from 'recharts';
 import { useThemeStore } from '@/store/themeStore';
 import { useAlphaStore } from '@/store/alphaStore';
@@ -202,7 +201,7 @@ function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osS
       </div>
       <div className="flex-1">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 10, bottom: 20, left: 10 }}>
+          <LineChart data={data} margin={{ top: 8, right: 10, bottom: 20, left: 40 }}>
             <XAxis
               dataKey="date"
               ticks={monthlyTicks.map((i) => data[i]?.date).filter(Boolean)}
@@ -210,10 +209,9 @@ function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osS
               tick={{ fontSize: 10, fill: colors.chartText }}
               axisLine={false}
               tickLine={false}
-              interval={0}
-              angle={-45}
+              angle={-35}
               textAnchor="end"
-              height={30}
+              height={40}
             />
             <YAxis hide domain={['auto', 'auto']} />
             <Tooltip
@@ -237,10 +235,6 @@ function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osS
                 const entry = payload?.[0]?.payload as IsOsPnlPoint | undefined;
                 return entry?.date ?? '';
               }}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 11 }}
-              formatter={(value) => (value === 'isNet' ? 'IS' : 'OS')}
             />
             <Line
               type="monotone"
@@ -329,7 +323,7 @@ function BigChart({
       </div>
       <div className="flex-1">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 20, left: 10 }}>
+          <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 20, left: 40 }}>
             <XAxis
               dataKey="date"
               ticks={monthlyTicks.map((i) => chartData[i]?.date).filter(Boolean)}
@@ -337,10 +331,9 @@ function BigChart({
               tick={{ fontSize: 10, fill: colors.chartText }}
               axisLine={false}
               tickLine={false}
-              interval={0}
-              angle={-45}
+              angle={-35}
               textAnchor="end"
-              height={30}
+              height={40}
             />
             <YAxis hide domain={['auto', 'auto']} />
             <Tooltip
@@ -368,12 +361,6 @@ function BigChart({
                 return entry?.date ?? '';
               }}
             />
-            {hasOs && (
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                formatter={(value) => (value === 'isValue' ? 'IS' : 'OS')}
-              />
-            )}
             {hasOs ? (
               <>
                 <Line
