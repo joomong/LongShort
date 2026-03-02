@@ -81,24 +81,45 @@ function XmlPanel() {
   );
 }
 
-// Chart area: page-switch between charts and detail view
-function ChartArea() {
-  const viewMode = useAlphaStore(s => s.viewMode);
+// Alpha XML read-only panel (shown in detail view)
+function AlphaXmlPanel() {
+  const xml = useAlphaStore(s => {
+    const idx = s.selectedAlphaIndex;
+    return idx !== null ? s.result?.alphas?.[idx]?.xml ?? '' : '';
+  });
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col" style={GRID_BG}>
-      {viewMode === 'detail' ? (
-        <div className="flex-1 min-h-0">
+    <div className="flex flex-col h-full border-l border-border bg-background-secondary">
+      <div className="px-2 py-1 border-b border-border shrink-0">
+        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Alpha XML</span>
+      </div>
+      <pre className="flex-1 overflow-auto px-2 py-1 text-[11px] font-mono text-data-color whitespace-pre leading-relaxed">{xml}</pre>
+    </div>
+  );
+}
+
+// Chart area: both views kept in DOM, toggled via display (rendering-activity)
+function ChartArea() {
+  const isDetail = useAlphaStore(s => s.viewMode === 'detail');
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Detail view — hidden via display:none when inactive */}
+      <div className={isDetail ? 'flex-1 min-h-0 flex flex-row' : 'hidden'}>
+        <div className="flex-1 min-h-0 min-w-0" style={GRID_BG}>
           <AlphaDetailView />
         </div>
-      ) : (
-        <>
-          <SignalDistribution />
-          <SignalHeatmap />
-          <SignalChart />
-          <SnapshotManager />
-        </>
-      )}
+        <div className="w-[300px] shrink-0 min-h-0">
+          <AlphaXmlPanel />
+        </div>
+      </div>
+      {/* Charts view — hidden via display:none when detail is active */}
+      <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col'} style={GRID_BG}>
+        <SignalDistribution />
+        <SignalHeatmap />
+        <SignalChart />
+        <SnapshotManager />
+      </div>
     </div>
   );
 }
@@ -106,7 +127,6 @@ function ChartArea() {
 // Right panel content: settings + ranking table + chart area (no buttons — they're in sidebar)
 function MainContent() {
   const backtestError = useAlphaStore(s => s.backtestError);
-  const viewMode = useAlphaStore(s => s.viewMode);
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -123,11 +143,8 @@ function MainContent() {
         </div>
       ) : null}
       <SettingsBar />
-      {/* Ranking table: bounded height, scrollable */}
-      <div className={
-        'overflow-y-auto min-h-[180px] ' +
-        (viewMode === 'detail' ? 'max-h-48' : 'max-h-[40%]')
-      }>
+      {/* Ranking table: content-based height, capped at 40% */}
+      <div className="overflow-y-auto min-h-[180px] max-h-[40%]">
         <AlphaRankingTable />
       </div>
       {/* Strong separator between table and chart */}

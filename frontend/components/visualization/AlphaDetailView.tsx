@@ -75,7 +75,7 @@ export default function AlphaDetailView() {
       {/* chart + yearly table */}
       <div className="flex-1 flex flex-col min-h-0">
         {/* Chart */}
-        <div className="flex-1 min-h-0 min-w-0 border-b border-border overflow-hidden" style={CHART_GRID_STYLE}>
+        <div className="flex-[2] min-h-[150px] min-w-0 border-b border-border overflow-hidden" style={CHART_GRID_STYLE}>
           <DetailTimeSeries
             alpha={alpha}
             metric={metric}
@@ -84,7 +84,7 @@ export default function AlphaDetailView() {
         </div>
 
         {/* Yearly table */}
-        <div className="shrink-0 min-w-0 bg-background-secondary overflow-x-auto max-h-[200px]">
+        <div className="flex-1 min-h-0 min-w-0 bg-background-secondary overflow-auto">
           <DetailSummaryTable alpha={alpha} />
         </div>
       </div>

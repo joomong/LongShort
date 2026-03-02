@@ -49,6 +49,11 @@ export function useBacktest() {
         ? adaptBatchResponse(resp)
         : adaptSingleResponse(resp as StarSimulateResponse);
 
+      // Inject input XML into alpha result for detail panel display
+      if (adapted.alphas.length > 0) {
+        adapted.alphas[0].xml = xmlCodeRef.current;
+      }
+
       const s = useAlphaStore.getState();
       s.setResult(adapted);
 
@@ -111,6 +116,9 @@ export function useBacktest() {
             });
           } else if (event.type === 'complete') {
             const adapted = adaptGACompleteToResponse(event);
+            if (adapted.alphas.length > 0) {
+              adapted.alphas[0].xml = event.bestXml;
+            }
             s.setResult(adapted);
             // Update XML to best found
             s.setXmlCode(event.bestXml);
