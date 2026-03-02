@@ -212,3 +212,13 @@ GEMINI.md
 # Data
 Data/
 data/
+
+# Claude Code / OMC
+.omc/
+.pi/
+.playwright-mcp/
+
+# Images
+*.jpg
+*.jpeg
+*.png

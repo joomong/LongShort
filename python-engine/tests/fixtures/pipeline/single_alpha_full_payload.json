@@ -2,23 +2,20 @@
   "combined": {
     "isMetrics": {
       "pnl": 1.9494000000000122,
-      "cagr": 947.4549623966697,
+      "ann_ret": 947.4549623966697,
       "sharpe": 5.061031029907215,
       "mdd": -2.0000000000970353,
       "turnover": 26.666666666666668,
       "min_bet": 0.3499999999999999,
       "max_weight": 0.6,
-      "nonzero_position": 3
+      "nonzeroPosition": 3,
+      "margin": 0.000974
     },
     "osMetrics": {
       "pnl": -0.505000000000011,
-      "cagr": -60.305596082969934,
+      "ann_ret": -60.305596082969934,
       "sharpe": -4.503085361610877,
-      "mdd": -1.000000000098522,
-      "turnover": 10.0,
-      "min_bet": 0.225,
-      "max_weight": 0.45,
-      "nonzero_position": 2
+      "mdd": -1.000000000098522
     },
     "isRetSeries": {
       "2024-01-02": 0.01,
@@ -39,28 +36,28 @@
       "xml": "<data expr=\"close\" delay=\"1\"/>",
       "isMetrics": {
         "pnl": 1.9494000000000122,
-        "cagr": 947.4549623966697,
+        "ann_ret": 947.4549623966697,
         "sharpe": 5.061031029907215,
         "mdd": -2.0000000000970353,
         "turnover": 26.666666666666668,
         "min_bet": 0.3499999999999999,
         "max_weight": 0.6,
-        "nonzero_position": 3,
+        "nonzeroPosition": 3,
+        "margin": 0.000974,
         "ir": 0.0,
         "corr": 1.0
       },
       "osMetrics": {
         "pnl": -0.505000000000011,
-        "cagr": -60.305596082969934,
+        "ann_ret": -60.305596082969934,
         "sharpe": -4.503085361610877,
         "mdd": -1.000000000098522,
-        "turnover": 10.0,
-        "min_bet": 0.225,
-        "max_weight": 0.45,
-        "nonzero_position": 2,
         "ir": 0.0,
         "corr": 1.0
       },
+      "yearly": [
+        { "year": 2024, "longSM": 0.6, "shortSM": 0.4, "pnl": 2.0, "annRet": 243.3, "sharpe": 1.50, "maxDD": -2.0, "dailyTvr": 0.267, "margin": 0.025 }
+      ],
       "isRetSeries": {
         "2024-01-02": 0.01,
         "2024-01-03": -0.02,
