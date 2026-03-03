@@ -10,6 +10,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { useAlphaStore } from '@/store/alphaStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
 
@@ -23,6 +24,8 @@ interface ChartDataPoint {
 const EMPTY_DATA: ChartDataPoint[] = [];
 const CHART_MARGIN = { top: 10, right: 30, left: 0, bottom: 10 };
 const AUTO_DOMAIN: [string, string] = ['auto', 'auto'];
+// content-visibility: auto skips layout/paint for off-screen table rows (rendering-content-visibility)
+const ROW_CV_STYLE: React.CSSProperties = { contentVisibility: 'auto', containIntrinsicBlockSize: '18px' };
 
 // ── Stable formatter functions ──────────────────────────────────────────
 function formatXTick(dateStr: string) {
@@ -39,7 +42,7 @@ function formatTooltipLabel(dateStr: string) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
-function formatTooltipValue(val: unknown, name: unknown) {
+function formatTooltipValue(val: unknown, name: unknown): [string, string] {
   if (val === null || val === undefined) {
     return ['N/A', name === 'value' ? 'Signal' : String(name)];
   }
@@ -55,9 +58,9 @@ function formatTooltipValue(val: unknown, name: unknown) {
 
 export default function SignalChart() {
   // Granular selectors
-  const heatmap = useAlphaStore(s => s.result?.heatmap);
+  const heatmap = useAlphaStore(s => s.result?.heatmap ?? null);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
-  const pinnedSnapshots = useAlphaStore(s => s.pinnedSnapshots);
+  const pinnedSnapshots = useAlphaStore(useShallow(s => s.pinnedSnapshots));
   const { theme } = useThemeStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -102,8 +105,8 @@ export default function SignalChart() {
   // RAF id for throttling mousemove state updates (one update per animation frame)
   const rafRef = useRef<number | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  const colors = useMemo(() => { void theme; return getThemeColors(); }, [theme]);
+  // Re-read CSS custom properties when theme toggles
+  const colors = useMemo(() => getThemeColors(), [theme]);
 
   // Memoize Recharts style objects (avoid new refs each render)
   const xTickStyle = useMemo(() => (
@@ -144,21 +147,20 @@ export default function SignalChart() {
   }, [heatmap, selectedSymbol, symbolMap]);
   dataLenRef.current = data.length;
 
-  // Compute data Y range (min/max values)
+  // Compute data Y range (min/max values) — single pass (js-combine-iterations)
   const dataYRange = useMemo(() => {
     if (data.length === 0) return { min: -1, max: 1 };
 
-    const values = data
-      .map(d => d.value)
-      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-
-    if (values.length === 0) return { min: -1, max: 1 };
-
-    let min = values[0], max = values[0];
-    for (let i = 1; i < values.length; i++) {
-      if (values[i] < min) min = values[i];
-      if (values[i] > max) max = values[i];
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i].value;
+      if (v !== null && Number.isFinite(v)) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
     }
+    if (!isFinite(min)) return { min: -1, max: 1 };
+
     const padding = (max - min) * 0.1 || 0.1;
     return { min: min - padding, max: max + padding };
   }, [data]);
@@ -188,7 +190,7 @@ export default function SignalChart() {
         }
       }
     }
-    const allDates = Array.from(dateMap.keys()).sort();
+    const allDates = Array.from(dateMap.keys()).toSorted();
     return allDates.map((date) => ({
       date,
       ...dateMap.get(date)!,
@@ -207,12 +209,9 @@ export default function SignalChart() {
     return AUTO_DOMAIN;
   }, [yViewRange]);
 
-  // X-axis interval
-  const xInterval = useMemo(() => {
-    return visibleData.length > 0 ? Math.max(0, Math.floor(visibleData.length / 12) - 1) : 0;
-  }, [visibleData.length]);
+  // X-axis interval (simple primitive — no memo needed, rerender-simple-expression-in-memo)
+  const xInterval = visibleData.length > 0 ? Math.max(0, Math.floor(visibleData.length / 12) - 1) : 0;
 
-  // Handle pinning current chart as snapshot
   // Handle mouse wheel for zoom (stable callback — reads refs, no state deps)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     const len = dataLenRef.current;
@@ -333,11 +332,8 @@ export default function SignalChart() {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDragging]);
 
-  // Cursor style (memoized)
-  const cursorStyle = useMemo(() => {
-    const cursor = visibleData.length > 0 ? (isDragging ? 'grabbing' : 'grab') : 'default';
-    return { cursor };
-  }, [visibleData.length, isDragging]);
+  // Cursor style (trivial object — no memo needed, rerender-simple-expression-in-memo)
+  const cursorStyle = { cursor: visibleData.length > 0 ? (isDragging ? 'grabbing' : 'grab') : 'default' };
 
   const hasData = visibleData.length > 0;
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -380,7 +376,7 @@ export default function SignalChart() {
                 const v = row.value;
                 const hasValue = v !== null && v !== undefined;
                 return (
-                  <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover">
+                  <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover" style={ROW_CV_STYLE}>
                     <td className="px-2 py-px tabular-nums text-foreground-muted whitespace-nowrap">{row.date}</td>
                     <td className={`px-2 py-px tabular-nums text-right whitespace-nowrap ${hasValue ? 'text-data-color' : 'text-foreground-muted'}`}>
                       {hasValue ? v.toFixed(4) : 'NaN'}
@@ -405,7 +401,7 @@ export default function SignalChart() {
           onMouseLeave={handleMouseUp}
           style={cursorStyle}
         >
-          {size.width > 0 && size.height > 0 && (
+          {size.width > 0 && size.height > 0 ? (
             <LineChart
               width={size.width}
               height={size.height}
@@ -431,7 +427,7 @@ export default function SignalChart() {
                 width={60}
                 allowDataOverflow={true}
               />
-              {hasData && (
+              {hasData ? (
                 <>
                   <Tooltip
                     contentStyle={tooltipStyle}
@@ -461,9 +457,9 @@ export default function SignalChart() {
                     />
                   ))}
                 </>
-              )}
+              ) : null}
             </LineChart>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
