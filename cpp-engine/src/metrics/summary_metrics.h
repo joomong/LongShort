@@ -16,6 +16,12 @@ struct SummaryMetrics {
     double margin = 0;
     double long_ratio = 0;
     double short_ratio = 0;
+    double avg_max_bet = 0;   // mean(max_weight_series)
+    double min_bet_min = 0;   // min(min_bet_series)
+    double quality = 0;       // sharpe * sqrt(abs(1-maxexp)) * (1-max_weight)
+    double sharpe400 = 0;     // sharpe over last 400 bars
+    double sharpe80 = 0;      // sharpe over last 80 bars
+    double minsoc = 0;        // min(sum_abs_weight_per_bar)
 };
 
 SummaryMetrics compute_summary(

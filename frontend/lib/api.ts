@@ -35,6 +35,12 @@ function adaptStarToIS(s: StarSummary): ISMetrics {
     ann_ret: s.return * 100,
     margin: s.margin,
     nonzeroPosition: s.nonzeroPosition,
+    avgMaxBet: s.avgMaxBet,
+    minBetMin: s.minBetMin * 100,
+    quality: s.quality,
+    sharpe400: s.sharpe400,
+    sharpe80: s.sharpe80,
+    minsoc: s.minsoc,
   };
 }
 
@@ -49,6 +55,12 @@ function adaptStarToOS(s: StarSummary): OSMetrics {
     max_weight: s.maxWeight,
     margin: s.margin,
     nonzeroPosition: s.nonzeroPosition,
+    avgMaxBet: s.avgMaxBet,
+    minBetMin: s.minBetMin * 100,
+    quality: s.quality,
+    sharpe400: s.sharpe400,
+    sharpe80: s.sharpe80,
+    minsoc: s.minsoc,
   };
 }
 

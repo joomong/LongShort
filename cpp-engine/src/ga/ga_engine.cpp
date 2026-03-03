@@ -96,6 +96,10 @@ double GAEngine::get_fitness(const SummaryMetrics& m) const {
     if (metric == "min_bet")   return m.min_bet;
     if (metric == "max_weight") return m.max_weight;
     if (metric == "margin")    return m.margin;
+    if (metric == "quality")   return m.quality;
+    if (metric == "sharpe400") return m.sharpe400;
+    if (metric == "sharpe80")  return m.sharpe80;
+    if (metric == "minsoc")    return m.minsoc;
     // Default: sharpe
     return m.sharpe;
 }

@@ -18,6 +18,12 @@ export interface StarSummary {
   longRatio: number;
   shortRatio: number;
   nonzeroPosition: number;
+  avgMaxBet: number;
+  minBetMin: number;
+  quality: number;
+  sharpe400: number;
+  sharpe80: number;
+  minsoc: number;
 }
 
 export interface StarTimeseries {
@@ -137,6 +143,12 @@ export interface ISMetrics {
   max_weight?: number;
   margin?: number;
   nonzeroPosition?: number;
+  avgMaxBet?: number;
+  minBetMin?: number;
+  quality?: number;
+  sharpe400?: number;
+  sharpe80?: number;
+  minsoc?: number;
   ir?: number;
   corr?: number;
 }
@@ -151,6 +163,12 @@ export interface OSMetrics {
   max_weight?: number;
   margin?: number;
   nonzeroPosition?: number;
+  avgMaxBet?: number;
+  minBetMin?: number;
+  quality?: number;
+  sharpe400?: number;
+  sharpe80?: number;
+  minsoc?: number;
   ir?: number;
   corr?: number;
 }

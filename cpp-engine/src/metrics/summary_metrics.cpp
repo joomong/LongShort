@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <limits>
 
 SummaryMetrics compute_summary(
     const std::vector<double>& ret,
@@ -133,6 +134,93 @@ SummaryMetrics compute_summary(
             m.long_ratio = sum_ratio / cnt;
             m.short_ratio = 1.0 - m.long_ratio;
         }
+    }
+
+    // avg_max_bet: mean of max_weight series (finite values)
+    {
+        double sum = 0.0; int cnt = 0;
+        for (size_t i = 0; i < max_weight.size(); ++i) {
+            if (std::isfinite(max_weight[i])) { sum += max_weight[i]; ++cnt; }
+        }
+        m.avg_max_bet = (cnt > 0) ? sum / cnt : 0.0;
+    }
+
+    // min_bet_min: minimum of min_bet series (finite values)
+    {
+        double mn = std::numeric_limits<double>::max();
+        bool found = false;
+        for (size_t i = 0; i < min_bet.size(); ++i) {
+            if (std::isfinite(min_bet[i])) {
+                if (min_bet[i] < mn) mn = min_bet[i];
+                found = true;
+            }
+        }
+        m.min_bet_min = found ? mn : 0.0;
+    }
+
+    // quality: sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)
+    // maxexp = max(abs(long_weight - short_weight))
+    {
+        double maxexp = 0.0;
+        size_t sz = std::min(long_weight.size(), short_weight.size());
+        for (size_t i = 0; i < sz; ++i) {
+            if (std::isfinite(long_weight[i]) && std::isfinite(short_weight[i])) {
+                double diff = std::fabs(long_weight[i] - short_weight[i]);
+                if (diff > maxexp) maxexp = diff;
+            }
+        }
+        m.quality = m.sharpe * std::sqrt(std::fabs(1.0 - maxexp)) * (1.0 - m.max_weight);
+    }
+
+    // sharpe400: sharpe over last min(400, n) bars
+    {
+        size_t window = std::min<size_t>(400, finite_r.size());
+        size_t start = finite_r.size() - window;
+        if (window >= 2) {
+            double s = 0.0;
+            for (size_t i = start; i < finite_r.size(); ++i) s += finite_r[i];
+            double mean_w = s / static_cast<double>(window);
+            double sq = 0.0;
+            for (size_t i = start; i < finite_r.size(); ++i) {
+                double d = finite_r[i] - mean_w;
+                sq += d * d;
+            }
+            double std_w = std::sqrt(sq / static_cast<double>(window - 1));
+            m.sharpe400 = (std_w > 0.0) ? (mean_w / (std_w + 1e-12)) * std::sqrt(static_cast<double>(bars_per_year)) : 0.0;
+        }
+    }
+
+    // sharpe80: sharpe over last min(80, n) bars
+    {
+        size_t window = std::min<size_t>(80, finite_r.size());
+        size_t start = finite_r.size() - window;
+        if (window >= 2) {
+            double s = 0.0;
+            for (size_t i = start; i < finite_r.size(); ++i) s += finite_r[i];
+            double mean_w = s / static_cast<double>(window);
+            double sq = 0.0;
+            for (size_t i = start; i < finite_r.size(); ++i) {
+                double d = finite_r[i] - mean_w;
+                sq += d * d;
+            }
+            double std_w = std::sqrt(sq / static_cast<double>(window - 1));
+            m.sharpe80 = (std_w > 0.0) ? (mean_w / (std_w + 1e-12)) * std::sqrt(static_cast<double>(bars_per_year)) : 0.0;
+        }
+    }
+
+    // minsoc: minimum of (long_weight + short_weight) across bars
+    {
+        double mn = std::numeric_limits<double>::max();
+        bool found = false;
+        size_t sz = std::min(long_weight.size(), short_weight.size());
+        for (size_t i = 0; i < sz; ++i) {
+            if (std::isfinite(long_weight[i]) && std::isfinite(short_weight[i])) {
+                double soc = long_weight[i] + short_weight[i];
+                if (soc < mn) mn = soc;
+                found = true;
+            }
+        }
+        m.minsoc = found ? mn : 0.0;
     }
 
     return m;

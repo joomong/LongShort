@@ -24,14 +24,14 @@ describe('AlphaRankingTable rendering', () => {
     expect(screen.getByText('alpha_1')).toBeInTheDocument();
     expect(screen.getByText('alpha_2')).toBeInTheDocument();
 
-    // Combined row: margin from fixture = 0.000974 -> 0.0010
+    // Combined row: sharpe from fixture = 5.061 -> 5.06
     const combinedRow = screen.getByText('Combined').closest('tr');
     expect(combinedRow).not.toBeNull();
-    expect(within(combinedRow as HTMLElement).getByText('0.0010')).toBeInTheDocument();
+    expect(within(combinedRow as HTMLElement).getByText('5.06')).toBeInTheDocument();
 
-    // alpha_1 row: margin = 0.001315 -> 0.0013
+    // alpha_1 row: sharpe = 5.9995 -> 6.00
     const alpha1Row = screen.getByText('alpha_1').closest('tr');
     expect(alpha1Row).not.toBeNull();
-    expect(within(alpha1Row as HTMLElement).getByText('0.0013')).toBeInTheDocument();
+    expect(within(alpha1Row as HTMLElement).getByText('6.00')).toBeInTheDocument();
   });
 });

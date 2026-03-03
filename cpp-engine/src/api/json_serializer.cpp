@@ -26,6 +26,12 @@ Json::Value summary_to_json(const SummaryMetrics& m) {
     j["longRatio"] = m.long_ratio;
     j["shortRatio"]= m.short_ratio;
     j["nonzeroPosition"] = m.nonzero_position;
+    j["avgMaxBet"]  = m.avg_max_bet;
+    j["minBetMin"]  = m.min_bet_min;
+    j["quality"]    = m.quality;
+    j["sharpe400"]  = m.sharpe400;
+    j["sharpe80"]   = m.sharpe80;
+    j["minsoc"]     = m.minsoc;
     return j;
 }
 

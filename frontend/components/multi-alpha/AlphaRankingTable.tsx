@@ -112,24 +112,24 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
 
       {/* IS Metrics — order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover */}
       <td className={cellClass}>{isFiniteNumber(isMetrics.min_bet) ? isMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>-</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.avgMaxBet) ? (isMetrics.avgMaxBet * 100).toFixed(1) + '%' : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(isMetrics.max_weight) ? `${(isMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
-      <td className={cellClass}>-</td>
-      <td className={cellClass}>-</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.minBetMin) ? isMetrics.minBetMin.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.quality) ? isMetrics.quality.toFixed(2) : '-'}</td>
       <td className={`${cellClass} ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
-      <td className={cellClass}>-</td>
+      <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe400)}`}>{formatNumber(isMetrics.sharpe400)}</td>
       <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) : '-'}</td>
 
       {/* OS Metrics — order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover */}
       <td className={`${cellClass} border-l border-border-strong`}>{isFiniteNumber(osMetrics.min_bet) ? osMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>-</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.avgMaxBet) ? (osMetrics.avgMaxBet * 100).toFixed(1) + '%' : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(osMetrics.max_weight) ? `${(osMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
-      <td className={cellClass}>-</td>
-      <td className={cellClass}>-</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.minBetMin) ? osMetrics.minBetMin.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.quality) ? osMetrics.quality.toFixed(2) : '-'}</td>
       <td className={`${cellClass} ${metricClass('pnl', osMetrics.ann_ret ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.ann_ret ?? osMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
-      <td className={cellClass}>-</td>
+      <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe400)}`}>{formatNumber(osMetrics.sharpe400)}</td>
       <td className={`${cellClass} ${metricClass('turnover', osMetrics.turnover)}`}>{isFiniteNumber(osMetrics.turnover) ? osMetrics.turnover.toFixed(1) : '-'}</td>
     </tr>
   );
