@@ -11,17 +11,8 @@ TEST(GA, SearchSpaceExtractionPipe) {
     std::string xml = R"(<tsmean days="10|20|30"/>)";
     SearchSpace space = extract_search_space(xml);
 
-    // Count real genes (skip sentinel)
-    int real_genes = 0;
-    std::vector<std::string> gene_values;
-    for (const auto& g : space.genes) {
-        if (!g.values.empty()) {
-            ++real_genes;
-            gene_values = g.values;
-        }
-    }
-
-    EXPECT_EQ(real_genes, 1);
+    ASSERT_EQ(space.genes.size(), 1u);
+    const auto& gene_values = space.genes[0].values;
     ASSERT_EQ(gene_values.size(), 3u);
     EXPECT_EQ(gene_values[0], "10");
     EXPECT_EQ(gene_values[1], "20");
@@ -33,16 +24,8 @@ TEST(GA, SearchSpaceExtractionRange) {
     std::string xml = R"(<tsmean days="20...10...60"/>)";
     SearchSpace space = extract_search_space(xml);
 
-    int real_genes = 0;
-    std::vector<std::string> gene_values;
-    for (const auto& g : space.genes) {
-        if (!g.values.empty()) {
-            ++real_genes;
-            gene_values = g.values;
-        }
-    }
-
-    EXPECT_EQ(real_genes, 1);
+    ASSERT_EQ(space.genes.size(), 1u);
+    const auto& gene_values = space.genes[0].values;
     ASSERT_EQ(gene_values.size(), 5u);
     EXPECT_EQ(gene_values[0], "20");
     EXPECT_EQ(gene_values[4], "60");

@@ -13,7 +13,6 @@ size_t SearchSpace::total_combinations() const {
     if (genes.empty()) return 1;
     size_t total = 1;
     for (const auto& g : genes) {
-        if (g.values.empty()) continue;  // skip sentinel gene
         total *= g.values.size();
     }
     return total;
@@ -22,55 +21,20 @@ size_t SearchSpace::total_combinations() const {
 // ---------------------------------------------------------------------------
 // decode
 // Rebuild XML by substituting gene values into the template.
-// We store the template with placeholders like __GENE_0__, __GENE_1__, etc.
-// That placeholder string is embedded in the SearchSpace's internal template_
-// field via the free function below.
-// ---------------------------------------------------------------------------
-
-// Internal: SearchSpace carries the placeholder-substituted template.
-// We extend the struct here with a private field via a parallel lookup.
-// Since the struct is POD-like, we store the template on a thread-local
-// static map keyed by SearchSpace pointer address — but that's fragile.
-// Simpler: store the templatised string as the first gene's description
-// is not clean either.
-//
-// Clean approach: add a std::string template_ field to the struct.
-// But the header is already written above without it.  We use a small
-// trick: encode the template string as the description of a sentinel gene
-// with an empty values list, and detect it in decode().
-//
-// Actually the cleanest approach given the fixed header: embed the template
-// in a separate parallel data structure owned by extract_search_space and
-// accessed via the returned object.  Since C++ doesn't allow adding fields
-// after the fact, we encode the placeholder template in the SearchSpace
-// itself by prepending it as a special Gene where values is empty and
-// description holds the template.  decode() skips it (it has no indices).
-
 std::string SearchSpace::decode(const std::vector<int>& indices) const {
-    // Find the sentinel gene (values empty, description = template)
-    std::string tmpl;
-    std::vector<const Gene*> real_genes;
-    for (const auto& g : genes) {
-        if (g.values.empty()) {
-            tmpl = g.description;
-        } else {
-            real_genes.push_back(&g);
-        }
-    }
-
-    if (tmpl.empty()) {
+    if (template_xml.empty()) {
         // No template stored — return empty
         return "";
     }
 
-    if (indices.size() != real_genes.size()) {
+    if (indices.size() != genes.size()) {
         throw std::invalid_argument("decode: indices size mismatch");
     }
 
-    std::string result = tmpl;
-    for (size_t i = 0; i < real_genes.size(); ++i) {
+    std::string result = template_xml;
+    for (size_t i = 0; i < genes.size(); ++i) {
         std::string placeholder = "__GENE_" + std::to_string(i) + "__";
-        const std::string& val = real_genes[i]->values[indices[i]];
+        const std::string& val = genes[i].values[indices[i]];
         size_t pos = 0;
         while ((pos = result.find(placeholder, pos)) != std::string::npos) {
             result.replace(pos, placeholder.size(), val);
@@ -225,11 +189,7 @@ SearchSpace extract_search_space(const std::string& xml_template) {
         tmpl += element_to_xml(elem);
     }
 
-    // Store template as a sentinel gene (values empty, description = template)
-    SearchSpace::Gene sentinel;
-    sentinel.description = tmpl;
-    // sentinel.values is empty → decode() recognizes it as template carrier
-    space.genes.insert(space.genes.begin(), sentinel);
+    space.template_xml = std::move(tmpl);
 
     return space;
 }

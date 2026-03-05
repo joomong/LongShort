@@ -31,9 +31,7 @@ GAResult GAEngine::run_streaming(EvalFunc evaluate, ProgressCallback cb) {
 // ---------------------------------------------------------------------------
 GAEngine::Individual GAEngine::random_individual(std::mt19937& rng) const {
     Individual ind;
-    // real genes only (skip sentinel with empty values)
     for (const auto& g : space_.genes) {
-        if (g.values.empty()) continue;
         std::uniform_int_distribution<int> dist(0, (int)g.values.size() - 1);
         ind.push_back(dist(rng));
     }
@@ -60,7 +58,6 @@ GAEngine::Individual GAEngine::mutate(const Individual& ind,
 
     size_t gene_pos = 0;
     for (const auto& g : space_.genes) {
-        if (g.values.empty()) continue;  // sentinel
         if (prob(rng) < config_.mutation_rate) {
             std::uniform_int_distribution<int> dist(0, (int)g.values.size() - 1);
             result[gene_pos] = dist(rng);
@@ -108,11 +105,7 @@ double GAEngine::get_fitness(const SummaryMetrics& m) const {
 // Core GA loop
 // ---------------------------------------------------------------------------
 GAResult GAEngine::run_impl(EvalFunc evaluate, ProgressCallback* cb) {
-    // Determine real gene count
-    size_t n_genes = 0;
-    for (const auto& g : space_.genes) {
-        if (!g.values.empty()) ++n_genes;
-    }
+    const size_t n_genes = space_.genes.size();
 
     // Edge case: no genes → single evaluation of the template as-is
     if (n_genes == 0) {

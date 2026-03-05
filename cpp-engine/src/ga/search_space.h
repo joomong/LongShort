@@ -9,6 +9,7 @@ struct SearchSpace {
         std::vector<std::string> values;  // possible values
     };
     std::vector<Gene> genes;
+    std::string template_xml;
 
     // Total number of combinations (product of gene sizes)
     size_t total_combinations() const;
