@@ -347,7 +347,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
   }
 
   return (
-    <div ref={containerRef} className="h-48 shrink-0 overflow-y-auto bg-background border-b border-border relative" onScroll={() => { canvasRectRef.current = null; }}>
+    <div ref={containerRef} className="min-h-[120px] max-h-48 overflow-y-auto bg-background border-b border-border relative" onScroll={() => { canvasRectRef.current = null; }}>
       {/* Symbol search box */}
       <div ref={searchContainerRef} className="absolute top-2 left-2 z-10">
         <input

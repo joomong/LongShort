@@ -177,7 +177,7 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
       padding: [8, 10, 0, 0],
       cursor: {
         y: false,
-        drag: { x: false, y: false },
+        drag: { x: true, y: false, dist: 10 },
       },
       legend: { show: false },
       scales: { x: { time: true }, y: { auto: true } },
@@ -191,6 +191,11 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
         { stroke: '#ff9800', width: 1.5, label: 'Gross', dash: [4, 3] },
       ],
       hooks: {
+        init: [(u: uPlot) => {
+          u.over.addEventListener('dblclick', () => {
+            u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
+          });
+        }],
         draw: [
           (u: uPlot) => {
             if (osUnix == null) return;
@@ -313,7 +318,7 @@ const BigChart = React.memo(function BigChart({
       width: size.width,
       height: size.height,
       padding: [8, 10, 0, 0],
-      cursor: { y: false, drag: { x: false, y: false } },
+      cursor: { y: false, drag: { x: true, y: false, dist: 10 } },
       legend: { show: false },
       scales: { x: { time: true }, y: { auto: true } },
       axes: [
@@ -322,6 +327,11 @@ const BigChart = React.memo(function BigChart({
       ],
       series: seriesDefs,
       hooks: {
+        init: [(u: uPlot) => {
+          u.over.addEventListener('dblclick', () => {
+            u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
+          });
+        }],
         setCursor: [(u: uPlot) => {
           const tt = tooltipRef.current;
           if (!tt) return;

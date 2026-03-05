@@ -144,7 +144,7 @@ function MainContent() {
       ) : null}
       <SettingsBar />
       {/* Ranking table: content-based height, capped at 40% */}
-      <div className="overflow-y-auto min-h-[180px] max-h-[40%]">
+      <div className="overflow-hidden min-h-[180px] max-h-[40%]">
         <AlphaRankingTable />
       </div>
       {/* Strong separator between table and chart */}

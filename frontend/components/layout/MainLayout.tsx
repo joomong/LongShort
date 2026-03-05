@@ -22,6 +22,7 @@ export default function MainLayout({
   const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef(0);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -32,14 +33,22 @@ export default function MainLayout({
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const newWidth = ((e.clientX - rect.left) / rect.width) * 100;
-      const clampedWidth = Math.min(Math.max(newWidth, minLeftWidth), maxLeftWidth);
-      setLeftWidth(clampedWidth);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const newWidth = ((e.clientX - rect.left) / rect.width) * 100;
+        const clampedWidth = Math.min(Math.max(newWidth, minLeftWidth), maxLeftWidth);
+        setLeftWidth(clampedWidth);
+      });
     };
 
-    const handleMouseUp = () => setIsDragging(false);
+    const handleMouseUp = () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      setIsDragging(false);
+    };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);

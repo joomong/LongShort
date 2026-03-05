@@ -270,7 +270,8 @@ export default function SignalChart() {
   }, [uData, uplotRef]);
 
   // ── Wheel handler: zoom + horizontal pan via setScale ──
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  // Attached as a native listener with { passive: false } so preventDefault works
+  const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const u = uplotRef.current;
     if (!u || !u.data[0] || u.data[0].length === 0) return;
@@ -309,6 +310,14 @@ export default function SignalChart() {
 
     u.setScale('x', { min: newMin, max: newMax });
   }, [uplotRef]);
+
+  // Attach native wheel listener with { passive: false } so preventDefault is honoured
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   // ── Drag pan: reads/writes uPlot scales directly, zero React state ──
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -353,6 +362,30 @@ export default function SignalChart() {
     if (containerRef.current) containerRef.current.style.cursor = 'grab';
   }, []);
 
+  const handleDoubleClick = useCallback(() => {
+    const u = uplotRef.current;
+    if (!u || !u.data[0] || u.data[0].length === 0) return;
+    // Reset X to full range
+    u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
+    // Reset Y by computing data extent
+    let yMin = Infinity, yMax = -Infinity;
+    for (let s = 1; s < u.data.length; s++) {
+      const series = u.data[s];
+      if (!series) continue;
+      for (let i = 0; i < series.length; i++) {
+        const v = series[i];
+        if (v != null && Number.isFinite(v)) {
+          if (v < yMin) yMin = v;
+          if (v > yMax) yMax = v;
+        }
+      }
+    }
+    if (yMin < yMax) {
+      const pad = (yMax - yMin) * 0.05;
+      u.setScale('y', { min: yMin - pad, max: yMax + pad });
+    }
+  }, [uplotRef]);
+
   // Global mouseup listener (cleanup on unmount)
   useEffect(() => {
     const handler = () => {
@@ -391,15 +424,14 @@ export default function SignalChart() {
       <SignalDataTable data={data} selectedSymbol={selectedSymbol} />
 
       {/* Right: uPlot chart */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
         <div
           ref={containerRef}
           className="relative flex-1 w-full min-h-0 p-2 select-none overflow-hidden"
-          onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onDoubleClick={handleDoubleClick}
           style={{ cursor: hasData ? 'grab' : 'default' }}
         >
           <button
