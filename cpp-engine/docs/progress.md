@@ -1,5 +1,10 @@
 # C++ Engine Implementation Progress
 
+## Active Remediation Backlog
+- [remediation_backlog_2026-03-05.md](/home/jgo/qv-project/LongShort/cpp-engine/docs/remediation_backlog_2026-03-05.md)
+- 외부 정적 리뷰 기반 안정성/성능/아키텍처 수정 항목의 단일 소스 문서.
+- 기존 Phase 완료 이력과 별도로, 남은 수정 계획과 우선순위를 지속 업데이트한다.
+
 ## Phase 0: Data Loader
 - [x] Directory structure created
 - [x] CMakeLists.txt (FetchContent for pugixml, yaml-cpp, googletest; conda Arrow/Parquet/Boost)

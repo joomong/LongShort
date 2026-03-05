@@ -325,7 +325,27 @@ def test_api_backtest_pipeline_single_contract_and_oracle(
 
     assert response.status_code == 200
     body = response.json()
-    _assert_payload_close(body, SINGLE_FIXTURE)
+
+    # Python API contract (python-engine independent from cpp-engine schema)
+    assert set(body.keys()) == {
+        "combined",
+        "initialCapital",
+        "alphas",
+        "sortedBy",
+        "heatmap",
+        "signalRange",
+        "distribution",
+    }
+    assert body["initialCapital"] == 100000.0
+    assert body["sortedBy"] == "sharpe"
+    assert isinstance(body["combined"], dict)
+    assert len(body["alphas"]) == 1
+    assert body["alphas"][0]["name"] == "alpha_0"
+    assert body["alphas"][0]["xml"] == '<data expr="close" delay="1"/>'
+
+    # Smoke-check fixture compatibility on stable top-level keys used by frontend tests.
+    assert body["initialCapital"] == SINGLE_FIXTURE["initialCapital"]
+    assert body["sortedBy"] == SINGLE_FIXTURE["sortedBy"]
 
     expected_is = to_api_units(
         compute_metrics_from_series(
@@ -380,7 +400,23 @@ def test_api_backtest_pipeline_multi_contract_and_oracle(
 
     assert response.status_code == 200
     body = response.json()
-    _assert_payload_close(body, MULTI_FIXTURE)
+
+    # Python API contract: multi response includes Combined alpha row at index 0.
+    assert set(body.keys()) == {"combined", "initialCapital", "alphas", "sortedBy"}
+    assert body["initialCapital"] == 100000.0
+    assert body["sortedBy"] == "sharpe"
+    assert len(body["alphas"]) == 3
+    assert body["alphas"][0]["name"] == "Combined"
+    assert body["alphas"][0]["rank"] == 0
+    assert body["alphas"][0]["xml"] is None
+    assert body["alphas"][1]["name"] == "alpha_1"
+    assert body["alphas"][2]["name"] == "alpha_2"
+    assert body["alphas"][1]["xml"] == '<data expr="close" delay="1"/>'
+    assert body["alphas"][2]["xml"] == '<data expr="open" delay="1"/>'
+
+    # Keep fixture linkage only for values that are intentionally shared.
+    assert body["initialCapital"] == MULTI_FIXTURE["initialCapital"]
+    assert body["sortedBy"] == MULTI_FIXTURE["sortedBy"]
 
     # all expected metric fields should be present for each alpha entry
     metric_fields = {

@@ -7,7 +7,6 @@ import type {
   StarTimeseries,
   BacktestRunResponse,
   BacktestAlphaResult,
-  BacktestCombinedResult,
   ISMetrics,
   OSMetrics,
   AlphaListResponse,
@@ -146,18 +145,28 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     };
   }
 
-  const combinedSource = resp.combined ?? resp.batches[0];
-  const combinedTs = combinedSource.timeseries ?? resp.timeseries;
-  const combinedIsStart = combinedSource.isStartIndex ?? resp.isStartIndex;
-  const combinedOsStart = combinedSource.osStartIndex ?? resp.osStartIndex;
-  const combinedSeries = buildSplitSeriesFromTimeseries(combinedTs, combinedIsStart, combinedOsStart);
+  const single = resp.batches.length === 1;
+  let combined: BacktestAlphaResult | null = null;
 
-  const combined: BacktestCombinedResult = {
-    isMetrics: adaptStarToIS(combinedSource.summary.is),
-    osMetrics: adaptStarToOS(combinedSource.summary.os),
-    isRetSeries: combinedSeries.isRetSeries,
-    osRetSeries: combinedSeries.osRetSeries,
-  };
+  if (!single) {
+    const combinedSource = resp.combined ?? resp.batches[0];
+    const combinedTs = combinedSource.timeseries ?? resp.timeseries;
+    const combinedIsStart = combinedSource.isStartIndex ?? resp.isStartIndex;
+    const combinedOsStart = combinedSource.osStartIndex ?? resp.osStartIndex;
+    const combinedSeries = buildSplitSeriesFromTimeseries(combinedTs, combinedIsStart, combinedOsStart);
+
+    combined = {
+      name: 'combined',
+      rank: 0,
+      isMetrics: adaptStarToIS(combinedSource.summary.is),
+      osMetrics: adaptStarToOS(combinedSource.summary.os),
+      xml: combinedSource.xml,
+      yearly: combinedSource.yearly ?? resp.yearly,
+      longRatio: combinedSource.summary.is.longRatio,
+      shortRatio: combinedSource.summary.is.shortRatio,
+      ...combinedSeries,
+    };
+  }
 
   const alphas: BacktestAlphaResult[] = resp.batches.map((batch, i) => {
     const ts = batch.timeseries ?? resp.timeseries;
@@ -204,6 +213,7 @@ export async function getConfig(): Promise<StarConfigResponse> {
 
 export async function runSimulate(
   xml: string,
+  simStart: string,
   isStart: string,
   osStart: string,
   signal?: AbortSignal,
@@ -211,7 +221,7 @@ export async function runSimulate(
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, isStart, osStart }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart }),
     signal,
   });
 
@@ -233,6 +243,7 @@ export async function runSimulate(
 
 export async function runGAStream(
   xml: string,
+  simStart: string,
   isStart: string,
   osStart: string,
   popSize: number,
@@ -244,7 +255,7 @@ export async function runGAStream(
   const response = await fetch(`${API_BASE}/api/ga/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, isStart, osStart, popSize, generations, threads }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads }),
     signal,
   });
 

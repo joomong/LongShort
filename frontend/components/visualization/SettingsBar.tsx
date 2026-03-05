@@ -26,6 +26,20 @@ export default function SettingsBar() {
 
   return (
     <div className="flex items-center gap-4 px-4 py-2 bg-background-secondary border-b border-border">
+      {/* Sim Period */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Sim</span>
+        <input
+          type="date"
+          value={settings.simStart}
+          min={config?.simStart}
+          max={settings.isStart}
+          onChange={(e) => handleChange('simStart', e.target.value)}
+          aria-label="Sim start date"
+          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
+        />
+      </div>
+
       {/* IS Period */}
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">IS</span>

@@ -234,13 +234,10 @@ describe('adaptSimulateResponse', () => {
 
     const adapted = adaptSimulateResponse(resp);
 
-    // Should fall back to batches[0]
-    expect(adapted.combined).not.toBeNull();
-    expect(adapted.combined!.isMetrics.sharpe).toBe(s.sharpe);
-    expect(adapted.combined!.isRetSeries).toEqual({
-      '2024-01-01': 0,
-      '2024-01-02': 0.01,
-    });
+    // Single alpha — combined is null (batch row not shown)
+    expect(adapted.combined).toBeNull();
+    expect(adapted.alphas).toHaveLength(1);
+    expect(adapted.alphas[0].isMetrics.sharpe).toBe(s.sharpe);
   });
 
   it('passes through signal fields for single alpha', () => {

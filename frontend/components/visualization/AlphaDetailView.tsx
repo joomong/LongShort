@@ -30,6 +30,7 @@ export default function AlphaDetailView() {
 
   const alpha = useMemo(() => {
     if (selectedAlphaIndex === null) return null;
+    if (selectedAlphaIndex === -1) return result?.combined ?? null;
     return result?.alphas?.[selectedAlphaIndex] ?? null;
   }, [result, selectedAlphaIndex]);
 
@@ -40,7 +41,7 @@ export default function AlphaDetailView() {
       {/* header: alpha name + close button */}
       <div className="flex items-center justify-between px-2 py-1 border-b border-border shrink-0">
         <span className="text-[11px] text-foreground-muted">
-          #{alpha.rank} {alpha.name}
+          {alpha.name === 'combined' ? 'Combined (batch 0)' : `#${alpha.rank} ${alpha.name}`}
         </span>
         <button
           onClick={exitDetailView}

@@ -16,7 +16,7 @@ describe('DetailSummaryTable render output', () => {
   it('renders yearly columns from C++ yearly data', () => {
     render(
       <DetailSummaryTable
-        alpha={multiAlphaFixture.alphas[1]}
+        alpha={multiAlphaFixture.alphas[0]}
       />
     );
 
@@ -42,7 +42,7 @@ describe('DetailSummaryTable render output', () => {
   });
 
   it('renders empty state when no yearly data', () => {
-    const alphaNoYearly = { ...multiAlphaFixture.alphas[1], yearly: undefined };
+    const alphaNoYearly = { ...multiAlphaFixture.alphas[0], yearly: undefined };
     render(
       <DetailSummaryTable alpha={alphaNoYearly} />
     );

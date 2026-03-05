@@ -136,6 +136,25 @@ struct Parser {
         return parse_primary();
     }
 
+    // returns → close / Chain(close, Delay(1)) - 1.0
+    Module* make_returns() {
+        Module* close_num = make_data("close");
+        Module* close_den = make_data("close");
+
+        auto delay = std::make_unique<MDelay>();
+        delay->days = IntParameter(1);
+        Module* r_delay = take(std::move(delay));
+
+        auto chain = std::make_unique<MChain>();
+        chain->first = close_den;
+        chain->second = r_delay;
+        Module* r_chain = take(std::move(chain));
+
+        Module* div_result = make_binop(close_num, r_chain, TokKind::Slash);
+        Module* one_val = make_constant(1.0);
+        return make_binop(div_result, one_val, TokKind::Minus);
+    }
+
     Module* parse_primary() {
         if (cur().kind == TokKind::Number) {
             double v = std::stod(cur().text);
@@ -145,6 +164,8 @@ struct Parser {
         if (cur().kind == TokKind::Ident) {
             std::string name = cur().text;
             consume();
+            if (name == "returns")
+                return make_returns();
             static const char* allowed[] = {"open","high","low","close","volume", nullptr};
             bool ok = false;
             for (int i = 0; allowed[i]; ++i)
@@ -176,53 +197,6 @@ Module* parse_expr(const std::string& expr_str,
         throw std::runtime_error("expr_parser: empty expression");
     auto b = expr_str.find_last_not_of(" \t\r\n");
     std::string trimmed = expr_str.substr(a, b - a + 1);
-
-    // "return" → close / Delay(close, 1) - 1.0
-    if (trimmed == "return") {
-        auto close_num = std::make_unique<MData>();
-        close_num->column_name = "close";
-        close_num->panel = panel;
-
-        auto close_den = std::make_unique<MData>();
-        close_den->column_name = "close";
-        close_den->panel = panel;
-
-        auto delay = std::make_unique<MDelay>();
-        delay->days = IntParameter(1);
-
-        auto one = std::make_unique<MConstant>();
-        one->value = FloatParameter(1.0);
-
-        Module* r_close_num = close_num.get();
-        Module* r_close_den = close_den.get();
-        Module* r_delay     = delay.get();
-        Module* r_one       = one.get();
-
-        owned.push_back(std::move(close_num));
-        owned.push_back(std::move(close_den));
-        owned.push_back(std::move(delay));
-        owned.push_back(std::move(one));
-
-        auto chain = std::make_unique<MChain>();
-        chain->first  = r_close_den;
-        chain->second = r_delay;
-        Module* r_chain = chain.get();
-        owned.push_back(std::move(chain));
-
-        auto div_mod = std::make_unique<MDiv>();
-        div_mod->lhs = r_close_num;
-        div_mod->rhs = r_chain;
-        Module* r_div = div_mod.get();
-        owned.push_back(std::move(div_mod));
-
-        auto sub_mod = std::make_unique<MSub>();
-        sub_mod->lhs = r_div;
-        sub_mod->rhs = r_one;
-        Module* r_sub = sub_mod.get();
-        owned.push_back(std::move(sub_mod));
-
-        return r_sub;
-    }
 
     auto toks = tokenise(trimmed);
     Parser p{toks, 0, panel, owned};

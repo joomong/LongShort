@@ -38,15 +38,35 @@ describe('api client contract', () => {
   });
 
   it('runSimulate returns parsed payload on success', async () => {
-    const payload = { summary: { is: {}, os: {} }, yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 };
+    const payload = { batches: [{ index: 0, summary: { is: {}, os: {} } }], yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 };
 
     vi.mocked(globalThis.fetch).mockResolvedValue({
       ok: true,
       json: async () => payload,
     } as unknown as Response);
 
-    const result = await runSimulate('<data expr="close" delay="1"/>', '2021-01-01', '2024-01-01');
+    const result = await runSimulate('<data expr="close" delay="1"/>', '2020-01-01', '2021-01-01', '2024-01-01');
     expect(result).toEqual(payload);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [, init] = vi.mocked(globalThis.fetch).mock.calls[0] ?? [];
+    const body = init && typeof init === 'object' ? (init as RequestInit).body as string : '';
+    expect(body).not.toContain('includeBatchDetails');
+  });
+
+  it('runSimulate forwards abort signal', async () => {
+    const payload = { batches: [{ index: 0, summary: { is: {}, os: {} } }], yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 };
+    const ctrl = new AbortController();
+
+    vi.mocked(globalThis.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => payload,
+    } as unknown as Response);
+
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', ctrl.signal);
+
+    const [, init] = vi.mocked(globalThis.fetch).mock.calls[0] ?? [];
+    const requestInit = init as RequestInit;
+    expect(requestInit.signal).toBe(ctrl.signal);
   });
 
   it('runSimulate surfaces detail messages on http error', async () => {
@@ -57,8 +77,21 @@ describe('api client contract', () => {
       json: async () => ({ detail: 'validation failed' }),
     } as unknown as Response);
 
-    await expect(runSimulate('<bad/>', '2021-01-01', '2024-01-01')).rejects.toThrow(
+    await expect(runSimulate('<bad/>', '2020-01-01', '2021-01-01', '2024-01-01')).rejects.toThrow(
       'Simulate failed (400): validation failed'
+    );
+  });
+
+  it('runSimulate surfaces cpp error field on http error', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({ error: 'Invalid date format' }),
+    } as unknown as Response);
+
+    await expect(runSimulate('<bad/>', '2020-01-01', 'bad-date', '2024-01-01')).rejects.toThrow(
+      'Simulate failed (400): Invalid date format'
     );
   });
 
@@ -75,7 +108,7 @@ describe('api client contract', () => {
 
     vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse(chunked));
 
-    await runGAStream('<data expr="close" delay="1"/>', '2021-01-01', '2024-01-01', 50, 20, 4, (event) => {
+    await runGAStream('<data expr="close" delay="1"/>', '2020-01-01', '2021-01-01', '2024-01-01', 50, 20, 4, (event) => {
       events.push(event as unknown as Record<string, unknown>);
     });
 
@@ -92,9 +125,23 @@ describe('api client contract', () => {
     } as unknown as Response);
 
     await expect(
-      runGAStream('<xml/>', '2021-01-01', '2024-01-01', 50, 20, 4, () => {
+      runGAStream('<xml/>', '2020-01-01', '2021-01-01', '2024-01-01', 50, 20, 4, () => {
         // no-op
       })
     ).rejects.toThrow('internal error');
+  });
+
+  it('runGAStream throws cpp error field on non-2xx response', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'isStart must be earlier than osStart' }),
+    } as unknown as Response);
+
+    await expect(
+      runGAStream('<xml/>', '2020-01-01', '2025-01-01', '2024-01-01', 50, 20, 4, () => {
+        // no-op
+      })
+    ).rejects.toThrow('isStart must be earlier than osStart');
   });
 });

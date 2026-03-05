@@ -107,9 +107,19 @@ def test_ga_stream_pipeline_event_order_and_payload_contract(
     ind_1 = Individual(genome=[0], xml=xml_1, fitness=1.1, xml_hash=xml_hash(xml_1))
     ind_2 = Individual(genome=[1], xml=xml_2, fitness=0.9, xml_hash=xml_hash(xml_2))
 
+    fixture_alphas = MULTI_FIXTURE.get("alphas", [])
+    alpha_1_payload = next((a for a in fixture_alphas if a.get("name") == "alpha_1"), None)
+    alpha_2_payload = next((a for a in fixture_alphas if a.get("name") == "alpha_2"), None)
+    if alpha_1_payload is None and len(fixture_alphas) > 0:
+        alpha_1_payload = fixture_alphas[0]
+    if alpha_2_payload is None and len(fixture_alphas) > 1:
+        alpha_2_payload = fixture_alphas[1]
+    assert alpha_1_payload is not None
+    assert alpha_2_payload is not None
+
     result_store = {
-        ind_1.xml_hash: MULTI_FIXTURE["alphas"][1],
-        ind_2.xml_hash: MULTI_FIXTURE["alphas"][2],
+        ind_1.xml_hash: alpha_1_payload,
+        ind_2.xml_hash: alpha_2_payload,
     }
     mock_make_evaluate_batch.return_value = (lambda _xml_list: [1.0], result_store)
 

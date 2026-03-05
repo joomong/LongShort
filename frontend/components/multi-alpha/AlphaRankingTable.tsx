@@ -30,16 +30,14 @@ const TABLE_HEADER = (
     {/* Group Header Row */}
     <tr className="text-[11px] uppercase tracking-wider font-semibold text-foreground-secondary border-b-2 border-border-strong">
       <th className="w-6"></th>
-      <th className="text-left w-10">ID</th>
-      <th className="text-left w-16">Name</th>
+      <th className="text-left w-16">ID</th>
       <th className="text-center pb-0" colSpan={9}>IS</th>
       <th className="text-center pb-0 border-l border-border-strong" colSpan={9}>OS</th>
     </tr>
     {/* Metric Header Row */}
     <tr className="text-xs font-medium text-foreground-secondary border-b border-border-strong">
       <th className="w-6"></th>
-      <th className="text-left w-10">ID</th>
-      <th className="text-left w-16">Name</th>
+      <th className="text-left w-16">ID</th>
       <th className="text-right px-2.5">avgBet</th>
       <th className="text-right px-2.5">avgMaxBet</th>
       <th className="text-right px-2.5">maxWeight</th>
@@ -79,24 +77,36 @@ function MetricCells({ m, borderLeft }: { m: ISMetrics | OSMetrics; borderLeft?:
   );
 }
 
-// Batch row — combined alpha (rank 0 equivalent)
-function BatchRow() {
+// React.memo — BatchRow has no props; memo prevents parent re-renders from calling this
+// component. Zustand selectors inside still trigger re-renders when their values change.
+const BatchRow = React.memo(function BatchRow() {
   const combined = useAlphaStore(s => s.result?.combined);
+  const isActiveDetail = useAlphaStore(s => s.selectedAlphaIndex === -1);
   if (!combined) return null;
 
   const { isMetrics, osMetrics } = combined;
   if (!isMetrics || !osMetrics) return null;
 
   return (
-    <tr className="rank-row border-b-2 border-border-strong bg-background-secondary/30">
+    <tr
+      className={
+        'rank-row border-b-2 border-border-strong cursor-pointer transition-colors ' +
+        (isActiveDetail
+          ? 'bg-row-active border-l-2 border-l-accent'
+          : 'bg-background-secondary/30 hover:bg-row-hover')
+      }
+      onClick={() => startTransition(() => useAlphaStore.getState().enterDetailView(-1))}
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startTransition(() => useAlphaStore.getState().enterDetailView(-1)); } }}
+      role="button"
+    >
       <td className="px-1 py-1"></td>
-      <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5 font-semibold">batch</td>
-      <td className="text-xs font-mono px-3 py-1.5 font-semibold text-foreground-secondary">0</td>
+      <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5 font-semibold">batch 0</td>
       <MetricCells m={isMetrics} />
       <MetricCells m={osMetrics} borderLeft />
     </tr>
   );
-}
+});
 
 // React.memo — prevents re-render when parent state (selectedCount, sortedBy) changes
 // but this row's item/index props are unchanged (rerender-memo)
@@ -137,8 +147,6 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
       <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5">
         {String(item.rank - 1)}
       </td>
-      {/* Name */}
-      <td className="text-xs font-mono px-3 py-1.5 truncate max-w-[100px]" title={item.name}>{item.name}</td>
       <MetricCells m={isMetrics} />
       <MetricCells m={osMetrics} borderLeft />
     </tr>

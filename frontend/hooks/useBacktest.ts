@@ -2,11 +2,12 @@
 
 import { useCallback, useRef, useEffect } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
-import { runSimulate, runGAStream, adaptSingleResponse, adaptBatchResponse, adaptGACompleteToResponse } from '@/lib/api';
-import type { StarGAEvent, StarSimulateResponse } from '@/types';
+import { runSimulate, runGAStream, adaptSimulateResponse, adaptGACompleteToResponse } from '@/lib/api';
+import type { StarGAEvent } from '@/types';
 
 export function useBacktest() {
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
 
   // Use refs to stabilize values that change frequently
   const xmlCodeRef = useRef(useAlphaStore.getState().xmlCode);
@@ -32,6 +33,7 @@ export function useBacktest() {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
+    const requestId = ++requestIdRef.current;
 
     const store = useAlphaStore.getState();
     store.setIsRunning(true);
@@ -41,20 +43,22 @@ export function useBacktest() {
     store.setGAProgress(null);
 
     try {
+      const requestXml = xmlCodeRef.current;
       const settings = settingsRef.current;
-      const resp = await runSimulate(xmlCodeRef.current, settings.isStart, settings.osStart);
+      const resp = await runSimulate(
+        requestXml,
+        settings.simStart,
+        settings.isStart,
+        settings.osStart,
+        abortControllerRef.current.signal,
+      );
 
-      // Detect single vs batch response
-      const adapted = 'batches' in resp
-        ? adaptBatchResponse(resp)
-        : adaptSingleResponse(resp as StarSimulateResponse);
+      if (requestId !== requestIdRef.current) return;
 
-      // Inject input XML into alpha result for detail panel display
-      if (adapted.alphas.length > 0) {
-        adapted.alphas[0].xml = xmlCodeRef.current;
-      }
+      const adapted = adaptSimulateResponse(resp);
 
       const s = useAlphaStore.getState();
+      if (requestId !== requestIdRef.current) return;
       s.setResult(adapted);
 
       // Auto-select first heatmap cell if available
@@ -64,6 +68,7 @@ export function useBacktest() {
         s.setSelectedCell(firstSymbol, firstTimestamp);
       }
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
         // cancelled
       } else {
@@ -71,6 +76,7 @@ export function useBacktest() {
         useAlphaStore.getState().setBacktestError(message);
       }
     } finally {
+      if (requestId !== requestIdRef.current) return;
       const s = useAlphaStore.getState();
       s.setIsRunning(false);
     }
@@ -81,6 +87,7 @@ export function useBacktest() {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
+    const requestId = ++requestIdRef.current;
 
     const store = useAlphaStore.getState();
     store.setIsRunning(true);
@@ -97,14 +104,17 @@ export function useBacktest() {
     });
 
     try {
+      const requestXml = xmlCodeRef.current;
       await runGAStream(
-        xmlCodeRef.current,
+        requestXml,
+        settings.simStart,
         settings.isStart,
         settings.osStart,
         settings.gaPopulation,
         20,  // generations (default)
         settings.nJobs,
         (event: StarGAEvent) => {
+          if (requestId !== requestIdRef.current) return;
           const s = useAlphaStore.getState();
           if (event.type === 'generation_end') {
             s.setGAProgress({
@@ -129,6 +139,7 @@ export function useBacktest() {
         abortControllerRef.current.signal,
       );
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
         // cancelled
       } else {
@@ -136,6 +147,7 @@ export function useBacktest() {
         useAlphaStore.getState().setBacktestError(message);
       }
     } finally {
+      if (requestId !== requestIdRef.current) return;
       const s = useAlphaStore.getState();
       s.setIsRunning(false);
       s.setGAProgress(null);
@@ -143,6 +155,7 @@ export function useBacktest() {
   }, []);
 
   const stop = useCallback(() => {
+    requestIdRef.current += 1;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;

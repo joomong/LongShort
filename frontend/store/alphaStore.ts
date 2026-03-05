@@ -67,6 +67,7 @@ interface AlphaState {
 }
 
 const defaultSettings: BacktestSettings = {
+  simStart: '2020-01-01',
   isStart: '2023-01-01',
   osStart: '2024-01-01',
   barInterval: 'D1',
@@ -94,10 +95,12 @@ export function enforceSettingsDates(
     return dt.toISOString().slice(0, 10);
   };
 
+  r.simStart = clamp(r.simStart);
   r.isStart = clamp(r.isStart);
   r.osStart = clamp(r.osStart);
 
-  // Enforce isStart < osStart
+  // Enforce simStart <= isStart < osStart
+  if (r.simStart > r.isStart) r.simStart = r.isStart;
   if (r.isStart >= r.osStart) {
     r.osStart = clamp(nextDay(r.isStart));
   }
@@ -223,6 +226,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
           const isDays = Math.max(1, Math.round(totalDays * 0.7));
           const osStartDate = new Date(start);
           osStartDate.setUTCDate(osStartDate.getUTCDate() + isDays);
+          s.simStart = minDate;
           s.isStart = minDate;
           s.osStart = osStartDate.toISOString().slice(0, 10);
         }

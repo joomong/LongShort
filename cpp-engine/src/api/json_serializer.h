@@ -1,7 +1,6 @@
 #pragma once
 #include <json/json.h>
 #include "../metrics/metrics_engine.h"
-#include "../engine/simulator.h"
 
 // Summary metrics -> JSON (STAR field names)
 Json::Value summary_to_json(const SummaryMetrics& m);
@@ -22,8 +21,3 @@ Json::Value signal_plot_to_json(
 Json::Value signal_distribution_to_json(
     const std::vector<std::vector<float>>& signals);
 
-// Full single-alpha response
-Json::Value single_alpha_response(
-    const FullMetricsResult& metrics,
-    const SimulatorOutput& sim_out,
-    const std::vector<std::string>& symbols);

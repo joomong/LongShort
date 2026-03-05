@@ -13,7 +13,9 @@
 #include "../modules/Zscore.h"
 #include "../modules/Ops.h"
 #include "../modules/Constant.h"
+#include "../modules/SignalCache.h"
 #include <stdexcept>
+#include <sstream>
 
 // ---------------------------------------------------------------------------
 // Helper: get required int/double/bool attrib with default
@@ -39,6 +41,36 @@ static bool get_bool(const std::map<std::string, std::string>& a,
     if (it == a.end()) return def;
     const std::string& v = it->second;
     return (v == "true" || v == "1" || v == "yes");
+}
+
+static std::string xml_escape(const std::string& v) {
+    std::string out;
+    out.reserve(v.size());
+    for (char c : v) {
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        case '\'': out += "&apos;"; break;
+        default: out += c; break;
+        }
+    }
+    return out;
+}
+
+static std::string pipeline_to_xml(const Pipeline& ops) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < ops.size(); ++i) {
+        const auto& op = ops[i];
+        oss << "<" << op.first;
+        for (const auto& kv : op.second)
+            oss << " " << kv.first << "=\"" << xml_escape(kv.second) << "\"";
+        oss << "/>";
+        if (i + 1 < ops.size())
+            oss << "\n";
+    }
+    return oss.str();
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +162,9 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
 
     CompiledAlpha result;
     std::map<std::string, Module*> signal_registry;
+    // signal_registry: Module* for MEvent's re-execution pattern
+    // cache_registry: MSignalSave* for input="" sv restoration
+    std::map<std::string, MSignalSave*> cache_registry;
 
     if (ops[0].first != "data")
         throw CompileError("First pipeline element must be 'data', got '" + ops[0].first + "'");
@@ -143,6 +178,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
     }
 
     Module* current = parse_expr(expr_str, panel, result.modules);
+    result.pipeline.push_back(current);
 
     // Apply delay if present on the data tag
     {
@@ -153,6 +189,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
                 auto delay = std::make_unique<MDelay>();
                 delay->days = IntParameter(d);
                 current = delay.get();
+                result.pipeline.push_back(current);
                 result.modules.push_back(std::move(delay));
             }
         }
@@ -164,11 +201,46 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         const std::string& tag    = ops[i].first;
         const auto&        attribs = ops[i].second;
 
+        if (tag == "data") {
+            std::string expr = "close";
+            {
+                auto it = attribs.find("expr");
+                if (it != attribs.end()) expr = it->second;
+            }
+            current = parse_expr(expr, panel, result.modules);
+            result.pipeline.push_back(current);
+
+            {
+                auto it = attribs.find("delay");
+                if (it != attribs.end()) {
+                    int d = std::stoi(it->second);
+                    if (d != 0) {
+                        auto delay_mod = std::make_unique<MDelay>();
+                        delay_mod->days = IntParameter(d);
+                        current = delay_mod.get();
+                        result.pipeline.push_back(current);
+                        result.modules.push_back(std::move(delay_mod));
+                    }
+                }
+            }
+            continue;
+        }
+
         if (tag == "signal") {
             auto it = attribs.find("id");
             if (it == attribs.end())
                 throw CompileError("<signal> tag missing 'id' attribute");
-            signal_registry[it->second] = current;
+            const std::string& sig_id = it->second;
+
+            signal_registry[sig_id] = current;
+
+            auto save = std::make_unique<MSignalSave>();
+            save->label = sig_id;
+            MSignalSave* save_ptr = save.get();
+            result.pipeline.push_back(save_ptr);
+            result.modules.push_back(std::move(save));
+            cache_registry[sig_id] = save_ptr;
+
             continue;
         }
 
@@ -211,12 +283,28 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
             mod->maxHolddays    = IntParameter(get_int(attribs, "maxholddays", 5));
             mod->betAll         = IntParameter(get_bool(attribs, "betall", true) ? 1 : 0);
             current = mod.get();
+            result.pipeline.push_back(current);
             result.modules.push_back(std::move(mod));
             continue;
         }
 
+        {
+            auto inp_it = attribs.find("input");
+            if (inp_it != attribs.end()) {
+                const std::string& input_id = inp_it->second;
+                auto cache_it = cache_registry.find(input_id);
+                if (cache_it == cache_registry.end())
+                    throw CompileError("input: unknown signal id '" + input_id + "'");
+                auto load = std::make_unique<MSignalLoad>();
+                load->source = cache_it->second;
+                result.pipeline.push_back(load.get());
+                result.modules.push_back(std::move(load));
+            }
+        }
+
         auto mod = reg.create(tag, attribs, panel);
         current = mod.get();
+        result.pipeline.push_back(current);
         result.modules.push_back(std::move(mod));
     }
 
@@ -234,7 +322,10 @@ std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* 
 
     std::vector<CompiledAlpha> result;
     result.reserve(pipelines.size());
-    for (auto& pipe : pipelines)
-        result.push_back(compile_pipeline(pipe, panel));
+    for (auto& pipe : pipelines) {
+        auto compiled = compile_pipeline(pipe, panel);
+        compiled.source_xml = pipeline_to_xml(pipe);
+        result.push_back(std::move(compiled));
+    }
     return result;
 }

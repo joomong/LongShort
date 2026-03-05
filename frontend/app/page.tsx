@@ -8,7 +8,7 @@ import SettingsBar from '@/components/visualization/SettingsBar';
 import { useBacktest } from '@/hooks/useBacktest';
 import { useAlphaStore } from '@/store/alphaStore';
 
-// Heavy components: lazy-loaded (Recharts ~200KB, Monaco ~300KB)
+// Heavy components: lazy-loaded (uPlot ~50KB, Monaco ~300KB)
 const LOADING_PLACEHOLDER = <div className="flex-1 min-h-0 bg-background-secondary animate-pulse" />;
 const XmlEditor = dynamic(
   () => import('@/components/editor/XmlEditor'),

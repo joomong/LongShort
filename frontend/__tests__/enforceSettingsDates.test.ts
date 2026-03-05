@@ -5,6 +5,7 @@ import type { BacktestSettings } from '@/types';
 /** Helper to build a BacktestSettings object with date overrides. */
 function makeSettings(overrides: Partial<BacktestSettings> = {}): BacktestSettings {
   return {
+    simStart: '2020-01-01',
     isStart: '2023-01-01',
     osStart: '2024-01-01',
     barInterval: 'D1',

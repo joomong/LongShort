@@ -1,129 +1,110 @@
 'use client';
 
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from 'recharts';
+import React, { useMemo, useCallback, useEffect, useRef } from 'react';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
 import { useAlphaStore } from '@/store/alphaStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
-
+import {
+  toMultiSeriesData,
+  buildUPlotAxes,
+  fmtMonth,
+  fmtDate,
+  getDPR,
+  TOOLTIP_STYLE,
+} from '@/lib/uplotUtils';
+import { useContainerSize, useUPlot } from '@/lib/uplotAdapters';
 
 interface ChartDataPoint {
   date: string;
   value: number | null;
 }
 
-// ── Stable constants (avoid new references per render) ──────────────────
+// ── Stable constants ──────────────────────────────────────────────────
 const EMPTY_DATA: ChartDataPoint[] = [];
-const CHART_MARGIN = { top: 10, right: 30, left: 0, bottom: 10 };
-const AUTO_DOMAIN: [string, string] = ['auto', 'auto'];
-// content-visibility: auto skips layout/paint for off-screen table rows (rendering-content-visibility)
+// content-visibility: auto skips layout/paint for off-screen table rows
 const ROW_CV_STYLE: React.CSSProperties = { contentVisibility: 'auto', containIntrinsicBlockSize: '18px' };
 
-// ── Stable formatter functions ──────────────────────────────────────────
-function formatXTick(dateStr: string) {
-  const d = new Date(dateStr);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatYTick(value: number) {
-  return value.toFixed(3);
-}
-
-function formatTooltipLabel(dateStr: string) {
-  const d = new Date(dateStr);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
-function formatTooltipValue(val: unknown, name: unknown): [string, string] {
-  if (val === null || val === undefined) {
-    return ['N/A', name === 'value' ? 'Signal' : String(name)];
-  }
-  const n = typeof val === 'number' ? val : Number(val);
-  if (!isFinite(n)) {
-    return ['N/A', name === 'value' ? 'Signal' : String(name)];
-  }
-  const label = name === 'value' ? 'Signal' : String(name);
+function formatSignalValue(n: number): string {
   const abs = Math.abs(n);
-  const formatted = abs >= 1000 ? n.toFixed(1) : abs >= 1 ? n.toFixed(3) : n.toFixed(6);
-  return [formatted, label];
+  return abs >= 1000 ? n.toFixed(1) : abs >= 1 ? n.toFixed(3) : n.toFixed(6);
 }
+
+// ── Extracted data table (isolated from chart re-renders) ──
+const SignalDataTable = React.memo(function SignalDataTable({
+  data,
+  selectedSymbol,
+}: {
+  data: ChartDataPoint[];
+  selectedSymbol: string | null;
+}) {
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+
+  const firstDataIndex = useMemo(() => {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].value !== null) return i;
+    }
+    return 0;
+  }, [data]);
+
+  useEffect(() => {
+    if (firstDataIndex > 0 && tableScrollRef.current) {
+      const rowHeight = 18;
+      tableScrollRef.current.scrollTop = Math.max(0, (firstDataIndex - 3) * rowHeight);
+    }
+  }, [firstDataIndex, selectedSymbol]);
+
+  return (
+    <div className="w-[190px] shrink-0 border-r border-border overflow-hidden flex flex-col">
+      <div className="px-2 py-1 border-b border-border bg-background-secondary/50">
+        <span className="text-[10px] text-foreground-muted font-semibold uppercase tracking-wide">
+          {selectedSymbol ?? 'signal'} data
+        </span>
+      </div>
+      <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
+        <table className="w-full text-[11px] border-collapse font-mono">
+          <thead className="sticky top-0 bg-background-secondary">
+            <tr className="border-b border-border-strong">
+              <th className="text-left px-2 py-0.5 text-foreground-secondary font-medium">dates</th>
+              <th className="text-right px-2 py-0.5 text-foreground-secondary font-medium">signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(row => {
+              const v = row.value;
+              const hasValue = v !== null && v !== undefined;
+              return (
+                <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover" style={ROW_CV_STYLE}>
+                  <td className="px-2 py-px tabular-nums text-foreground-muted whitespace-nowrap">{row.date}</td>
+                  <td className={`px-2 py-px tabular-nums text-right whitespace-nowrap ${hasValue ? 'text-data-color' : 'text-foreground-muted'}`}>
+                    {hasValue ? v.toFixed(4) : 'NaN'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+});
 
 export default function SignalChart() {
   // Granular selectors
   const heatmap = useAlphaStore(s => s.result?.heatmap ?? null);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const pinnedSnapshots = useAlphaStore(useShallow(s => s.pinnedSnapshots));
-  const { theme } = useThemeStore();
+  const theme = useThemeStore(s => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  // ── Measure container size with ResizeObserver (replaces ResponsiveContainer) ──
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      // Round to avoid sub-pixel oscillation loops
-      const w = Math.floor(width);
-      const h = Math.floor(height);
-      setSize(prev => (prev.width === w && prev.height === h) ? prev : { width: w, height: h });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // View range state (X-axis: indices, Y-axis: values)
-  const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
-  const [yViewRange, setYViewRange] = useState<{ min: number; max: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{
-    x: number;
-    y: number;
-    xRange: { start: number; end: number };
-    yRange: { min: number; max: number };
-  } | null>(null);
-
-  // Refs to avoid stale closures in stable callbacks
-  const viewRangeRef = useRef(viewRange);
-  viewRangeRef.current = viewRange;
-  const yViewRangeRef = useRef(yViewRange);
-  yViewRangeRef.current = yViewRange;
-  const dataLenRef = useRef(0);
-  const dataYRangeRef = useRef({ min: -1, max: 1 });
-  const isDraggingRef = useRef(false);
-  isDraggingRef.current = isDragging;
-  const dragStartRef = useRef(dragStart);
-  dragStartRef.current = dragStart;
-  // RAF id for throttling mousemove state updates (one update per animation frame)
-  const rafRef = useRef<number | null>(null);
+  // ── Measure container size with ResizeObserver ──
+  const size = useContainerSize(containerRef);
 
   // Re-read CSS custom properties when theme toggles
-  const colors = useMemo(() => getThemeColors(), [theme]);
-
-  // Memoize Recharts style objects (avoid new refs each render)
-  const xTickStyle = useMemo(() => (
-    { fill: colors.chartText, fontSize: 11, fontFamily: 'var(--font-mono), monospace' }
-  ), [colors.chartText]);
-  const xTickLineStyle = useMemo(() => ({ stroke: colors.chartGrid }), [colors.chartGrid]);
-  const yTickStyle = xTickStyle;
-  const yTickLineStyle = xTickLineStyle;
-  const tooltipStyle = useMemo(() => ({
-    backgroundColor: colors.backgroundElevated,
-    border: `1px solid ${colors.chartGrid}`,
-    borderRadius: 0,
-    color: colors.chartText,
-    fontSize: 12,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-  }), [colors.backgroundElevated, colors.chartGrid, colors.chartText]);
-  const dotStyle = useMemo(() => ({ fill: colors.chartLine, r: 2, strokeWidth: 0 }), [colors.chartLine]);
+  const colors = useMemo(() => getThemeColors(theme), [theme]);
 
   // Build symbol index Map for O(1) lookup
   const symbolMap = useMemo(() => {
@@ -133,10 +114,8 @@ export default function SignalChart() {
 
   const data = useMemo<ChartDataPoint[]>(() => {
     if (!heatmap || !selectedSymbol) return EMPTY_DATA;
-
     const symbolIdx = symbolMap.get(selectedSymbol);
     if (symbolIdx === undefined) return EMPTY_DATA;
-
     return heatmap.timestamps.map((ts, timeIdx) => {
       const v = (heatmap.values as unknown as Array<Array<number | null | undefined>>)[timeIdx]?.[symbolIdx];
       return {
@@ -145,33 +124,6 @@ export default function SignalChart() {
       };
     });
   }, [heatmap, selectedSymbol, symbolMap]);
-  dataLenRef.current = data.length;
-
-  // Compute data Y range (min/max values) — single pass (js-combine-iterations)
-  const dataYRange = useMemo(() => {
-    if (data.length === 0) return { min: -1, max: 1 };
-
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i].value;
-      if (v !== null && Number.isFinite(v)) {
-        if (v < min) min = v;
-        if (v > max) max = v;
-      }
-    }
-    if (!isFinite(min)) return { min: -1, max: 1 };
-
-    const padding = (max - min) * 0.1 || 0.1;
-    return { min: min - padding, max: max + padding };
-  }, [data]);
-  dataYRangeRef.current = dataYRange;
-
-  // Reset view range when data changes (symbol changed): default to last 365 bars
-  useEffect(() => {
-    const len = data.length;
-    setViewRange(len > 365 ? { start: len - 365, end: len - 1 } : null);
-    setYViewRange(null);
-  }, [data]);
 
   // Merge snapshot series into chart data
   const mergedData = useMemo(() => {
@@ -197,199 +149,229 @@ export default function SignalChart() {
     }));
   }, [data, pinnedSnapshots]);
 
-  // Get visible data based on view range
-  const visibleData = useMemo(() => {
-    if (!viewRange || mergedData.length === 0) return mergedData;
-    return mergedData.slice(viewRange.start, viewRange.end + 1);
-  }, [mergedData, viewRange]);
+  // Convert to uPlot AlignedData
+  const seriesKeys = useMemo(
+    () => ['value', ...pinnedSnapshots.map(s => `snap_${s.id}`)],
+    [pinnedSnapshots]
+  );
+  const uData = useMemo<uPlot.AlignedData>(
+    () => toMultiSeriesData(mergedData as Record<string, unknown>[], 'date', seriesKeys),
+    [mergedData, seriesKeys]
+  );
 
-  // Y-axis domain (memoized to avoid new array ref each render)
-  const yDomain = useMemo<[number, number] | [string, string]>(() => {
-    if (yViewRange) return [yViewRange.min, yViewRange.max];
-    return AUTO_DOMAIN;
-  }, [yViewRange]);
+  // ── Drag state (refs only — no React re-renders during interaction) ──
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{
+    x: number; y: number;
+    xMin: number; xMax: number;
+    yMin: number; yMax: number;
+  } | null>(null);
 
-  // X-axis interval (simple primitive — no memo needed, rerender-simple-expression-in-memo)
-  const xInterval = visibleData.length > 0 ? Math.max(0, Math.floor(visibleData.length / 12) - 1) : 0;
+  // ── uPlot options (memoized to avoid unnecessary recreation) ──
+  const opts = useMemo<uPlot.Options | null>(() => {
+    if (size.width === 0 || size.height === 0) return null;
+    const [axisX, axisY] = buildUPlotAxes(colors);
 
-  // Handle mouse wheel for zoom (stable callback — reads refs, no state deps)
+    const seriesDefs: uPlot.Series[] = [
+      {},
+      {
+        stroke: colors.chartLine,
+        width: 2,
+        label: 'Signal',
+        points: { show: true, size: 4, fill: colors.chartLine, stroke: colors.chartLine },
+      },
+      ...pinnedSnapshots.map(s => ({
+        stroke: s.color,
+        width: 1.5,
+        label: s.name,
+        spanGaps: true,
+        points: { show: false },
+      } as uPlot.Series)),
+    ];
+
+    return {
+      width: size.width,
+      height: size.height,
+      padding: [10, 30, 0, 0],
+      cursor: {
+        drag: { x: false, y: false },
+      },
+      legend: { show: false },
+      scales: {
+        x: { time: true },
+        y: { auto: true },
+      },
+      axes: [
+        {
+          ...axisX,
+          values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth),
+          gap: 40,
+        },
+        {
+          ...axisY,
+          values: (_u: uPlot, vals: number[]) => vals.map(v => v.toFixed(3)),
+          size: 60,
+          grid: { ...axisY.grid, dash: [3, 3] },
+        },
+      ],
+      series: seriesDefs,
+      hooks: {
+        setCursor: [(u: uPlot) => {
+          const tt = tooltipRef.current;
+          if (!tt) return;
+          const { idx, left, top } = u.cursor;
+          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
+
+          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
+          let hasAny = false;
+          for (let i = 1; i < u.series.length; i++) {
+            const v = u.data[i]?.[idx];
+            if (v == null) continue;
+            hasAny = true;
+            const s = u.series[i];
+            const label = s.label || 'Value';
+            html += `<div><span style="color:${s.stroke}">${label}:</span> ${formatSignalValue(v as number)}</div>`;
+          }
+          if (!hasAny) { tt.style.display = 'none'; return; }
+
+          tt.innerHTML = html;
+          tt.style.display = 'block';
+          const dpr = getDPR();
+          const bL = u.bbox.left / dpr;
+          const bT = u.bbox.top / dpr;
+          let x = left + bL + 15;
+          // Use fixed max-width (150px) instead of reading tt.offsetWidth to avoid layout thrash
+          const ttMaxW = 150;
+          if (x + ttMaxW > size.width) {
+            x = left + bL - ttMaxW - 15;
+          }
+          tt.style.left = `${x}px`;
+          tt.style.top = `${(top ?? 0) + bT - 10}px`;
+        }],
+      },
+    };
+  }, [size.width, size.height, colors, pinnedSnapshots]);
+
+  // ── uPlot lifecycle (shared hook) ──
+  const uplotRef = useUPlot(containerRef, opts, uData, size);
+
+  // Reset viewport when data changes (symbol changed)
+  useEffect(() => {
+    const u = uplotRef.current;
+    if (!u || uData[0].length === 0) return;
+    const ts = uData[0];
+    if (ts.length > 365) {
+      u.setScale('x', { min: ts[ts.length - 365], max: ts[ts.length - 1] });
+    } else {
+      u.setScale('x', { min: ts[0], max: ts[ts.length - 1] });
+    }
+  }, [uData, uplotRef]);
+
+  // ── Wheel handler: zoom + horizontal pan via setScale ──
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    const len = dataLenRef.current;
-    if (len === 0) return;
+    e.preventDefault();
+    const u = uplotRef.current;
+    if (!u || !u.data[0] || u.data[0].length === 0) return;
 
-    const currentRange = viewRangeRef.current ?? { start: 0, end: len - 1 };
-    const rangeSize = Math.max(1, currentRange.end - currentRange.start);
-    const containerWidth = containerRef.current?.clientWidth ?? 1;
+    const xMin = u.scales.x.min!;
+    const xMax = u.scales.x.max!;
+    const xRange = xMax - xMin;
+    const dataMin = u.data[0][0];
+    const dataMax = u.data[0][u.data[0].length - 1];
 
     const isHorizontalPan = Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey;
     if (isHorizontalPan) {
-      e.preventDefault();
-      const indexDelta = (e.deltaX / containerWidth) * rangeSize;
-
-      let newStart = currentRange.start + indexDelta;
-      let newEnd = currentRange.end + indexDelta;
-
-      if (newStart < 0) { newEnd -= newStart; newStart = 0; }
-      const maxEnd = len - 1;
-      if (newEnd > maxEnd) { newStart -= (newEnd - maxEnd); newEnd = maxEnd; }
-
-      if (newEnd - newStart >= len - 1) {
-        setViewRange(null);
-      } else {
-        setViewRange({ start: Math.max(0, Math.round(newStart)), end: Math.min(maxEnd, Math.round(newEnd)) });
-      }
+      const plotWidth = u.bbox.width / getDPR();
+      const shift = (e.deltaX / plotWidth) * xRange;
+      let newMin = xMin + shift;
+      let newMax = xMax + shift;
+      if (newMin < dataMin) { newMax += (dataMin - newMin); newMin = dataMin; }
+      if (newMax > dataMax) { newMin -= (newMax - dataMax); newMax = dataMax; }
+      u.setScale('x', { min: newMin, max: newMax });
       return;
     }
 
-    e.preventDefault();
+    // Zoom
     const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-    const newRange = Math.max(5, Math.min(len, Math.round(rangeSize * zoomFactor)));
-    const center = (currentRange.start + currentRange.end) / 2;
+    const center = (xMin + xMax) / 2;
+    const newRange = xRange * zoomFactor;
+    const spacing = u.data[0].length > 1 ? u.data[0][1] - u.data[0][0] : 86400;
+    const minRange = spacing * 5;
+    const maxRange = dataMax - dataMin;
+    const clamped = Math.max(minRange, Math.min(maxRange, newRange));
 
-    let newStart = Math.round(center - newRange / 2);
-    let newEnd = Math.round(center + newRange / 2);
+    let newMin = center - clamped / 2;
+    let newMax = center + clamped / 2;
+    if (newMin < dataMin) { newMin = dataMin; newMax = newMin + clamped; }
+    if (newMax > dataMax) { newMax = dataMax; newMin = newMax - clamped; }
 
-    if (newStart < 0) { newStart = 0; newEnd = Math.min(len - 1, newRange); }
-    if (newEnd >= len) { newEnd = len - 1; newStart = Math.max(0, newEnd - newRange); }
+    u.setScale('x', { min: newMin, max: newMax });
+  }, [uplotRef]);
 
-    if (newEnd - newStart >= len - 1) {
-      setViewRange(null);
-    } else {
-      setViewRange({ start: newStart, end: newEnd });
-    }
-  }, []);
-
-  // Handle mouse down for drag start (stable callback)
+  // ── Drag pan: reads/writes uPlot scales directly, zero React state ──
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    const len = dataLenRef.current;
-    if (len === 0 || e.button !== 0) return;
+    const u = uplotRef.current;
+    if (!u || e.button !== 0) return;
     e.preventDefault();
-    setIsDragging(true);
-    setDragStart({
+    isDraggingRef.current = true;
+    if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
+    dragStartRef.current = {
       x: e.clientX,
       y: e.clientY,
-      xRange: viewRangeRef.current ?? { start: 0, end: len - 1 },
-      yRange: yViewRangeRef.current ?? dataYRangeRef.current,
-    });
-  }, []);
+      xMin: u.scales.x.min!,
+      xMax: u.scales.x.max!,
+      yMin: u.scales.y.min!,
+      yMax: u.scales.y.max!,
+    };
+  }, [uplotRef]);
 
-  // Handle mouse move for dragging — throttled to one React state update per animation frame
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const ds = dragStartRef.current;
-    if (!isDraggingRef.current || !ds || !containerRef.current) return;
+    const u = uplotRef.current;
+    if (!isDraggingRef.current || !ds || !u) return;
 
-    // Capture synthetic event values before RAF fires (React pools events)
-    const clientX = e.clientX;
-    const clientY = e.clientY;
+    const dpr = getDPR();
+    const plotWidth = u.bbox.width / dpr;
+    const plotHeight = u.bbox.height / dpr;
+    const deltaX = e.clientX - ds.x;
+    const deltaY = e.clientY - ds.y;
 
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const len = dataLenRef.current;
-      const containerEl = containerRef.current;
-      if (len === 0 || !containerEl) return;
+    const xShift = (deltaX / plotWidth) * (ds.xMax - ds.xMin) * -1;
+    const yShift = (deltaY / plotHeight) * (ds.yMax - ds.yMin);
 
-      const containerWidth = containerEl.clientWidth;
-      const containerHeight = containerEl.clientHeight;
-      const deltaX = clientX - ds.x;
-      const deltaY = clientY - ds.y;
-
-      const xRangeSize = Math.max(1, ds.xRange.end - ds.xRange.start);
-      const indexDelta = (deltaX / containerWidth) * xRangeSize * -1;
-
-      let newStart = ds.xRange.start + indexDelta;
-      let newEnd = ds.xRange.end + indexDelta;
-
-      if (newStart < 0) { newStart = 0; newEnd = xRangeSize; }
-      if (newEnd >= len) { newEnd = len - 1; newStart = newEnd - xRangeSize; }
-
-      setViewRange({ start: Math.max(0, Math.round(newStart)), end: Math.min(len - 1, Math.round(newEnd)) });
-
-      const yRangeSize = ds.yRange.max - ds.yRange.min;
-      const valueDelta = (deltaY / containerHeight) * yRangeSize;
-      setYViewRange({ min: ds.yRange.min + valueDelta, max: ds.yRange.max + valueDelta });
+    u.batch(() => {
+      u.setScale('x', { min: ds.xMin + xShift, max: ds.xMax + xShift });
+      u.setScale('y', { min: ds.yMin + yShift, max: ds.yMax + yShift });
     });
-  }, []);
+  }, [uplotRef]);
 
-  // Handle mouse up to stop dragging — also cancel any pending RAF
   const handleMouseUp = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    setIsDragging(false);
-    setDragStart(null);
+    isDraggingRef.current = false;
+    dragStartRef.current = null;
+    if (containerRef.current) containerRef.current.style.cursor = 'grab';
   }, []);
 
-  // Add global mouse up listener
+  // Global mouseup listener (cleanup on unmount)
   useEffect(() => {
-    if (!isDragging) return;
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false);
-      setDragStart(null);
+    const handler = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        dragStartRef.current = null;
+        if (containerRef.current) containerRef.current.style.cursor = 'grab';
+      }
     };
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [isDragging]);
+    window.addEventListener('mouseup', handler);
+    return () => window.removeEventListener('mouseup', handler);
+  }, []);
 
-  // Cursor style (trivial object — no memo needed, rerender-simple-expression-in-memo)
-  const cursorStyle = { cursor: visibleData.length > 0 ? (isDragging ? 'grabbing' : 'grab') : 'default' };
-
-  const hasData = visibleData.length > 0;
-  const tableScrollRef = useRef<HTMLDivElement>(null);
-
-  // Find first non-NaN row for auto-scroll
-  const firstDataIndex = useMemo(() => {
-    for (let i = 0; i < data.length; i++) {
-      if (data[i].value !== null) return i;
-    }
-    return 0;
-  }, [data]);
-
-  // Auto-scroll table to first data row when symbol changes
-  useEffect(() => {
-    if (firstDataIndex > 0 && tableScrollRef.current) {
-      const rowHeight = 18;
-      tableScrollRef.current.scrollTop = Math.max(0, (firstDataIndex - 3) * rowHeight);
-    }
-  }, [firstDataIndex, selectedSymbol]);
+  const hasData = data.length > 0 && data.some(d => d.value !== null);
 
   return (
     <div className="flex-1 flex flex-row bg-background-tertiary min-h-0 panel-inset">
-      {/* Left: STAR-style data table */}
-      <div className="w-[190px] shrink-0 border-r border-border overflow-hidden flex flex-col">
-        <div className="px-2 py-1 border-b border-border bg-background-secondary/50">
-          <span className="text-[10px] text-foreground-muted font-semibold uppercase tracking-wide">
-            {selectedSymbol ?? 'signal'} data
-          </span>
-        </div>
-        <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
-          <table className="w-full text-[11px] border-collapse font-mono">
-            <thead className="sticky top-0 bg-background-secondary">
-              <tr className="border-b border-border-strong">
-                <th className="text-left px-2 py-0.5 text-foreground-secondary font-medium">dates</th>
-                <th className="text-right px-2 py-0.5 text-foreground-secondary font-medium">signal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map(row => {
-                const v = row.value;
-                const hasValue = v !== null && v !== undefined;
-                return (
-                  <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover" style={ROW_CV_STYLE}>
-                    <td className="px-2 py-px tabular-nums text-foreground-muted whitespace-nowrap">{row.date}</td>
-                    <td className={`px-2 py-px tabular-nums text-right whitespace-nowrap ${hasValue ? 'text-data-color' : 'text-foreground-muted'}`}>
-                      {hasValue ? v.toFixed(4) : 'NaN'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Left: STAR-style data table (memo-isolated from chart re-renders) */}
+      <SignalDataTable data={data} selectedSymbol={selectedSymbol} />
 
-      {/* Right: chart */}
+      {/* Right: uPlot chart */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <div
           ref={containerRef}
@@ -399,68 +381,18 @@ export default function SignalChart() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          style={cursorStyle}
-        >
-          {size.width > 0 && size.height > 0 ? (
-            <LineChart
-              width={size.width}
-              height={size.height}
-              data={hasData ? visibleData : []}
-              margin={CHART_MARGIN}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={colors.chartGrid} strokeOpacity={0.5} />
-              <XAxis
-                dataKey="date"
-                stroke={colors.chartText}
-                tick={xTickStyle}
-                tickLine={xTickLineStyle}
-                tickFormatter={formatXTick}
-                interval={xInterval}
-                minTickGap={40}
-              />
-              <YAxis
-                stroke={colors.chartText}
-                tick={yTickStyle}
-                tickLine={yTickLineStyle}
-                domain={yDomain}
-                tickFormatter={formatYTick}
-                width={60}
-                allowDataOverflow={true}
-              />
-              {hasData ? (
-                <>
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelFormatter={formatTooltipLabel}
-                    formatter={formatTooltipValue}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="linear"
-                    dataKey="value"
-                    stroke={colors.chartLine}
-                    dot={dotStyle}
-                    strokeWidth={2}
-                    isAnimationActive={false}
-                  />
-                  {pinnedSnapshots.map((snap) => (
-                    <Line
-                      key={snap.id}
-                      type="linear"
-                      dataKey={`snap_${snap.id}`}
-                      stroke={snap.color}
-                      strokeWidth={1.5}
-                      dot={false}
-                      connectNulls
-                      isAnimationActive={false}
-                      name={snap.name}
-                    />
-                  ))}
-                </>
-              ) : null}
-            </LineChart>
-          ) : null}
-        </div>
+          style={{ cursor: hasData ? 'grab' : 'default' }}
+        />
+        <div
+          ref={tooltipRef}
+          suppressHydrationWarning
+          style={{
+            ...TOOLTIP_STYLE,
+            backgroundColor: colors.backgroundElevated,
+            border: `1px solid ${colors.chartGrid}`,
+            color: colors.chartText,
+          }}
+        />
       </div>
     </div>
   );

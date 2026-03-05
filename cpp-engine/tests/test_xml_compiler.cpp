@@ -65,6 +65,19 @@ TEST(XmlCompiler, PipeExpansion) {
     std::string xml = R"(<data expr="close"/><tsmean days="10|20"/>)";
     auto alphas = compile_xml(xml, &dp);
     EXPECT_EQ(alphas.size(), 2u);
+    ASSERT_EQ(alphas.size(), 2u);
+    EXPECT_EQ(alphas[0].source_xml, "<data expr=\"close\"/>\n<tsmean days=\"10\"/>");
+    EXPECT_EQ(alphas[1].source_xml, "<data expr=\"close\"/>\n<tsmean days=\"20\"/>");
+}
+
+TEST(XmlCompiler, SourceXmlEscapesAttributes) {
+    auto dp = make_panel();
+    std::string xml = R"(<data expr="close"/><signal id="a &lt; b &amp; c"/>)";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    EXPECT_EQ(
+        alphas[0].source_xml,
+        "<data expr=\"close\"/>\n<signal id=\"a &lt; b &amp; c\"/>");
 }
 
 // ---------------------------------------------------------------------------
@@ -91,17 +104,22 @@ TEST(XmlCompiler, ChoiceExpansion) {
 
 // ---------------------------------------------------------------------------
 // TEST: OverflowError
-// Generate >1000 variants → CompileError
+// Generate >MAX_ALPHA_COUNT variants → CompileError
 // ---------------------------------------------------------------------------
 TEST(XmlCompiler, OverflowError) {
     auto dp = make_panel();
-    // 11 pipe values × 11 pipe values × 11 pipe values = 1331 > 1000
-    std::string many = "1|2|3|4|5|6|7|8|9|10|11";
+
+    std::string many;
+    many.reserve(static_cast<size_t>(MAX_ALPHA_COUNT) * 5);
+    for (int i = 1; i <= MAX_ALPHA_COUNT + 1; ++i) {
+        if (i > 1)
+            many.push_back('|');
+        many += std::to_string(i);
+    }
+
     std::string xml =
         "<data expr=\"close\"/>"
-        "<tsmean days=\"" + many + "\"/>"
-        "<tszscore days=\"" + many + "\"/>"
-        "<tsrank days=\"" + many + "\"/>";
+        "<tsmean days=\"" + many + "\"/>";
     EXPECT_THROW(compile_xml(xml, &dp), std::runtime_error);
 }
 
@@ -116,11 +134,11 @@ TEST(XmlCompiler, UnknownTag) {
 
 // ---------------------------------------------------------------------------
 // TEST: ReturnExpr
-// <data expr="return"/> → generates return calculation modules
+// <data expr="returns"/> → generates return calculation modules
 // ---------------------------------------------------------------------------
 TEST(XmlCompiler, ReturnExpr) {
     auto dp = make_panel(10, 2);
-    std::string xml = R"(<data expr="return"/>)";
+    std::string xml = R"(<data expr="returns"/>)";
     auto alphas = compile_xml(xml, &dp);
     ASSERT_EQ(alphas.size(), 1u);
     ASSERT_NE(alphas[0].output, nullptr);
@@ -140,4 +158,173 @@ TEST(XmlCompiler, ReturnExpr) {
     // close increases by 1.0 each bar, starting at 100
     // sym0: close[1]=101, close[0]=100 → return=0.01
     EXPECT_NEAR(sv[0], 0.01f, 1e-4f);
+}
+
+// ---------------------------------------------------------------------------
+// TEST: ExprArithmetic — compound expressions in expr attribute
+// ---------------------------------------------------------------------------
+TEST(XmlCompiler, ExprArithmeticSubtraction) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="close - open"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprArithmeticMultiplication) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="2*close"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprArithmeticDivision) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="close/volume"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprUnaryMinus) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="-close"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprNegatedReturns) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="-returns"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprReturnsInCompoundExpression) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="returns * volume"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprParentheses) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="(close - open) / close"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+TEST(XmlCompiler, ExprNumericLiteral) {
+    auto dp = make_panel(5, 2);
+    auto alphas = compile_xml(R"(<data expr="close * 0.5 + volume * 0.5"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(alphas[0].output, nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Multi-source (multi <data> + <signal> + input) tests
+// ---------------------------------------------------------------------------
+
+TEST(XmlCompiler, MultiDataCompiles) {
+    auto dp = make_panel(100, 3);
+    std::string xml = R"(
+        <data delay="1" expr="returns"/>
+        <signal id="pos"/>
+        <data expr="-returns" delay="1"/>
+        <signal id="neg"/>
+        <choice>
+          <tsrank days="60" input="pos|neg"/>
+        </choice>
+        <zscore/>
+    )";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 2u);
+}
+
+TEST(XmlCompiler, MultiDataSignalRouting) {
+    auto dp = make_panel(100, 3);
+    std::string xml_pos = R"(
+        <data expr="close"/>
+        <signal id="pos"/>
+        <data expr="-close"/>
+        <signal id="neg"/>
+        <rank input="pos"/>
+    )";
+    std::string xml_neg = R"(
+        <data expr="close"/>
+        <signal id="pos"/>
+        <data expr="-close"/>
+        <signal id="neg"/>
+        <rank input="neg"/>
+    )";
+    auto alphas_pos = compile_xml(xml_pos, &dp);
+    auto alphas_neg = compile_xml(xml_neg, &dp);
+    ASSERT_EQ(alphas_pos.size(), 1u);
+    ASSERT_EQ(alphas_neg.size(), 1u);
+
+    std::vector<float> buf_p(3), buf_n(3);
+    SignalVector sv_p{buf_p.data(), 3}, sv_n{buf_n.data(), 3};
+    for (Module* m : alphas_pos[0].pipeline) { m->numAssets = 3; m->init(); }
+    for (Module* m : alphas_neg[0].pipeline) { m->numAssets = 3; m->init(); }
+
+    for (unsigned t = 0; t < dp.T; ++t) {
+        sv_p.fill_nan(); sv_n.fill_nan();
+        for (Module* m : alphas_pos[0].pipeline) m->calculate(t, sv_p);
+        for (Module* m : alphas_neg[0].pipeline) m->calculate(t, sv_n);
+    }
+    bool differ = false;
+    for (unsigned i = 0; i < 3; ++i)
+        if (std::isfinite(sv_p[i]) && std::isfinite(sv_n[i]) && sv_p[i] != sv_n[i])
+            differ = true;
+    EXPECT_TRUE(differ);
+}
+
+TEST(XmlCompiler, UndefinedSignalInputThrows) {
+    auto dp = make_panel();
+    std::string xml = R"(
+        <data expr="close"/>
+        <signal id="pos"/>
+        <rank input="nonexistent"/>
+    )";
+    EXPECT_THROW(compile_xml(xml, &dp), CompileError);
+}
+
+TEST(XmlCompiler, SignalWithoutInputIsNoop) {
+    auto dp = make_panel(30, 3);
+    std::string xml = R"(
+        <data expr="close"/>
+        <signal id="unused"/>
+        <zscore/>
+    )";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    std::vector<float> buf(3);
+    SignalVector sv{buf.data(), 3};
+    for (Module* m : alphas[0].pipeline) { m->numAssets = 3; m->init(); }
+    for (unsigned t = 0; t < 30u; ++t) {
+        sv.fill_nan();
+        for (Module* m : alphas[0].pipeline) m->calculate(t, sv);
+    }
+    bool any_finite = false;
+    for (unsigned i = 0; i < 3; ++i)
+        if (std::isfinite(sv[i])) any_finite = true;
+    EXPECT_TRUE(any_finite);
+}
+
+TEST(XmlCompiler, EventStillWorksWithSignalCache) {
+    auto dp = make_panel(30, 3);
+    std::string xml = R"(
+        <data expr="close"/>
+        <signal id="sig"/>
+        <data expr="volume"/>
+        <signal id="trig"/>
+        <event signal="sig" trigger="trig" threshold="0" maxholddays="5"/>
+    )";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    std::vector<float> buf(3);
+    SignalVector sv{buf.data(), 3};
+    for (Module* m : alphas[0].pipeline) { m->numAssets = 3; m->init(); }
+    for (unsigned t = 0; t < 30u; ++t) {
+        sv.fill_nan();
+        for (Module* m : alphas[0].pipeline) m->calculate(t, sv);
+    }
 }

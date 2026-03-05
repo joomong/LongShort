@@ -231,6 +231,7 @@ int main(int argc, char* argv[])
             }
 
             std::string xml = (*body)["xml"].asString();
+            std::string sim_start_str = (*body).get("simStart", "").asString();
             std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
             std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
             unsigned req_threads = (*body).get("threads", 0).asUInt();
@@ -493,14 +494,35 @@ int main(int argc, char* argv[])
                     json["combined"] = cj;
                 }
 
-                // Single alpha: add signal data at top level
+                // Single alpha: add signal data at top level (simStart or IS, skip warmup)
                 if (single && !single_sim_out.signals.empty()) {
+                    size_t plot_start;
+                    if (!sim_start_str.empty()) {
+                        int64_t sim_start_ms = 0;
+                        if (parse_iso_date_ms(sim_start_str, &sim_start_ms)) {
+                            plot_start = std::lower_bound(
+                                single_sim_out.timestamps.begin(),
+                                single_sim_out.timestamps.end(), sim_start_ms
+                            ) - single_sim_out.timestamps.begin();
+                        } else {
+                            plot_start = top_metrics.is_start_index;
+                        }
+                    } else {
+                        plot_start = top_metrics.is_start_index;
+                    }
+                    std::vector<std::vector<float>> plot_signals(
+                        single_sim_out.signals.begin() + plot_start,
+                        single_sim_out.signals.end());
+                    std::vector<int64_t> plot_timestamps(
+                        single_sim_out.timestamps.begin() + plot_start,
+                        single_sim_out.timestamps.end());
+
                     json["signalPlot"] = signal_plot_to_json(
-                        single_sim_out.signals, single_sim_out.timestamps, g_data.symbols);
+                        plot_signals, plot_timestamps, g_data.symbols);
 
                     float sig_min = 0, sig_max = 0;
                     bool first = true;
-                    for (const auto& row : single_sim_out.signals) {
+                    for (const auto& row : plot_signals) {
                         for (float v : row) {
                             if (!std::isfinite(v)) continue;
                             if (first) { sig_min = sig_max = v; first = false; }
@@ -512,7 +534,7 @@ int main(int argc, char* argv[])
                     sr["max"] = sig_max;
                     json["signalRange"] = sr;
 
-                    json["distribution"] = signal_distribution_to_json(single_sim_out.signals);
+                    json["distribution"] = signal_distribution_to_json(plot_signals);
                 }
 
                 callback(drogon::HttpResponse::newHttpJsonResponse(json));
@@ -544,6 +566,7 @@ int main(int argc, char* argv[])
             }
 
             std::string xml = (*body)["xml"].asString();
+            std::string sim_start_str = (*body).get("simStart", "").asString();
             std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
             std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
             unsigned pop_size = (*body).get("popSize", 50).asUInt();
@@ -580,7 +603,7 @@ int main(int argc, char* argv[])
 
             // Async stream response for NDJSON
             auto resp = drogon::HttpResponse::newAsyncStreamResponse(
-                [xml, pop_size, generations, n_threads, is_ms, os_ms](drogon::ResponseStreamPtr stream) {
+                [xml, sim_start_str, pop_size, generations, n_threads, is_ms, os_ms](drogon::ResponseStreamPtr stream) {
 
                     auto write_json = [&stream](const Json::Value& j) {
                         Json::StreamWriterBuilder wb;

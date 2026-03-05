@@ -9,7 +9,8 @@
 using Op = std::pair<std::string, std::map<std::string, std::string>>;
 using Pipeline = std::vector<Op>;
 
-static constexpr int MAX_ALPHA_COUNT = 1000;
+// Hard cap to prevent unbounded combinatorial explosion during XML expansion.
+static constexpr int MAX_ALPHA_COUNT = 5000;
 
 // Expand elements into variant pipelines.
 // - Pipe:  "A|B|C" in any attribute value → that many variants

@@ -53,6 +53,7 @@ describe('fetchConfig', () => {
     // Set settings well outside the data range
     useAlphaStore.setState({
       settings: {
+        simStart: '2018-01-01',
         isStart: '2018-01-01',
         osStart: '2018-07-01',
         barInterval: 'D1',

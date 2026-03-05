@@ -32,7 +32,9 @@ public:
 
 struct CompiledAlpha {
     std::vector<std::unique_ptr<Module>> modules;  // owns all modules
+    std::vector<Module*> pipeline;                  // top-level execution order
     Module* output;                                 // last module (non-owning)
+    std::string source_xml;                         // expanded per-alpha XML
 };
 
 // Compile a single pipeline into a CompiledAlpha.

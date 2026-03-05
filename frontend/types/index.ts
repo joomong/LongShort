@@ -197,15 +197,8 @@ export interface BacktestAlphaResult {
   shortRatio?: number;
 }
 
-export interface BacktestCombinedResult {
-  isMetrics: ISMetrics;
-  osMetrics: OSMetrics;
-  isRetSeries?: Record<string, number | null>;
-  osRetSeries?: Record<string, number | null>;
-}
-
 export interface BacktestRunResponse {
-  combined: BacktestCombinedResult | null;
+  combined: BacktestAlphaResult | null;
   alphas: BacktestAlphaResult[];
   yearly?: StarYearly[];
   initialCapital?: number;
@@ -216,6 +209,7 @@ export interface BacktestRunResponse {
 }
 
 export interface BacktestSettings {
+  simStart: string;
   isStart: string;
   osStart: string;
   barInterval: 'D0' | 'D1' | 'intraday';

@@ -9,7 +9,7 @@ test.describe('Smoke tests', () => {
   test('control buttons are present', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByLabel('Run Backtest (Shift+Enter)')).toBeVisible();
-    await expect(page.getByLabel('Save Alpha')).toBeVisible();
+    await expect(page.getByLabel('Pin Signal')).toBeVisible();
     await expect(page.getByLabel('Load Alpha')).toBeVisible();
   });
 
