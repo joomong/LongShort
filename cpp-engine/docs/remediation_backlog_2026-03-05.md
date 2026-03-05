@@ -203,3 +203,4 @@
 - 2026-03-05: 멀티알파 합산 경로에서 worker별 `sim_out.signals (T*N)` 임시 보관을 제거했다. `Simulator` signal-row callback 기반으로 즉시 누적해 피크 메모리 리스크를 낮췄다.
 - 2026-03-05: `ModuleInput` 저장소를 `vector<vector<float>>`에서 flat ring(`vector<float>`)으로 변경하고 직렬화 호환 경로를 반영했다.
 - 2026-03-05: `SearchSpace`의 sentinel gene 템플릿 저장 트릭을 제거하고 `template_xml` 필드로 단순화했다.
+- 2026-03-05: `ModuleInput` flat ring 변경에 대한 checkpoint round-trip 테스트를 추가해 직렬화 회귀를 방지했다.

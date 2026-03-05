@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cmath>
+#include <fstream>
 #include <vector>
 
 #include "checkpoint/checkpoint_manager.h"
@@ -113,6 +114,58 @@ TEST(Checkpoint, ModuleStateSavedAndRestored) {
 
     EXPECT_EQ(loaded.di, 5u);
     EXPECT_DOUBLE_EQ(mod.counter, 5.0);  // restored
+
+    std::remove(tmp);
+}
+
+// ---------------------------------------------------------------------------
+// TEST: ModuleInput serialization round-trip preserves lookback rows
+// ---------------------------------------------------------------------------
+TEST(Checkpoint, ModuleInputRoundTripPreservesRows) {
+    const char* tmp = "/tmp/test_checkpoint_module_input.bin";
+
+    ModuleInput input;
+    input.maxLookBack = 2;
+
+    std::vector<float> row0 = {1.0f, 10.0f};
+    std::vector<float> row1 = {2.0f, 20.0f};
+    std::vector<float> row2 = {3.0f, 30.0f};
+    SignalVector sv0{row0.data(), 2};
+    SignalVector sv1{row1.data(), 2};
+    SignalVector sv2{row2.data(), 2};
+    input.push(sv0);
+    input.push(sv1);
+    input.push(sv2);
+
+    {
+        std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ofs.good());
+        boost::archive::binary_oarchive ar(ofs);
+        ar & input;
+    }
+
+    ModuleInput loaded;
+    {
+        std::ifstream ifs(tmp, std::ios::binary);
+        ASSERT_TRUE(ifs.good());
+        boost::archive::binary_iarchive ar(ifs);
+        ar & loaded;
+    }
+
+    const auto latest = loaded(0);
+    const auto prev1 = loaded(1);
+    const auto prev2 = loaded(2);
+
+    ASSERT_EQ(latest.size, 2u);
+    ASSERT_EQ(prev1.size, 2u);
+    ASSERT_EQ(prev2.size, 2u);
+
+    EXPECT_FLOAT_EQ(latest[0], 3.0f);
+    EXPECT_FLOAT_EQ(latest[1], 30.0f);
+    EXPECT_FLOAT_EQ(prev1[0], 2.0f);
+    EXPECT_FLOAT_EQ(prev1[1], 20.0f);
+    EXPECT_FLOAT_EQ(prev2[0], 1.0f);
+    EXPECT_FLOAT_EQ(prev2[1], 10.0f);
 
     std::remove(tmp);
 }
