@@ -7,7 +7,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getThemeColors } from '@/lib/themeColors';
 import {
-  toIsOsAlignedData,
+  dateStrToUnix,
   toMultiSeriesData,
   toAlignedData,
   buildUPlotAxes,
@@ -30,12 +30,6 @@ export interface PnlSeriesPoint {
   date: string;
   net: number;
   gross: number;
-}
-
-interface IsOsPnlPoint {
-  date: string;
-  isNet?: number;
-  osNet?: number;
 }
 
 interface IsOsSeriesPoint {
@@ -86,7 +80,7 @@ export function buildPnlBundleFromRet(
     const to = turnoverMap.get(date);
     const grossRet =
       grossKnown && typeof to === 'number'
-        ? r + to * transactionFeeRate
+        ? r + (to / 100) * transactionFeeRate
         : Number.NaN;
 
     cumRet += r;
@@ -116,21 +110,6 @@ export function buildMddDataFromEquity(
     if (value > peak) peak = value;
     const dd = (value / peak - 1) * 100;
     return { date, value: dd };
-  });
-}
-
-function splitPnlByOs(
-  pnlData: PnlSeriesPoint[],
-  osStartDate: string | undefined
-): IsOsPnlPoint[] {
-  return pnlData.map((p, i, arr) => {
-    const isOs = osStartDate !== undefined && p.date >= osStartDate;
-    const isBoundary = isOs && i > 0 && arr[i - 1].date < osStartDate!;
-    return {
-      date: p.date,
-      isNet: !isOs || isBoundary ? p.net : undefined,
-      osNet: isOs ? p.net : undefined,
-    };
   });
 }
 
@@ -167,7 +146,6 @@ const FMT_NONZERO = (v: number) => `${v.toFixed(0)}`;
 const FMT_USD = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osStartDate?: string }) {
-  const splitData = useMemo(() => splitPnlByOs(pnlData, osStartDate), [pnlData, osStartDate]);
   const theme = useThemeStore(s => s.theme);
   const colors = useMemo(() => getThemeColors(theme), [theme]);
 
@@ -175,7 +153,20 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
   const size = useContainerSize(containerRef);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
-  const uData = useMemo(() => toIsOsAlignedData(splitData), [splitData]);
+  const uData = useMemo<uPlot.AlignedData>(() => {
+    const len = pnlData.length;
+    const ts: number[] = new Array(len);
+    const netVals: (number | null)[] = new Array(len);
+    const grossVals: (number | null)[] = new Array(len);
+    for (let i = 0; i < len; i++) {
+      ts[i] = dateStrToUnix(pnlData[i].date);
+      netVals[i] = pnlData[i].net;
+      grossVals[i] = Number.isFinite(pnlData[i].gross) ? pnlData[i].gross : null;
+    }
+    return [ts, netVals, grossVals];
+  }, [pnlData]);
+
+  const osUnix = useMemo(() => osStartDate ? dateStrToUnix(osStartDate) : null, [osStartDate]);
 
   const opts = useMemo<uPlot.Options | null>(() => {
     if (size.width === 0 || size.height === 0) return null;
@@ -196,21 +187,44 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
       ],
       series: [
         {},
-        { stroke: '#4af6c3', width: 2, label: 'IS' },
-        { stroke: '#ff9800', width: 2, label: 'OS' },
+        { stroke: '#4af6c3', width: 2, label: 'Net' },
+        { stroke: '#ff9800', width: 1.5, label: 'Gross', dash: [4, 3] },
       ],
       hooks: {
+        draw: [
+          (u: uPlot) => {
+            if (osUnix == null) return;
+            const cx = u.valToPos(osUnix, 'x', true);
+            if (cx < u.bbox.left || cx > u.bbox.left + u.bbox.width) return;
+            const ctx = u.ctx;
+            ctx.save();
+            ctx.strokeStyle = colors.chartGrid;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(cx, u.bbox.top);
+            ctx.lineTo(cx, u.bbox.top + u.bbox.height);
+            ctx.stroke();
+            // label
+            ctx.setLineDash([]);
+            ctx.fillStyle = colors.chartText;
+            ctx.font = '10px "JetBrains Mono", monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('OS', cx + 4, u.bbox.top + 12);
+            ctx.restore();
+          },
+        ],
         setCursor: [(u: uPlot) => {
           const tt = tooltipRef.current;
           if (!tt) return;
           const { idx, left, top } = u.cursor;
           if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
-          const isVal = u.data[1][idx] as number | null;
-          const osVal = u.data[2][idx] as number | null;
-          if (isVal == null && osVal == null) { tt.style.display = 'none'; return; }
+          const netVal = u.data[1][idx] as number | null;
+          const grossVal = u.data[2][idx] as number | null;
+          if (netVal == null && grossVal == null) { tt.style.display = 'none'; return; }
           let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
-          if (isVal != null) html += `<div><span style="color:#4af6c3">IS:</span> ${FMT_USD(isVal)}</div>`;
-          if (osVal != null) html += `<div><span style="color:#ff9800">OS:</span> ${FMT_USD(osVal)}</div>`;
+          if (netVal != null) html += `<div><span style="color:#4af6c3">Net:</span> ${FMT_USD(netVal)}</div>`;
+          if (grossVal != null) html += `<div><span style="color:#ff9800">Gross:</span> ${FMT_USD(grossVal)}</div>`;
           tt.innerHTML = html;
           tt.style.display = 'block';
           const dpr = getDPR();
@@ -226,11 +240,11 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
         }],
       },
     };
-  }, [size.width, size.height, colors]);
+  }, [size.width, size.height, colors, osUnix]);
 
   useUPlot(containerRef, opts, uData, size);
 
-  if (splitData.length === 0) {
+  if (pnlData.length === 0) {
     return (
       <div className="h-full flex flex-col">
         <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
@@ -240,7 +254,7 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
       <div ref={containerRef} className="flex-1 relative" />
       <div
@@ -354,7 +368,7 @@ const BigChart = React.memo(function BigChart({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       <div className="px-3 py-2"><span className="text-xs text-foreground-muted">{title}</span></div>
       <div ref={containerRef} className="flex-1 relative" />
       <div
@@ -395,19 +409,17 @@ export default function DetailTimeSeries({
   }, [fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate]);
 
   const { isMddData, osMddData } = useMemo(() => {
+    const fullMdd = buildMddDataFromEquity(pnlBundle.netEquityData);
     const isEntries: SingleSeriesPoint[] = [];
     const osEntries: SingleSeriesPoint[] = [];
-    for (const p of pnlBundle.netEquityData) {
+    for (const p of fullMdd) {
       if (alpha.osStartDate && p.date >= alpha.osStartDate) {
         osEntries.push(p);
       } else {
         isEntries.push(p);
       }
     }
-    return {
-      isMddData: buildMddDataFromEquity(isEntries),
-      osMddData: buildMddDataFromEquity(osEntries),
-    };
+    return { isMddData: isEntries, osMddData: osEntries };
   }, [pnlBundle.netEquityData, alpha.osStartDate]);
 
   const turnoverData = useMemo(

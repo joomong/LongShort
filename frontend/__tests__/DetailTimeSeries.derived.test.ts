@@ -14,9 +14,9 @@ describe('DetailTimeSeries derived data', () => {
       '2024-01-04': 0.03,
     };
     const turnover = {
-      '2024-01-02': 0.5,
-      '2024-01-03': 0.2,
-      '2024-01-04': 0.1,
+      '2024-01-02': 50,
+      '2024-01-03': 20,
+      '2024-01-04': 10,
     };
 
     const out = buildPnlBundleFromRet(ret, turnover, 100000, 0.001);
@@ -35,9 +35,9 @@ describe('DetailTimeSeries derived data', () => {
       '2024-01-07': -0.01,
     };
     const turnover = {
-      '2024-01-05': 0.15,
+      '2024-01-05': 15,
       '2024-01-06': null,
-      '2024-01-07': 0.05,
+      '2024-01-07': 5,
     };
 
     const out = buildPnlBundleFromRet(ret, turnover, 100000, 0.001);
