@@ -1,17 +1,22 @@
 'use client';
 
-import { useMemo } from 'react';
-import {
-  LineChart,
-  Line,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from 'recharts';
+import React, { useMemo, useRef } from 'react';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
 import { useThemeStore } from '@/store/themeStore';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getThemeColors } from '@/lib/themeColors';
+import {
+  toIsOsAlignedData,
+  toMultiSeriesData,
+  toAlignedData,
+  buildUPlotAxes,
+  fmtMonth,
+  fmtDate,
+  getDPR,
+  TOOLTIP_STYLE,
+} from '@/lib/uplotUtils';
+import { useContainerSize, useUPlot } from '@/lib/uplotAdapters';
 import type { BacktestAlphaResult } from '@/types';
 
 export type DetailMetricKey = 'pnl' | 'turnover' | 'nonZero' | 'maxWeight' | 'mdd' | 'minBet';
@@ -71,8 +76,6 @@ export function buildPnlBundleFromRet(
     }
   }
 
-  // STAR uses additive (simple) PnL: cumRet is the running sum of daily return fractions.
-  // Daily dollar PnL = cumRet * capital. Do NOT compound (multiply equity by 1+r).
   let cumRet = 0;
   let cumGrossRet = 0;
   let grossKnown = true;
@@ -125,7 +128,6 @@ function splitPnlByOs(
     const isBoundary = isOs && i > 0 && arr[i - 1].date < osStartDate!;
     return {
       date: p.date,
-      // IS 구간이거나, IS→OS 경계점에서 연결선 유지
       isNet: !isOs || isBoundary ? p.net : undefined,
       osNet: isOs ? p.net : undefined,
     };
@@ -145,7 +147,6 @@ function mergeIsOsSeries(
     for (const p of osData) {
       merged.push({ date: p.date, isValue: undefined, osValue: p.value });
     }
-    // Overlap: first OS point also has isValue
     if (merged.length > isData.length) {
       merged[isData.length].isValue = lastIs.value;
     }
@@ -157,109 +158,101 @@ function mergeIsOsSeries(
   return merged;
 }
 
-function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osStartDate?: string }) {
-  const data = useMemo(() => splitPnlByOs(pnlData, osStartDate), [pnlData, osStartDate]);
-  const { theme } = useThemeStore();
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  const colors = useMemo(() => {
-    void theme;
-    return getThemeColors();
-  }, [theme]);
+// ── Stable format functions (hoisted to avoid useMemo invalidation) ──
+const FMT_TURNOVER = (v: number) => `${v.toFixed(1)}%`;
+const FMT_MDD = (v: number) => `${v.toFixed(2)}%`;
+const FMT_MINBET = (v: number) => v.toFixed(4);
+const FMT_MAXWGT = (v: number) => `${v.toFixed(2)}%`;
+const FMT_NONZERO = (v: number) => `${v.toFixed(0)}`;
+const FMT_USD = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-  const monthlyTicks = useMemo(() => {
-    if (data.length === 0) return [];
-    const indices: number[] = [];
-    let lastMonth = '';
-    data.forEach((d, i) => {
-      const month = d.date.slice(0, 7);
-      if (month !== lastMonth) {
-        indices.push(i);
-        lastMonth = month;
-      }
-    });
-    return indices;
-  }, [data]);
+const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osStartDate?: string }) {
+  const splitData = useMemo(() => splitPnlByOs(pnlData, osStartDate), [pnlData, osStartDate]);
+  const theme = useThemeStore(s => s.theme);
+  const colors = useMemo(() => getThemeColors(theme), [theme]);
 
-  if (data.length === 0) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const size = useContainerSize(containerRef);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  const uData = useMemo(() => toIsOsAlignedData(splitData), [splitData]);
+
+  const opts = useMemo<uPlot.Options | null>(() => {
+    if (size.width === 0 || size.height === 0) return null;
+    const [axisX, axisY] = buildUPlotAxes(colors);
+    return {
+      width: size.width,
+      height: size.height,
+      padding: [8, 10, 0, 0],
+      cursor: {
+        y: false,
+        drag: { x: false, y: false },
+      },
+      legend: { show: false },
+      scales: { x: { time: true }, y: { auto: true } },
+      axes: [
+        { ...axisX, values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth), gap: 5, size: 40 },
+        { ...axisY, show: false },
+      ],
+      series: [
+        {},
+        { stroke: '#4af6c3', width: 2, label: 'IS' },
+        { stroke: '#ff9800', width: 2, label: 'OS' },
+      ],
+      hooks: {
+        setCursor: [(u: uPlot) => {
+          const tt = tooltipRef.current;
+          if (!tt) return;
+          const { idx, left, top } = u.cursor;
+          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
+          const isVal = u.data[1][idx] as number | null;
+          const osVal = u.data[2][idx] as number | null;
+          if (isVal == null && osVal == null) { tt.style.display = 'none'; return; }
+          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
+          if (isVal != null) html += `<div><span style="color:#4af6c3">IS:</span> ${FMT_USD(isVal)}</div>`;
+          if (osVal != null) html += `<div><span style="color:#ff9800">OS:</span> ${FMT_USD(osVal)}</div>`;
+          tt.innerHTML = html;
+          tt.style.display = 'block';
+          const dpr = getDPR();
+          const bL = u.bbox.left / dpr;
+          const bT = u.bbox.top / dpr;
+          let x = left + bL + 15;
+          const ttMaxW = 150;
+          if (x + ttMaxW > size.width) {
+            x = left + bL - ttMaxW - 15;
+          }
+          tt.style.left = `${x}px`;
+          tt.style.top = `${(top ?? 0) + bT - 10}px`;
+        }],
+      },
+    };
+  }, [size.width, size.height, colors]);
+
+  useUPlot(containerRef, opts, uData, size);
+
+  if (splitData.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="px-3 py-2">
-          <span className="text-xs text-foreground-muted">PnL ($)</span>
-        </div>
+        <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
         <div className="flex-1 bg-chart-background" />
       </div>
     );
   }
 
-  const formatUsd = (v: number) =>
-    `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-
   return (
     <div className="h-full flex flex-col">
-      <div className="px-3 py-2">
-        <span className="text-xs text-foreground-muted">PnL ($)</span>
-      </div>
-      <div className="flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 10, bottom: 20, left: 40 }}>
-            <XAxis
-              dataKey="date"
-              ticks={monthlyTicks.map((i) => data[i]?.date).filter(Boolean)}
-              tickFormatter={(d: string) => d.slice(0, 7)}
-              tick={{ fontSize: 10, fill: colors.chartText }}
-              axisLine={false}
-              tickLine={false}
-              angle={-35}
-              textAnchor="end"
-              height={40}
-            />
-            <YAxis hide domain={['auto', 'auto']} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: colors.backgroundElevated,
-                border: `1px solid ${colors.chartGrid}`,
-                borderRadius: 0,
-                fontSize: 12,
-                color: colors.chartText,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-              }}
-              labelStyle={{ color: colors.chartText, fontSize: 11 }}
-              formatter={(value: unknown, name: unknown) => {
-                const n = typeof value === 'number' ? value : Number(value);
-                return [
-                  Number.isFinite(n) ? formatUsd(n) : 'N/A',
-                  name === 'isNet' ? 'IS' : 'OS',
-                ];
-              }}
-              labelFormatter={(_label, payload) => {
-                const entry = payload?.[0]?.payload as IsOsPnlPoint | undefined;
-                return entry?.date ?? '';
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="isNet"
-              stroke="#4af6c3"
-              dot={false}
-              strokeWidth={2}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="osNet"
-              stroke="#ff9800"
-              dot={false}
-              strokeWidth={2}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
+      <div ref={containerRef} className="flex-1 relative" />
+      <div
+        ref={tooltipRef}
+        suppressHydrationWarning
+        style={{ ...TOOLTIP_STYLE, backgroundColor: colors.backgroundElevated, border: `1px solid ${colors.chartGrid}`, color: colors.chartText }}
+      />
     </div>
   );
-}
+});
 
-function BigChart({
+const BigChart = React.memo(function BigChart({
   title,
   data,
   color,
@@ -274,43 +267,87 @@ function BigChart({
   osColor?: string;
   formatValue?: (v: number) => string;
 }) {
-  const fmt = formatValue ?? ((v: number) => v.toFixed(4));
-  const { theme } = useThemeStore();
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  const colors = useMemo(() => {
-    void theme;
-    return getThemeColors();
-  }, [theme]);
+  const fmt = formatValue ?? FMT_MINBET;
+  const theme = useThemeStore(s => s.theme);
+  const colors = useMemo(() => getThemeColors(theme), [theme]);
 
   const hasOs = osData && osData.length > 0;
-
   const mergedData = useMemo(() => {
     if (!hasOs) return null;
     return mergeIsOsSeries(data, osData);
   }, [data, osData, hasOs]);
 
-  const chartData = hasOs ? mergedData! : data;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const size = useContainerSize(containerRef);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  const monthlyTicks = useMemo(() => {
-    if (chartData.length === 0) return [];
-    const indices: number[] = [];
-    let lastMonth = '';
-    chartData.forEach((d, i) => {
-      const month = d.date.slice(0, 7);
-      if (month !== lastMonth) {
-        indices.push(i);
-        lastMonth = month;
-      }
-    });
-    return indices;
-  }, [chartData]);
+  const uData = useMemo<uPlot.AlignedData>(() => {
+    if (hasOs && mergedData) {
+      return toMultiSeriesData(mergedData as unknown as Record<string, unknown>[], 'date', ['isValue', 'osValue']);
+    }
+    return toAlignedData(data.map(d => ({ date: d.date, value: d.value })));
+  }, [data, mergedData, hasOs]);
+
+  const opts = useMemo<uPlot.Options | null>(() => {
+    if (size.width === 0 || size.height === 0) return null;
+    const [axisX, axisY] = buildUPlotAxes(colors);
+    const seriesDefs: uPlot.Series[] = hasOs
+      ? [{}, { stroke: color, width: 2, label: 'IS' }, { stroke: osColor ?? '#ff9800', width: 2, label: 'OS' }]
+      : [{}, { stroke: color, width: 2, label: title }];
+
+    return {
+      width: size.width,
+      height: size.height,
+      padding: [8, 10, 0, 0],
+      cursor: { y: false, drag: { x: false, y: false } },
+      legend: { show: false },
+      scales: { x: { time: true }, y: { auto: true } },
+      axes: [
+        { ...axisX, values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth), gap: 5, size: 40 },
+        { ...axisY, show: false },
+      ],
+      series: seriesDefs,
+      hooks: {
+        setCursor: [(u: uPlot) => {
+          const tt = tooltipRef.current;
+          if (!tt) return;
+          const { idx, left, top } = u.cursor;
+          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
+          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
+          if (hasOs) {
+            const isV = u.data[1][idx] as number | null;
+            const osV = u.data[2][idx] as number | null;
+            if (isV == null && osV == null) { tt.style.display = 'none'; return; }
+            if (isV != null) html += `<div><span style="color:${color}">IS:</span> ${fmt(isV)}</div>`;
+            if (osV != null) html += `<div><span style="color:${osColor ?? '#ff9800'}">OS:</span> ${fmt(osV)}</div>`;
+          } else {
+            const v = u.data[1][idx] as number | null;
+            if (v == null) { tt.style.display = 'none'; return; }
+            html += `<div>${fmt(v)}</div>`;
+          }
+          tt.innerHTML = html;
+          tt.style.display = 'block';
+          const dpr = getDPR();
+          const bL = u.bbox.left / dpr;
+          const bT = u.bbox.top / dpr;
+          let x = left + bL + 15;
+          const ttMaxW = 150;
+          if (x + ttMaxW > size.width) {
+            x = left + bL - ttMaxW - 15;
+          }
+          tt.style.left = `${x}px`;
+          tt.style.top = `${(top ?? 0) + bT - 10}px`;
+        }],
+      },
+    };
+  }, [size.width, size.height, colors, color, osColor, hasOs, title, fmt]);
+
+  useUPlot(containerRef, opts, uData, size);
 
   if (data.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="px-3 py-2">
-          <span className="text-xs text-foreground-muted">{title}</span>
-        </div>
+        <div className="px-3 py-2"><span className="text-xs text-foreground-muted">{title}</span></div>
         <div className="flex-1 bg-chart-background" />
       </div>
     );
@@ -318,84 +355,16 @@ function BigChart({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-3 py-2">
-        <span className="text-xs text-foreground-muted">{title}</span>
-      </div>
-      <div className="flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 20, left: 40 }}>
-            <XAxis
-              dataKey="date"
-              ticks={monthlyTicks.map((i) => chartData[i]?.date).filter(Boolean)}
-              tickFormatter={(d: string) => d.slice(0, 7)}
-              tick={{ fontSize: 10, fill: colors.chartText }}
-              axisLine={false}
-              tickLine={false}
-              angle={-35}
-              textAnchor="end"
-              height={40}
-            />
-            <YAxis hide domain={['auto', 'auto']} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: colors.backgroundElevated,
-                border: `1px solid ${colors.chartGrid}`,
-                borderRadius: 0,
-                fontSize: 12,
-                color: colors.chartText,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-              }}
-              labelStyle={{ color: colors.chartText, fontSize: 11 }}
-              formatter={(value: unknown, name: unknown) => {
-                const n = typeof value === 'number' ? value : Number(value);
-                if (hasOs) {
-                  return [
-                    Number.isFinite(n) ? fmt(n) : 'N/A',
-                    name === 'isValue' ? 'IS' : 'OS',
-                  ];
-                }
-                return [Number.isFinite(n) ? fmt(n) : 'N/A', title];
-              }}
-              labelFormatter={(_label, payload) => {
-                const entry = payload?.[0]?.payload as { date: string } | undefined;
-                return entry?.date ?? '';
-              }}
-            />
-            {hasOs ? (
-              <>
-                <Line
-                  type="monotone"
-                  dataKey="isValue"
-                  stroke={color}
-                  dot={false}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="osValue"
-                  stroke={osColor}
-                  dot={false}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                />
-              </>
-            ) : (
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke={color}
-                dot={false}
-                strokeWidth={2}
-                isAnimationActive={false}
-              />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <div className="px-3 py-2"><span className="text-xs text-foreground-muted">{title}</span></div>
+      <div ref={containerRef} className="flex-1 relative" />
+      <div
+        ref={tooltipRef}
+        suppressHydrationWarning
+        style={{ ...TOOLTIP_STYLE, backgroundColor: colors.backgroundElevated, border: `1px solid ${colors.chartGrid}`, color: colors.chartText }}
+      />
     </div>
   );
-}
+});
 
 export default function DetailTimeSeries({
   alpha,
@@ -487,7 +456,7 @@ export default function DetailTimeSeries({
         color="#0078ff"
         osData={osTurnoverData}
         osColor="#ff9800"
-        formatValue={(v) => `${v.toFixed(1)}%`}
+        formatValue={FMT_TURNOVER}
       />
     );
   }
@@ -500,7 +469,7 @@ export default function DetailTimeSeries({
         color="#ff433d"
         osData={osMddData}
         osColor="#ff9800"
-        formatValue={(v) => `${v.toFixed(2)}%`}
+        formatValue={FMT_MDD}
       />
     );
   }
@@ -513,7 +482,7 @@ export default function DetailTimeSeries({
         color="#0078ff"
         osData={osMinBetData}
         osColor="#ff9800"
-        formatValue={(v) => v.toFixed(4)}
+        formatValue={FMT_MINBET}
       />
     );
   }
@@ -526,7 +495,7 @@ export default function DetailTimeSeries({
         color="#0078ff"
         osData={osMaxWeightData}
         osColor="#ff9800"
-        formatValue={(v) => `${(v * 100).toFixed(2)}%`}
+        formatValue={FMT_MAXWGT}
       />
     );
   }
@@ -538,7 +507,7 @@ export default function DetailTimeSeries({
       color="#0078ff"
       osData={osNonZeroData}
       osColor="#ff9800"
-      formatValue={(v) => `${v.toFixed(0)}`}
+      formatValue={FMT_NONZERO}
     />
   );
 }

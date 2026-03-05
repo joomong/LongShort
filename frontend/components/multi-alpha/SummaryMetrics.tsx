@@ -43,7 +43,7 @@ export default function SummaryMetrics() {
             <div className="text-[11px] uppercase tracking-wider font-medium text-foreground-muted">Turnover</div>
             <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</div>
             <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</div>
-            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) : '-'}</div>
+            <div className={`text-xs font-mono tabular-nums px-1 ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) + '%' : '-'}</div>
           </div>
         </div>
         {/* OS Section */}

@@ -1,6 +1,5 @@
 import type {
   StarConfigResponse,
-  StarSimulateResponse,
   StarBatchResponse,
   StarGAEvent,
   StarGACompleteEvent,
@@ -17,26 +16,45 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+function parseApiErrorPayload(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.detail === 'string') return obj.detail;
+  if (typeof obj.error === 'string') return obj.error;
+  if (Array.isArray(obj.detail)) {
+    return obj.detail
+      .map((d: unknown) => {
+        if (d && typeof d === 'object' && 'msg' in d) {
+          const msg = (d as Record<string, unknown>).msg;
+          if (typeof msg === 'string') return msg;
+        }
+        return JSON.stringify(d);
+      })
+      .join('; ');
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Adapter helpers
-// C++ STAR engine returns fractions (0.874 = 87.4%). Frontend displays
-// percentage points, so pnl/ann_ret/mdd/turnover/min_bet are ×100 here.
-// max_weight stays as fraction — the display layer does ×100 itself.
+// C++ STAR engine now returns display-ready values: percentage fields as
+// percentage points (e.g. 26.7 = 26.7%), counts as counts. Field mapping only.
 // ---------------------------------------------------------------------------
 
 function adaptStarToIS(s: StarSummary): ISMetrics {
   return {
-    pnl: s.pnl * 100,
+    pnl: s.pnl,
     sharpe: s.sharpe,
-    mdd: s.mdd * 100,
-    turnover: s.turnover * 100,
-    min_bet: s.minBet * 100,
+    mdd: s.mdd,
+    turnover: s.turnover,
+    min_bet: s.minBet,
     max_weight: s.maxWeight,
-    ann_ret: s.return * 100,
+    ann_ret: s.return,
     margin: s.margin,
     nonzeroPosition: s.nonzeroPosition,
     avgMaxBet: s.avgMaxBet,
-    minBetMin: s.minBetMin * 100,
+    minBetMin: s.minBetMin,
     quality: s.quality,
     sharpe400: s.sharpe400,
     sharpe80: s.sharpe80,
@@ -46,17 +64,17 @@ function adaptStarToIS(s: StarSummary): ISMetrics {
 
 function adaptStarToOS(s: StarSummary): OSMetrics {
   return {
-    pnl: s.pnl * 100,
+    pnl: s.pnl,
     sharpe: s.sharpe,
-    mdd: s.mdd * 100,
-    ann_ret: s.return * 100,
-    turnover: s.turnover * 100,
-    min_bet: s.minBet * 100,
+    mdd: s.mdd,
+    ann_ret: s.return,
+    turnover: s.turnover,
+    min_bet: s.minBet,
     max_weight: s.maxWeight,
     margin: s.margin,
     nonzeroPosition: s.nonzeroPosition,
     avgMaxBet: s.avgMaxBet,
-    minBetMin: s.minBetMin * 100,
+    minBetMin: s.minBetMin,
     quality: s.quality,
     sharpe400: s.sharpe400,
     sharpe80: s.sharpe80,
@@ -84,41 +102,85 @@ function cumPnlToDailyReturns(timestamps: string[], cumPnl: number[], prevCumPnl
   return rec;
 }
 
-export function adaptSingleResponse(resp: StarSimulateResponse): BacktestRunResponse {
-  const isMetrics = adaptStarToIS(resp.summary.is);
-  const osMetrics = adaptStarToOS(resp.summary.os);
+function buildSplitSeriesFromTimeseries(
+  ts: StarTimeseries,
+  isStartIndex: number,
+  osStartIndex: number,
+) {
+  const upper = ts.timestamps.length;
+  const isStart = Math.max(0, Math.min(isStartIndex, upper));
+  const osStart = Math.max(isStart, Math.min(osStartIndex, upper));
 
-  const ts: StarTimeseries = resp.timeseries;
+  const isTs = ts.timestamps.slice(isStart, osStart);
+  const osTs = ts.timestamps.slice(osStart);
+  const isCumPnl = ts.cumPnl.slice(isStart, osStart);
+  const osCumPnl = ts.cumPnl.slice(osStart);
 
-  const isTs = ts.timestamps.slice(resp.isStartIndex, resp.osStartIndex);
-  const osTs = ts.timestamps.slice(resp.osStartIndex);
-  const isCumPnl = ts.cumPnl.slice(resp.isStartIndex, resp.osStartIndex);
-  const osCumPnl = ts.cumPnl.slice(resp.osStartIndex);
-
-  const alpha: BacktestAlphaResult = {
-    name: 'alpha_0',
-    rank: 1,
-    isMetrics,
-    osMetrics,
-    yearly: resp.yearly,
-    isRetSeries: cumPnlToDailyReturns(isTs, isCumPnl, resp.isStartIndex > 0 ? ts.cumPnl[resp.isStartIndex - 1] : 0),
-    osRetSeries: cumPnlToDailyReturns(osTs, osCumPnl, ts.cumPnl[resp.osStartIndex - 1]),
-    isTurnoverSeries: tsArrayToRecord(isTs, ts.turnover.slice(resp.isStartIndex, resp.osStartIndex)),
-    osTurnoverSeries: tsArrayToRecord(osTs, ts.turnover.slice(resp.osStartIndex)),
-    isMaxWeightSeries: tsArrayToRecord(isTs, ts.maxWeight.slice(resp.isStartIndex, resp.osStartIndex)),
-    osMaxWeightSeries: tsArrayToRecord(osTs, ts.maxWeight.slice(resp.osStartIndex)),
-    isNonzeroPositionSeries: tsArrayToRecord(isTs, ts.nonzeroCount.slice(resp.isStartIndex, resp.osStartIndex)),
-    osNonzeroPositionSeries: tsArrayToRecord(osTs, ts.nonzeroCount.slice(resp.osStartIndex)),
-    isEquitySeries: tsArrayToRecord(isTs, isCumPnl),
-    osEquitySeries: tsArrayToRecord(osTs, osCumPnl),
-    osStartDate: ts.timestamps[resp.osStartIndex],
-    longRatio: resp.summary.is.longRatio,
-    shortRatio: resp.summary.is.shortRatio,
-  };
+  const prevIsCumPnl = isStart > 0 ? (ts.cumPnl[isStart - 1] ?? 0) : 0;
+  const prevOsCumPnl = osStart > 0 ? (ts.cumPnl[osStart - 1] ?? 0) : 0;
 
   return {
-    combined: { isMetrics, osMetrics, isRetSeries: alpha.isRetSeries, osRetSeries: alpha.osRetSeries },
-    alphas: [alpha],
+    isRetSeries: cumPnlToDailyReturns(isTs, isCumPnl, prevIsCumPnl),
+    osRetSeries: cumPnlToDailyReturns(osTs, osCumPnl, prevOsCumPnl),
+    isTurnoverSeries: tsArrayToRecord(isTs, ts.turnover.slice(isStart, osStart)),
+    osTurnoverSeries: tsArrayToRecord(osTs, ts.turnover.slice(osStart)),
+    isMaxWeightSeries: tsArrayToRecord(isTs, ts.maxWeight.slice(isStart, osStart)),
+    osMaxWeightSeries: tsArrayToRecord(osTs, ts.maxWeight.slice(osStart)),
+    isNonzeroPositionSeries: tsArrayToRecord(isTs, ts.nonzeroCount.slice(isStart, osStart)),
+    osNonzeroPositionSeries: tsArrayToRecord(osTs, ts.nonzeroCount.slice(osStart)),
+    isEquitySeries: tsArrayToRecord(isTs, isCumPnl),
+    osEquitySeries: tsArrayToRecord(osTs, osCumPnl),
+    osStartDate: ts.timestamps[osStart],
+  };
+}
+
+export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunResponse {
+  if (!resp.batches || resp.batches.length === 0) {
+    return {
+      combined: null,
+      alphas: [],
+      yearly: resp.yearly,
+      heatmap: null,
+      signalRange: null,
+      distribution: null,
+    };
+  }
+
+  const combinedSource = resp.combined ?? resp.batches[0];
+  const combinedTs = combinedSource.timeseries ?? resp.timeseries;
+  const combinedIsStart = combinedSource.isStartIndex ?? resp.isStartIndex;
+  const combinedOsStart = combinedSource.osStartIndex ?? resp.osStartIndex;
+  const combinedSeries = buildSplitSeriesFromTimeseries(combinedTs, combinedIsStart, combinedOsStart);
+
+  const combined: BacktestCombinedResult = {
+    isMetrics: adaptStarToIS(combinedSource.summary.is),
+    osMetrics: adaptStarToOS(combinedSource.summary.os),
+    isRetSeries: combinedSeries.isRetSeries,
+    osRetSeries: combinedSeries.osRetSeries,
+  };
+
+  const alphas: BacktestAlphaResult[] = resp.batches.map((batch, i) => {
+    const ts = batch.timeseries ?? resp.timeseries;
+    const isStart = batch.isStartIndex ?? resp.isStartIndex;
+    const osStart = batch.osStartIndex ?? resp.osStartIndex;
+    const series = buildSplitSeriesFromTimeseries(ts, isStart, osStart);
+
+    return {
+      name: `alpha_${batch.index}`,
+      rank: i + 1,
+      isMetrics: adaptStarToIS(batch.summary.is),
+      osMetrics: adaptStarToOS(batch.summary.os),
+      xml: batch.xml,
+      yearly: batch.yearly ?? resp.yearly,
+      longRatio: batch.summary.is.longRatio,
+      shortRatio: batch.summary.is.shortRatio,
+      ...series,
+    };
+  });
+
+  return {
+    combined,
+    alphas,
     yearly: resp.yearly,
     heatmap: resp.signalPlot ?? null,
     signalRange: resp.signalRange ?? null,
@@ -126,111 +188,8 @@ export function adaptSingleResponse(resp: StarSimulateResponse): BacktestRunResp
   };
 }
 
-export function adaptBatchResponse(resp: StarBatchResponse): BacktestRunResponse {
-  const ts: StarTimeseries = resp.timeseries;
-
-  const alphas: BacktestAlphaResult[] = resp.batches.map((batch, i) => ({
-    name: `alpha_${batch.index}`,
-    rank: i + 1,
-    isMetrics: adaptStarToIS(batch.summary.is),
-    osMetrics: adaptStarToOS(batch.summary.os),
-    longRatio: batch.summary.is.longRatio,
-    shortRatio: batch.summary.is.shortRatio,
-  }));
-
-  const best = resp.batches[0];
-  const combined: BacktestCombinedResult = {
-    isMetrics: adaptStarToIS(best.summary.is),
-    osMetrics: adaptStarToOS(best.summary.os),
-    isRetSeries: cumPnlToDailyReturns(
-      ts.timestamps.slice(resp.isStartIndex, resp.osStartIndex),
-      ts.cumPnl.slice(resp.isStartIndex, resp.osStartIndex),
-      resp.isStartIndex > 0 ? ts.cumPnl[resp.isStartIndex - 1] : 0,
-    ),
-    osRetSeries: cumPnlToDailyReturns(
-      ts.timestamps.slice(resp.osStartIndex),
-      ts.cumPnl.slice(resp.osStartIndex),
-      ts.cumPnl[resp.osStartIndex - 1],
-    ),
-  };
-
-  return {
-    combined,
-    alphas,
-    yearly: resp.yearly,
-    heatmap: null,
-    signalRange: null,
-    distribution: null,
-  };
-}
-
 export function adaptGACompleteToResponse(ev: StarGACompleteEvent): BacktestRunResponse {
-  const isMetrics = adaptStarToIS(ev.summary.is);
-  const osMetrics = adaptStarToOS(ev.summary.os);
-  const ts: StarTimeseries = ev.timeseries;
-
-  const alpha: BacktestAlphaResult = {
-    name: 'ga_best',
-    rank: 1,
-    isMetrics,
-    osMetrics,
-    yearly: ev.yearly,
-    xml: ev.bestXml,
-    isRetSeries: cumPnlToDailyReturns(
-      ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.cumPnl.slice(ev.isStartIndex, ev.osStartIndex),
-      ev.isStartIndex > 0 ? ts.cumPnl[ev.isStartIndex - 1] : 0,
-    ),
-    osRetSeries: cumPnlToDailyReturns(
-      ts.timestamps.slice(ev.osStartIndex),
-      ts.cumPnl.slice(ev.osStartIndex),
-      ts.cumPnl[ev.osStartIndex - 1],
-    ),
-    isTurnoverSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.turnover.slice(ev.isStartIndex, ev.osStartIndex)
-    ),
-    osTurnoverSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.osStartIndex),
-      ts.turnover.slice(ev.osStartIndex)
-    ),
-    isMaxWeightSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.maxWeight.slice(ev.isStartIndex, ev.osStartIndex)
-    ),
-    osMaxWeightSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.osStartIndex),
-      ts.maxWeight.slice(ev.osStartIndex)
-    ),
-    isNonzeroPositionSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.nonzeroCount.slice(ev.isStartIndex, ev.osStartIndex)
-    ),
-    osNonzeroPositionSeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.osStartIndex),
-      ts.nonzeroCount.slice(ev.osStartIndex)
-    ),
-    isEquitySeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.isStartIndex, ev.osStartIndex),
-      ts.cumPnl.slice(ev.isStartIndex, ev.osStartIndex)
-    ),
-    osEquitySeries: tsArrayToRecord(
-      ts.timestamps.slice(ev.osStartIndex),
-      ts.cumPnl.slice(ev.osStartIndex)
-    ),
-    osStartDate: ts.timestamps[ev.osStartIndex],
-    longRatio: ev.summary.is.longRatio,
-    shortRatio: ev.summary.is.shortRatio,
-  };
-
-  return {
-    combined: { isMetrics, osMetrics, isRetSeries: alpha.isRetSeries, osRetSeries: alpha.osRetSeries },
-    alphas: [alpha],
-    yearly: ev.yearly,
-    heatmap: null,
-    signalRange: null,
-    distribution: null,
-  };
+  return adaptSimulateResponse(ev);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,31 +205,21 @@ export async function getConfig(): Promise<StarConfigResponse> {
 export async function runSimulate(
   xml: string,
   isStart: string,
-  osStart: string
-): Promise<StarSimulateResponse | StarBatchResponse> {
+  osStart: string,
+  signal?: AbortSignal,
+): Promise<StarBatchResponse> {
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ xml, isStart, osStart }),
+    signal,
   });
 
   if (!response.ok) {
     let detail: string | undefined;
     try {
       const data = await response.json();
-      if (typeof data?.detail === 'string') {
-        detail = data.detail;
-      } else if (Array.isArray(data?.detail)) {
-        detail = data.detail
-          .map((d: unknown) => {
-            if (d && typeof d === 'object' && 'msg' in d) {
-              const msg = (d as Record<string, unknown>).msg;
-              if (typeof msg === 'string') return msg;
-            }
-            return JSON.stringify(d);
-          })
-          .join('; ');
-      }
+      detail = parseApiErrorPayload(data);
     } catch {
       // ignore json parse errors
     }
@@ -303,7 +252,7 @@ export async function runGAStream(
     let detail: string | undefined;
     try {
       const data = await response.json();
-      detail = typeof data?.detail === 'string' ? data.detail : undefined;
+      detail = parseApiErrorPayload(data);
     } catch { /* ignore */ }
     throw new Error(detail || `GA failed (${response.status})`);
   }

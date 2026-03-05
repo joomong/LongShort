@@ -65,18 +65,18 @@ function ResultRow({ item, index }: { item: BacktestAlphaResult; index: number }
       {/* IS Metrics */}
       <td className={`${cellClass} ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) : '-'}</td>
+      <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) + '%' : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(isMetrics.min_bet) ? isMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.max_weight) ? `${(isMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(isMetrics.max_weight) ? `${isMetrics.max_weight.toFixed(1)}%` : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(isMetrics.nonzeroPosition) ? isMetrics.nonzeroPosition : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(isMetrics.margin) ? isMetrics.margin.toFixed(4) : '-'}</td>
 
       {/* OS Metrics — thicker left border for group separator */}
       <td className={`${cellClass} border-l border-border-strong ${metricClass('pnl', osMetrics.ann_ret ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.ann_ret ?? osMetrics.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('turnover', osMetrics.turnover)}`}>{isFiniteNumber(osMetrics.turnover) ? osMetrics.turnover.toFixed(1) : '-'}</td>
+      <td className={`${cellClass} ${metricClass('turnover', osMetrics.turnover)}`}>{isFiniteNumber(osMetrics.turnover) ? osMetrics.turnover.toFixed(1) + '%' : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(osMetrics.min_bet) ? osMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(osMetrics.max_weight) ? `${(osMetrics.max_weight * 100).toFixed(1)}%` : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(osMetrics.max_weight) ? `${osMetrics.max_weight.toFixed(1)}%` : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(osMetrics.nonzeroPosition) ? osMetrics.nonzeroPosition : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(osMetrics.margin) ? osMetrics.margin.toFixed(4) : '-'}</td>
     </tr>

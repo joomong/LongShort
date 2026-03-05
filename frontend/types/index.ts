@@ -55,20 +55,14 @@ export interface StarDistribution {
   max: number;
 }
 
-export interface StarSimulateResponse {
-  summary: { is: StarSummary; os: StarSummary };
-  yearly: StarYearly[];
-  timeseries: StarTimeseries;
-  isStartIndex: number;
-  osStartIndex: number;
-  signalPlot?: HeatmapData;
-  signalRange?: SignalRange;
-  distribution?: StarDistribution;
-}
-
 export interface StarBatchEntry {
   index: number;
+  xml?: string;
   summary: { is: StarSummary; os: StarSummary };
+  yearly?: StarYearly[];
+  timeseries?: StarTimeseries;
+  isStartIndex?: number;
+  osStartIndex?: number;
 }
 
 export interface StarBatchResponse {
@@ -77,6 +71,10 @@ export interface StarBatchResponse {
   timeseries: StarTimeseries;
   isStartIndex: number;
   osStartIndex: number;
+  combined?: StarBatchEntry;
+  signalPlot?: HeatmapData;
+  signalRange?: SignalRange;
+  distribution?: StarDistribution;
 }
 
 export interface StarConfigResponse {
@@ -101,7 +99,7 @@ export interface StarGAGenerationEvent {
 export interface StarGACompleteEvent {
   type: 'complete';
   bestXml: string;
-  summary: { is: StarSummary; os: StarSummary };
+  batches: StarBatchEntry[];
   yearly: StarYearly[];
   timeseries: StarTimeseries;
   isStartIndex: number;
@@ -137,9 +135,9 @@ export interface ISMetrics {
   /** Percentage points, e.g. 26.7 means 26.7% daily turnover */
   turnover?: number;
   ann_ret?: number;
-  /** Percentage points, e.g. 0.35 means 0.35 active symbols */
+  /** Count of symbols with position (average) */
   min_bet?: number;
-  /** Raw fraction, e.g. 0.6 means 60% — display layer multiplies by 100 */
+  /** Percentage points, e.g. 60.0 means 60% */
   max_weight?: number;
   margin?: number;
   nonzeroPosition?: number;
