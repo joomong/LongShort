@@ -313,7 +313,7 @@ int main(int argc, char* argv[])
 
                 std::vector<BatchResult> batches(alphas.size());
                 SimulatorOutput single_sim_out;  // kept only for signal data
-                std::vector<std::vector<std::vector<float>>> all_signals;
+                std::vector<std::vector<float>> combined_signals;
 
                 auto assign_batch = [&](size_t i, FullMetricsResult&& metrics) {
                     BatchResult br;
@@ -328,18 +328,35 @@ int main(int argc, char* argv[])
                     single_sim_out = std::move(sim_out);
                     assign_batch(0, std::move(metrics));
                 } else {
+                    const unsigned T = g_data.T;
+                    const unsigned N = g_data.N;
+                    combined_signals.assign(
+                        T, std::vector<float>(N, std::numeric_limits<float>::quiet_NaN()));
+
                     unsigned hw = std::thread::hardware_concurrency();
                     if (hw == 0)
                         hw = 1;
                     unsigned n_threads = (req_threads == 0) ? hw : req_threads;
                     n_threads = std::max(1u, std::min<unsigned>(n_threads, static_cast<unsigned>(alphas.size())));
 
-                    all_signals.resize(alphas.size());
-
                     std::atomic<size_t> next_idx{0};
                     std::atomic<bool> has_err{false};
                     std::mutex err_mu;
+                    std::mutex combined_mu;
                     std::string first_err;
+
+                    auto accumulate_combined = [&](const std::vector<std::vector<float>>& alpha_signals) {
+                        std::lock_guard<std::mutex> lock(combined_mu);
+                        for (unsigned di = 0; di < T; ++di) {
+                            for (unsigned ii = 0; ii < N; ++ii) {
+                                const float s = alpha_signals[di][ii];
+                                if (!std::isfinite(s))
+                                    continue;
+                                float& c = combined_signals[di][ii];
+                                c = std::isfinite(c) ? c + s : s;
+                            }
+                        }
+                    };
 
                     auto worker = [&]() {
                         while (true) {
@@ -351,7 +368,7 @@ int main(int argc, char* argv[])
                                 return;
                             try {
                                 auto [sim_out, metrics] = run_one(alphas[i], true);
-                                all_signals[i] = std::move(sim_out.signals);
+                                accumulate_combined(sim_out.signals);
                                 assign_batch(i, std::move(metrics));
                             } catch (const std::exception& e) {
                                 std::lock_guard<std::mutex> lock(err_mu);
@@ -415,20 +432,6 @@ int main(int argc, char* argv[])
                 if (!single) {
                     const unsigned T = g_data.T;
                     const unsigned N = g_data.N;
-                    std::vector<std::vector<float>> combined_signals(T,
-                        std::vector<float>(N, std::numeric_limits<float>::quiet_NaN()));
-
-                    for (size_t a = 0; a < all_signals.size(); ++a) {
-                        const auto& alpha_sigs = all_signals[a];
-                        for (unsigned di = 0; di < T; ++di) {
-                            for (unsigned ii = 0; ii < N; ++ii) {
-                                float s = alpha_sigs[di][ii];
-                                if (!std::isfinite(s)) continue;
-                                float& c = combined_signals[di][ii];
-                                c = std::isfinite(c) ? c + s : s;
-                            }
-                        }
-                    }
 
                     SimulatorConfig combined_cfg;
                     combined_cfg.T = T;
