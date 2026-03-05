@@ -238,10 +238,9 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         throw CompileError("Pipeline is empty");
 
     CompiledAlpha result;
-    std::map<std::string, Module*> signal_registry;
-    // signal_registry: Module* for MEvent's re-execution pattern
-    // cache_registry: MSignalSave* for input="" sv restoration
+    // cache_registry: MSignalSave* for input/signal/event cache restoration
     std::map<std::string, MSignalSave*> cache_registry;
+    unsigned data_chain_count = 1;
 
     if (ops[0].first != "data")
         throw CompileError("First pipeline element must be 'data', got '" + ops[0].first + "'");
@@ -280,6 +279,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         const auto&        attribs = ops[i].second;
 
         if (tag == "data") {
+            ++data_chain_count;
             std::string expr = "close";
             {
                 auto it = attribs.find("expr");
@@ -311,8 +311,6 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
                 throw CompileError("<signal> tag missing 'id' attribute");
             const std::string& sig_id = it->second;
 
-            signal_registry[sig_id] = current;
-
             auto save = std::make_unique<MSignalSave>();
             save->label = sig_id;
             MSignalSave* save_ptr = save.get();
@@ -334,30 +332,36 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
                 if (it != attribs.end()) trig_id = it->second;
             }
 
-            Module* sig_mod  = nullptr;
-            Module* trig_mod = nullptr;
+            const std::vector<float>* sig_cache = nullptr;
+            const std::vector<float>* trig_cache = nullptr;
+            bool use_current_signal = false;
 
             if (!sig_id.empty()) {
-                auto it = signal_registry.find(sig_id);
-                if (it == signal_registry.end())
+                auto it = cache_registry.find(sig_id);
+                if (it == cache_registry.end())
                     throw CompileError("event: unknown signal id '" + sig_id + "'");
-                sig_mod = it->second;
+                sig_cache = &it->second->cache;
             } else {
-                sig_mod = current;
+                if (data_chain_count > 1) {
+                    throw CompileError(
+                        "event: 'signal' attribute required after data chain restart");
+                }
+                use_current_signal = true;
             }
 
             if (!trig_id.empty()) {
-                auto it = signal_registry.find(trig_id);
-                if (it == signal_registry.end())
+                auto it = cache_registry.find(trig_id);
+                if (it == cache_registry.end())
                     throw CompileError("event: unknown trigger id '" + trig_id + "'");
-                trig_mod = it->second;
+                trig_cache = &it->second->cache;
             } else {
                 throw CompileError("event: 'trigger' attribute required");
             }
 
             auto mod = std::make_unique<MEvent>();
-            mod->signal_module  = sig_mod;
-            mod->trigger_module = trig_mod;
+            mod->signal_cache   = sig_cache;
+            mod->trigger_cache  = trig_cache;
+            mod->useCurrentSignal = IntParameter(use_current_signal ? 1 : 0);
             mod->threshold      = FloatParameter(get_double(attribs, "threshold", 0.0));
             mod->maxHolddays    = IntParameter(get_int(attribs, "maxholddays", 5));
             mod->betAll         = IntParameter(get_bool(attribs, "betall", true) ? 1 : 0);

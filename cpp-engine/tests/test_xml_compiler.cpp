@@ -431,3 +431,46 @@ TEST(XmlCompiler, EventStillWorksWithSignalCache) {
         for (Module* m : alphas[0].pipeline) m->calculate(t, sv);
     }
 }
+
+TEST(XmlCompiler, EventWithoutSignalUsesCurrentChainOutput) {
+    auto dp = make_panel(30, 3);
+    std::string xml = R"(
+        <data expr="close"/>
+        <zscore/>
+        <signal id="trig"/>
+        <event trigger="trig" threshold="0" maxholddays="5"/>
+    )";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+
+    std::vector<float> buf(3);
+    SignalVector sv{buf.data(), 3};
+    for (Module* m : alphas[0].pipeline) { m->numAssets = 3; m->init(); }
+
+    bool any_finite = false;
+    for (unsigned t = 0; t < 30u; ++t) {
+        sv.fill_nan();
+        for (Module* m : alphas[0].pipeline)
+            m->calculate(t, sv);
+        for (unsigned i = 0; i < 3; ++i) {
+            if (std::isfinite(sv[i])) {
+                any_finite = true;
+            }
+        }
+    }
+    EXPECT_TRUE(any_finite);
+}
+
+TEST(XmlCompiler, EventWithoutSignalRejectedAfterDataRestart) {
+    auto dp = make_panel(30, 3);
+    std::string xml = R"(
+        <data expr="returns"/>
+        <signal id="trig"/>
+        <data expr="close"/>
+        <event trigger="trig" threshold="0" maxholddays="5"/>
+    )";
+    expect_compile_error_contains(
+        xml,
+        dp,
+        {"event", "'signal' attribute required after data chain restart"});
+}
