@@ -336,6 +336,67 @@ TEST_F(HttpContractTest, MultiAlphaBatchesContainPerAlphaXml)
     EXPECT_TRUE(has_days_3);
 }
 
+TEST_F(HttpContractTest, MultiAlphaDefaultDoesNotIncludeSignalPlot)
+{
+    if (!available_)
+        GTEST_SKIP() << skip_reason_;
+
+    Json::Value req;
+    req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3\"/>";
+    req["isStart"] = "2000-01-01";
+    req["osStart"] = "2100-01-01";
+
+    const HttpResult res = simulate(req);
+    ASSERT_EQ(res.status, 200) << res.body;
+
+    Json::Value body;
+    ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
+    ASSERT_TRUE(body.isMember("batches"));
+    ASSERT_TRUE(body["batches"].isArray());
+    ASSERT_EQ(body["batches"].size(), 2u);
+
+    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
+        const Json::Value& b = body["batches"][i];
+        EXPECT_FALSE(b.isMember("signalPlot"));
+        EXPECT_FALSE(b.isMember("signalRange"));
+        EXPECT_FALSE(b.isMember("distribution"));
+    }
+}
+
+TEST_F(HttpContractTest, MultiAlphaCollectSignalsTopKControlsPayloadCount)
+{
+    if (!available_)
+        GTEST_SKIP() << skip_reason_;
+
+    Json::Value req;
+    req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/>";
+    req["isStart"] = "2000-01-01";
+    req["osStart"] = "2100-01-01";
+    req["collectSignals"] = true;
+    req["collectSignalsTopK"] = 1;
+
+    const HttpResult res = simulate(req);
+    ASSERT_EQ(res.status, 200) << res.body;
+
+    Json::Value body;
+    ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
+    ASSERT_TRUE(body.isMember("batches"));
+    ASSERT_TRUE(body["batches"].isArray());
+    ASSERT_EQ(body["batches"].size(), 3u);
+
+    int batches_with_signal = 0;
+    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
+        const Json::Value& b = body["batches"][i];
+        if (b.isMember("signalPlot")) {
+            ++batches_with_signal;
+            ASSERT_TRUE(b["signalPlot"].isObject());
+            ASSERT_TRUE(b.isMember("signalRange"));
+            ASSERT_TRUE(b.isMember("distribution"));
+        }
+    }
+    EXPECT_EQ(batches_with_signal, 1);
+}
+
 TEST_F(HttpContractTest, MultiAlphaBatchesSortedByIsSharpeDesc)
 {
     if (!available_)

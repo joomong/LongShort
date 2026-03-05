@@ -235,6 +235,8 @@ int main(int argc, char* argv[])
             std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
             std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
             unsigned req_threads = (*body).get("threads", 0).asUInt();
+            bool req_collect_signals = (*body).get("collectSignals", false).asBool();
+            unsigned req_collect_top_k = (*body).get("collectSignalsTopK", 1).asUInt();
 
             if (xml.empty()) {
                 Json::Value err;
@@ -307,14 +309,36 @@ int main(int argc, char* argv[])
                     return std::make_pair(std::move(sim_out), std::move(metrics));
                 };
 
+                auto run_signals_only = [&](CompiledAlpha& alpha) {
+                    const auto& pipeline = alpha.pipeline;
+
+                    SimulatorConfig sim_cfg;
+                    sim_cfg.T = g_data.T;
+                    sim_cfg.N = g_data.N;
+                    sim_cfg.fee_rate = g_config.transaction_fee_rate;
+                    sim_cfg.mode = 1;  // D1
+                    sim_cfg.bars_per_year = 365;
+                    sim_cfg.collect_signals = true;
+
+                    Simulator sim(g_data, sim_cfg);
+                    return sim.run(pipeline);
+                };
+
                 // Unified path: always build batches[]
                 struct BatchResult {
                     int index;
                     std::string xml;
                     FullMetricsResult metrics;
                 };
+                struct BatchSignalPayload {
+                    bool has_payload = false;
+                    Json::Value signal_plot;
+                    Json::Value signal_range;
+                    Json::Value distribution;
+                };
 
                 std::vector<BatchResult> batches(alphas.size());
+                std::vector<BatchSignalPayload> batch_signal_payloads(alphas.size());
                 SimulatorOutput single_sim_out;  // kept only for signal data
                 std::vector<std::vector<float>> combined_signals;
 
@@ -429,6 +453,72 @@ int main(int argc, char* argv[])
                     }
                 }
 
+                if (!single && req_collect_signals) {
+                    unsigned top_k = req_collect_top_k;
+                    if (top_k == 0)
+                        top_k = 1;
+                    top_k = std::min<unsigned>(top_k, static_cast<unsigned>(batches.size()));
+
+                    for (unsigned bi = 0; bi < top_k; ++bi) {
+                        const int alpha_idx = batches[bi].index;
+                        if (alpha_idx < 0 || static_cast<size_t>(alpha_idx) >= alphas.size())
+                            continue;
+
+                        auto collected = run_signals_only(alphas[static_cast<size_t>(alpha_idx)]);
+                        if (collected.signals.empty())
+                            continue;
+
+                        size_t plot_start = batches[bi].metrics.is_start_index;
+                        if (!sim_start_str.empty()) {
+                            int64_t sim_start_ms = 0;
+                            if (parse_iso_date_ms(sim_start_str, &sim_start_ms)) {
+                                plot_start = static_cast<size_t>(
+                                    std::lower_bound(
+                                        collected.timestamps.begin(),
+                                        collected.timestamps.end(),
+                                        sim_start_ms) - collected.timestamps.begin());
+                            }
+                        }
+                        if (plot_start >= collected.signals.size())
+                            continue;
+
+                        std::vector<std::vector<float>> plot_signals(
+                            collected.signals.begin() + static_cast<std::ptrdiff_t>(plot_start),
+                            collected.signals.end());
+                        std::vector<int64_t> plot_timestamps(
+                            collected.timestamps.begin() + static_cast<std::ptrdiff_t>(plot_start),
+                            collected.timestamps.end());
+
+                        batch_signal_payloads[bi].signal_plot =
+                            signal_plot_to_json(plot_signals, plot_timestamps, g_data.symbols);
+                        batch_signal_payloads[bi].distribution =
+                            signal_distribution_to_json(plot_signals);
+
+                        float sig_min = 0.0f;
+                        float sig_max = 0.0f;
+                        bool first = true;
+                        for (const auto& row : plot_signals) {
+                            for (float v : row) {
+                                if (!std::isfinite(v))
+                                    continue;
+                                if (first) {
+                                    sig_min = v;
+                                    sig_max = v;
+                                    first = false;
+                                } else {
+                                    if (v < sig_min) sig_min = v;
+                                    if (v > sig_max) sig_max = v;
+                                }
+                            }
+                        }
+                        Json::Value sr;
+                        sr["min"] = sig_min;
+                        sr["max"] = sig_max;
+                        batch_signal_payloads[bi].signal_range = sr;
+                        batch_signal_payloads[bi].has_payload = true;
+                    }
+                }
+
                 // Combined alpha: sum signals + run separate simulation
                 FullMetricsResult combined_metrics;
                 if (!single) {
@@ -458,7 +548,7 @@ int main(int argc, char* argv[])
                 Json::Value json;
                 Json::Value batches_arr(Json::arrayValue);
 
-                auto append_batch = [&](const BatchResult& batch) {
+                auto append_batch = [&](const BatchResult& batch, size_t batch_pos) {
                     Json::Value b;
                     b["index"] = batch.index;
                     b["xml"] = batch.xml;
@@ -472,11 +562,17 @@ int main(int argc, char* argv[])
                     b["timeseries"] = timeseries_to_json(batch.metrics.timeseries);
                     b["isStartIndex"] = static_cast<Json::UInt64>(batch.metrics.is_start_index);
                     b["osStartIndex"] = static_cast<Json::UInt64>(batch.metrics.os_start_index);
+                    if (!single && batch_pos < batch_signal_payloads.size() &&
+                        batch_signal_payloads[batch_pos].has_payload) {
+                        b["signalPlot"] = batch_signal_payloads[batch_pos].signal_plot;
+                        b["signalRange"] = batch_signal_payloads[batch_pos].signal_range;
+                        b["distribution"] = batch_signal_payloads[batch_pos].distribution;
+                    }
                     batches_arr.append(b);
                 };
 
-                for (const auto& b : batches)
-                    append_batch(b);
+                for (size_t bi = 0; bi < batches.size(); ++bi)
+                    append_batch(batches[bi], bi);
                 json["batches"] = batches_arr;
 
                 // Top-level: combined metrics for multi-alpha, best for single
