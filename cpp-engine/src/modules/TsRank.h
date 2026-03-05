@@ -34,13 +34,8 @@ struct MTsRank : public Module {
                 float v = buf[ii][j];
                 if (std::isnan(v)) continue;
                 ++n_valid;
-                if (ascending) {
-                    if (v < cur) ++n_less;
-                    else if (v == cur) ++n_equal;
-                } else {
-                    if (v > cur) ++n_less;
-                    else if (v == cur) ++n_equal;
-                }
+                if (v < cur) ++n_less;
+                else if (v == cur) ++n_equal;
             }
 
             if (n_valid < min_count) {
@@ -66,6 +61,5 @@ struct MTsRank : public Module {
     unsigned count = 0;
     IntParameter days;
     IntParameter pct{1};
-    IntParameter ascending{0};
     IntParameter min_count{-1};
 };

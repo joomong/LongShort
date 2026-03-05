@@ -119,7 +119,6 @@ TEST(MTsRank, BasicRank) {
     MTsRank mod;
     mod.days = IntParameter(3);
     mod.pct = IntParameter(1);
-    mod.ascending = IntParameter(0);
     mod.min_count = IntParameter(3);
     mod.numAssets = 1;
     mod.init();
@@ -127,13 +126,13 @@ TEST(MTsRank, BasicRank) {
     std::vector<float> buf(1);
     SignalVector sv{buf.data(), 1};
 
-    // Feed: 10, 20, 30 -> current=30, ascending=false
-    // n_less (values > 30) = 0, n_equal = 1
-    // rank = (0 + 1 + 0/2) / 3 = 1/3
+    // Feed: 10, 20, 30 -> current=30, ascending (always)
+    // n_less (values < 30) = 2, n_equal = 1
+    // rank = (2 + 1 + 0/2) / 3 = 1.0
     buf = {10.0f}; mod.calculate(0, sv);
     buf = {20.0f}; mod.calculate(1, sv);
     buf = {30.0f}; mod.calculate(2, sv);
-    EXPECT_NEAR(sv[0], 1.0f / 3.0f, 1e-5f);
+    EXPECT_NEAR(sv[0], 1.0f, 1e-5f);
 }
 
 // ======== MTsZscore ========

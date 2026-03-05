@@ -90,7 +90,7 @@ def golden_tszscore(arr: np.ndarray, days: int, ddof: int, min_count: int, eps: 
     return out
 
 
-def golden_tsrank(arr: np.ndarray, days: int, pct: bool, ascending: bool, min_count: int) -> np.ndarray:
+def golden_tsrank(arr: np.ndarray, days: int, pct: bool, min_count: int) -> np.ndarray:
     T, N = arr.shape
     out = np.full_like(arr, np.nan)
 
@@ -110,12 +110,8 @@ def golden_tsrank(arr: np.ndarray, days: int, pct: bool, ascending: bool, min_co
                 out[t, n] = np.nan
                 continue
 
-            if ascending:
-                n_less = np.sum(valid < cur)
-                n_equal = np.sum(valid == cur)
-            else:
-                n_less = np.sum(valid > cur)
-                n_equal = np.sum(valid == cur)
+            n_less = np.sum(valid < cur)
+            n_equal = np.sum(valid == cur)
 
             rank = n_less + 1.0 + (n_equal - 1.0) / 2.0
             out[t, n] = rank / n_valid if pct else rank
@@ -260,8 +256,8 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
     to_finite = turnover[np.isfinite(turnover)]
     avg_turnover = float(np.mean(to_finite)) if len(to_finite) > 0 else 0.0
 
-    mb_finite = min_bet[np.isfinite(min_bet)]
-    avg_min_bet = float(np.mean(mb_finite)) if len(mb_finite) > 0 else 0.0
+    # min_bet: average number of symbols with position (matches C++ which uses nonzero_count)
+    avg_min_bet = float(np.mean(nonzero_count))
 
     mw_finite = max_weight[np.isfinite(max_weight)]
     max_max_weight = float(np.max(mw_finite)) if len(mw_finite) > 0 else 0.0
@@ -291,8 +287,8 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
     # avg_max_bet = mean of finite max_weight
     avg_max_bet = float(np.mean(mw_finite)) if len(mw_finite) > 0 else 0.0
 
-    # min_bet_min = min of finite min_bet
-    min_bet_min = float(np.min(mb_finite)) if len(mb_finite) > 0 else 0.0
+    # min_bet_min: minimum number of symbols with position (matches C++ nonzero_count)
+    min_bet_min = float(np.min(nonzero_count))
 
     # quality
     maxexp = 0.0
@@ -378,8 +374,8 @@ def main():
 
     modules["tsrank_3"] = {
         "input": ndarray_to_list(FIXTURE),
-        "params": {"days": 3, "pct": True, "ascending": False, "min_count": 3},
-        "expected": ndarray_to_list(golden_tsrank(FIXTURE, 3, True, False, 3)),
+        "params": {"days": 3, "pct": True, "min_count": 3},
+        "expected": ndarray_to_list(golden_tsrank(FIXTURE, 3, True, 3)),
     }
 
     modules["decay_3"] = {

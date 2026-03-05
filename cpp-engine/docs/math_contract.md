@@ -78,8 +78,8 @@ This document is the single source of truth for C++ engine test math.
   - if valid count `< min_count`: output `0`
   - if current value is non-finite: `NaN`
   - if `std < eps`: `0`
-- `MTsRank(days, pct, ascending, min_count)`:
-  - rank of current value in rolling window finite values
+- `MTsRank(days, pct, min_count)`:
+  - ascending percentile rank of current value in rolling window finite values (higher value → higher rank)
   - if current is `NaN` or valid count `< min_count`: `NaN`
   - tie handling: average rank
 - `MDecay(days)`:

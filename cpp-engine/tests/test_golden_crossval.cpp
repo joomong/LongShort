@@ -217,7 +217,6 @@ TEST_F(GoldenCrossval, TsRankMatchesNumpy)
     MTsRank mod;
     mod.days = IntParameter(entry["params"]["days"].asInt());
     mod.pct = IntParameter(entry["params"]["pct"].asBool() ? 1 : 0);
-    mod.ascending = IntParameter(entry["params"]["ascending"].asBool() ? 1 : 0);
     mod.min_count = IntParameter(entry["params"]["min_count"].asInt());
     Matrix actual = run_module(mod, input);
 

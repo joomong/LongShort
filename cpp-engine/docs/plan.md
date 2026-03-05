@@ -400,7 +400,7 @@ warmup: bar_count < days → NaN 출력
 out[ii] = percentile_rank(input[di-window+1..di][ii], current=input[di][ii])
          = (n_less + 1 + (n_equal - 1) / 2) / n_valid
 
-pct=true (기본값), ascending=false (기본값: 큰 값이 높은 rank)
+pct=true (기본값), ascending 하드코딩 (큰 값 → 높은 percentile)
 구현: circular buffer [N][window], comparison counting
 ```
 

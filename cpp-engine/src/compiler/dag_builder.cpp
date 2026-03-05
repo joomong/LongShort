@@ -191,7 +191,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tsrank", "days", 20, 1, max_days));
             m->pct = IntParameter(get_bool(a, "pct", true) ? 1 : 0);
-            m->ascending = IntParameter(get_bool(a, "ascending", false) ? 1 : 0);
+
             m->min_count = IntParameter(get_int(a, "min_count", -1));
             return m;
         });

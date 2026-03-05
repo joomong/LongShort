@@ -179,7 +179,7 @@ Matrix oracle_tszscore(const Matrix& input, unsigned days, int ddof, int min_cou
     return out;
 }
 
-Matrix oracle_tsrank(const Matrix& input, unsigned days, bool pct, bool ascending, int min_count)
+Matrix oracle_tsrank(const Matrix& input, unsigned days, bool pct, int min_count)
 {
     const size_t T = input.size();
     const size_t N = input[0].size();
@@ -202,17 +202,10 @@ Matrix oracle_tsrank(const Matrix& input, unsigned days, bool pct, bool ascendin
                 if (std::isnan(v))
                     continue;
                 ++n_valid;
-                if (ascending) {
-                    if (v < cur)
-                        ++n_less;
-                    else if (v == cur)
-                        ++n_equal;
-                } else {
-                    if (v > cur)
-                        ++n_less;
-                    else if (v == cur)
-                        ++n_equal;
-                }
+                if (v < cur)
+                    ++n_less;
+                else if (v == cur)
+                    ++n_equal;
             }
 
             if (n_valid < min_count) {
@@ -395,12 +388,11 @@ TEST(ModuleOracle, TsZscoreMatchesReference)
 TEST(ModuleOracle, TsRankMatchesReference)
 {
     Matrix input = make_fixture();
-    Matrix expected = oracle_tsrank(input, 3, true, false, 3);
+    Matrix expected = oracle_tsrank(input, 3, true, 3);
 
     MTsRank mod;
     mod.days = IntParameter(3);
     mod.pct = IntParameter(1);
-    mod.ascending = IntParameter(0);
     mod.min_count = IntParameter(3);
     Matrix actual = run_module(mod, input);
 
