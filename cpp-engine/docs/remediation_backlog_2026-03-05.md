@@ -190,7 +190,7 @@
 - `[x]` P1-3 metrics slice removal
 - `[x]` P1-4 simulator copy reduction
 - `[x]` P1-5 AVX2 real path wiring
-- `[~]` P2-1 ModuleInput flat ring
+- `[x]` P2-1 ModuleInput flat ring
 - `[ ]` P2-2 parquet memory de-dup
 - `[ ]` P2-3 collect_signals policy
 - `[ ]` P3-1 search_space sentinel removal
@@ -201,3 +201,4 @@
 
 ## 최근 업데이트
 - 2026-03-05: 멀티알파 합산 경로에서 worker별 `sim_out.signals (T*N)` 임시 보관을 제거했다. `Simulator` signal-row callback 기반으로 즉시 누적해 피크 메모리 리스크를 낮췄다.
+- 2026-03-05: `ModuleInput` 저장소를 `vector<vector<float>>`에서 flat ring(`vector<float>`)으로 변경하고 직렬화 호환 경로를 반영했다.
