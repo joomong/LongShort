@@ -7,6 +7,7 @@ import { useAlphaStore } from '@/store/alphaStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
+import { getNextColor } from '@/lib/snapshotColors';
 import {
   toMultiSeriesData,
   buildUPlotAxes,
@@ -96,6 +97,7 @@ export default function SignalChart() {
   const heatmap = useAlphaStore(s => s.result?.heatmap ?? null);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const pinnedSnapshots = useAlphaStore(useShallow(s => s.pinnedSnapshots));
+  const addSnapshot = useAlphaStore(s => s.addSnapshot);
   const theme = useThemeStore(s => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -364,6 +366,23 @@ export default function SignalChart() {
     return () => window.removeEventListener('mouseup', handler);
   }, []);
 
+  const handlePin = useCallback(() => {
+    if (data.length === 0) return;
+    const retSeries: Record<string, number> = {};
+    for (const pt of data) {
+      if (pt.value !== null) retSeries[pt.date] = pt.value;
+    }
+    const usedColors = pinnedSnapshots.map((s) => s.color);
+    const color = getNextColor(usedColors);
+    const name = selectedSymbol ?? `Snapshot ${pinnedSnapshots.length + 1}`;
+    addSnapshot({
+      id: Date.now().toString(36),
+      name,
+      color,
+      retSeries,
+    });
+  }, [data, pinnedSnapshots, selectedSymbol, addSnapshot]);
+
   const hasData = data.length > 0 && data.some(d => d.value !== null);
 
   return (
@@ -382,7 +401,17 @@ export default function SignalChart() {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           style={{ cursor: hasData ? 'grab' : 'default' }}
-        />
+        >
+          <button
+            className="absolute top-2 right-2 z-10 text-xs px-2 py-1 border border-border text-foreground-secondary bg-background-elevated/90 backdrop-blur-sm shadow-card hover:bg-border-hover disabled:opacity-30 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
+            disabled={data.length === 0 || pinnedSnapshots.length >= 8}
+            onClick={handlePin}
+            title="Pin current chart as snapshot"
+            aria-label="Pin current chart as snapshot"
+          >
+            + Pin
+          </button>
+        </div>
         <div
           ref={tooltipRef}
           suppressHydrationWarning
