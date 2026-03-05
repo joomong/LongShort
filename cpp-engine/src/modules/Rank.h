@@ -4,43 +4,54 @@
 struct MRank : public Module {
     void init()
     {
-        input_copy.resize(numAssets);
+        finite_values.reserve(numAssets);
     }
     void calculate(unsigned /*di*/, SignalVector &output)
     {
-        for (unsigned ii = 0; ii < numAssets; ++ii)
-            input_copy[ii] = output[ii];
+        finite_values.clear();
+        for (unsigned ii = 0; ii < numAssets; ++ii) {
+            const float v = output[ii];
+            if (std::isfinite(v)) {
+                finite_values.emplace_back(v, ii);
+            } else {
+                output[ii] = std::numeric_limits<float>::quiet_NaN();
+            }
+        }
 
-        int n_finite = 0;
-        for (unsigned ii = 0; ii < numAssets; ++ii)
-            if (std::isfinite(input_copy[ii]))
-                ++n_finite;
-
+        const size_t n_finite = finite_values.size();
         if (n_finite == 0) {
             output.fill_nan();
             return;
         }
 
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            float vi = input_copy[ii];
-            if (!std::isfinite(vi)) {
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-                continue;
-            }
+        std::sort(
+            finite_values.begin(), finite_values.end(),
+            [](const auto& lhs, const auto& rhs) {
+                if (lhs.first != rhs.first)
+                    return lhs.first < rhs.first;
+                return lhs.second < rhs.second;
+            });
 
-            int n_less = 0, n_equal = 0;
-            for (unsigned jj = 0; jj < numAssets; ++jj) {
-                float vj = input_copy[jj];
-                if (!std::isfinite(vj)) continue;
-                if (vj < vi) ++n_less;
-                else if (vj == vi) ++n_equal;
-            }
+        size_t begin = 0;
+        while (begin < n_finite) {
+            size_t end = begin + 1;
+            const float value = finite_values[begin].first;
+            while (end < n_finite && finite_values[end].first == value)
+                ++end;
 
-            double rank = n_less + 1.0 + (n_equal - 1.0) / 2.0;
-            output[ii] = (float)(pct ? rank / n_finite : rank);
+            const double rank =
+                static_cast<double>(begin) + 1.0 +
+                static_cast<double>(end - begin - 1) / 2.0;
+            const float out = static_cast<float>(
+                pct ? rank / static_cast<double>(n_finite) : rank);
+
+            for (size_t i = begin; i < end; ++i) {
+                output[finite_values[i].second] = out;
+            }
+            begin = end;
         }
     }
 
-    std::vector<float> input_copy;
+    std::vector<std::pair<float, unsigned>> finite_values;
     IntParameter pct{1};
 };

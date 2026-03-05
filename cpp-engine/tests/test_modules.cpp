@@ -191,6 +191,24 @@ TEST(MRank, CrossSectionalRank) {
     EXPECT_NEAR(sv[2], 2.0f / 3.0f, 1e-5f);  // 20 -> rank 2
 }
 
+TEST(MRank, TieAndNaNHandling) {
+    MRank mod;
+    mod.pct = IntParameter(1);
+    mod.numAssets = 4;
+    mod.init();
+
+    std::vector<float> buf = {10.0f, 10.0f, 30.0f, NaN};
+    SignalVector sv{buf.data(), 4};
+
+    mod.calculate(0, sv);
+    // finite values are [10, 10, 30]
+    // tie group(10,10): average rank=(1+2)/2=1.5 -> pct=0.5
+    EXPECT_NEAR(sv[0], 0.5f, 1e-5f);
+    EXPECT_NEAR(sv[1], 0.5f, 1e-5f);
+    EXPECT_NEAR(sv[2], 1.0f, 1e-5f);
+    EXPECT_TRUE(std::isnan(sv[3]));
+}
+
 // ======== MZscore (cross-sectional) ========
 TEST(MZscore, CrossSectionalZscore) {
     MZscore mod;
