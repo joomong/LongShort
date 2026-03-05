@@ -22,7 +22,7 @@ describe('SummaryMetrics render formatting', () => {
     // IS: Return, Sharpe, Turnover
     expect(screen.getByText('+947.5%')).toBeInTheDocument();
     expect(screen.getByText('5.06')).toBeInTheDocument();
-    expect(screen.getByText('26.7')).toBeInTheDocument();
+    expect(screen.getByText('26.7%')).toBeInTheDocument();
 
     // OS: Return, Sharpe
     expect(screen.getByText('-60.3%')).toBeInTheDocument();

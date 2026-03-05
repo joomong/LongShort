@@ -25,8 +25,8 @@ describe('BacktestMetrics render formatting', () => {
     // IS metrics: Return, Sharpe, Turnover, MinBet, MaxWt, Alpha, Margin
     expect(screen.getByText('+947.5%')).toBeInTheDocument();
     expect(screen.getByText('5.06')).toBeInTheDocument();
-    expect(screen.getByText('26.7')).toBeInTheDocument();
-    expect(screen.getByText('0.35')).toBeInTheDocument();
+    expect(screen.getByText('26.7%')).toBeInTheDocument();
+    expect(screen.getByText('3.50')).toBeInTheDocument();
     expect(screen.getByText('60.0%')).toBeInTheDocument();
     // Alpha = nonzeroPosition = 3
     expect(screen.getByText('3')).toBeInTheDocument();
