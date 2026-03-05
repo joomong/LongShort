@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <vector>
 
@@ -36,26 +37,6 @@ struct CounterModule : public Module {
     }
 };
 
-struct LegacyModuleInputWire {
-    unsigned num_assets = 0;
-    unsigned max_lookback = 0;
-    unsigned head = 0;
-    unsigned push_count = 0;
-    std::vector<std::vector<float>> ring;
-    std::vector<float> nan_buf;
-
-    template<class Archive>
-    void serialize(Archive& ar, const unsigned int /*version*/)
-    {
-        ar & num_assets;
-        ar & max_lookback;
-        ar & head;
-        ar & push_count;
-        ar & ring;
-        ar & nan_buf;
-    }
-};
-
 // ---------------------------------------------------------------------------
 // Helper: build a small DataPanel
 // ---------------------------------------------------------------------------
@@ -76,6 +57,20 @@ static DataPanel make_panel(unsigned T, unsigned N) {
         for (unsigned i = 0; i < N; ++i)
             close[t * N + i] = 100.0f + static_cast<float>(t * N + i);
     return dp;
+}
+
+static std::filesystem::path find_fixture(const std::string& name)
+{
+    const std::vector<std::filesystem::path> candidates = {
+        std::filesystem::current_path() / "tests" / "fixtures" / name,
+        std::filesystem::current_path() / ".." / "tests" / "fixtures" / name,
+        std::filesystem::current_path() / ".." / ".." / "cpp-engine" / "tests" / "fixtures" / name,
+    };
+    for (const auto& p : candidates) {
+        if (std::filesystem::exists(p))
+            return std::filesystem::weakly_canonical(p);
+    }
+    return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -193,40 +188,32 @@ TEST(Checkpoint, ModuleInputRoundTripPreservesRows) {
     EXPECT_FLOAT_EQ(prev2[0], 3.0f);
     EXPECT_FLOAT_EQ(prev2[1], 30.0f);
 
+    std::vector<float> row5 = {6.0f, 60.0f};
+    SignalVector sv5{row5.data(), 2};
+    loaded.push(sv5);
+    const auto after0 = loaded(0);
+    const auto after1 = loaded(1);
+    const auto after2 = loaded(2);
+    EXPECT_FLOAT_EQ(after0[0], 6.0f);
+    EXPECT_FLOAT_EQ(after0[1], 60.0f);
+    EXPECT_FLOAT_EQ(after1[0], 5.0f);
+    EXPECT_FLOAT_EQ(after1[1], 50.0f);
+    EXPECT_FLOAT_EQ(after2[0], 4.0f);
+    EXPECT_FLOAT_EQ(after2[1], 40.0f);
+
     std::remove(tmp);
 }
 
 // ---------------------------------------------------------------------------
-// TEST: ModuleInput can load legacy wire format (vector<vector<float>> ring)
+// TEST: ModuleInput loads checkpoint fixture created by pre-flat-ring format
 // ---------------------------------------------------------------------------
-TEST(Checkpoint, ModuleInputLoadsLegacyWireFormat) {
-    const char* tmp = "/tmp/test_checkpoint_module_input_legacy.bin";
-
-    LegacyModuleInputWire legacy;
-    legacy.num_assets = 2;
-    legacy.max_lookback = 2;
-    legacy.head = 1;
-    legacy.push_count = 4;
-    legacy.ring = {
-        {11.0f, 110.0f},
-        {22.0f, 220.0f},
-        {33.0f, 330.0f},
-    };
-    legacy.nan_buf = {
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-    };
-
-    {
-        std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
-        ASSERT_TRUE(ofs.good());
-        boost::archive::binary_oarchive ar(ofs);
-        ar & legacy;
-    }
+TEST(Checkpoint, ModuleInputLoadsLegacyFixtureV0) {
+    const std::filesystem::path fixture = find_fixture("module_input_legacy_v0.bin");
+    ASSERT_FALSE(fixture.empty()) << "missing module_input_legacy_v0.bin fixture";
 
     ModuleInput loaded;
     {
-        std::ifstream ifs(tmp, std::ios::binary);
+        std::ifstream ifs(fixture, std::ios::binary);
         ASSERT_TRUE(ifs.good());
         boost::archive::binary_iarchive ar(ifs);
         ar & loaded;
@@ -240,14 +227,12 @@ TEST(Checkpoint, ModuleInputLoadsLegacyWireFormat) {
     ASSERT_EQ(prev1.size, 2u);
     ASSERT_EQ(prev2.size, 2u);
 
-    EXPECT_FLOAT_EQ(latest[0], 22.0f);
-    EXPECT_FLOAT_EQ(latest[1], 220.0f);
-    EXPECT_FLOAT_EQ(prev1[0], 11.0f);
-    EXPECT_FLOAT_EQ(prev1[1], 110.0f);
-    EXPECT_FLOAT_EQ(prev2[0], 33.0f);
-    EXPECT_FLOAT_EQ(prev2[1], 330.0f);
-
-    std::remove(tmp);
+    EXPECT_FLOAT_EQ(latest[0], 5.0f);
+    EXPECT_FLOAT_EQ(latest[1], 50.0f);
+    EXPECT_FLOAT_EQ(prev1[0], 4.0f);
+    EXPECT_FLOAT_EQ(prev1[1], 40.0f);
+    EXPECT_FLOAT_EQ(prev2[0], 3.0f);
+    EXPECT_FLOAT_EQ(prev2[1], 30.0f);
 }
 
 // ---------------------------------------------------------------------------
