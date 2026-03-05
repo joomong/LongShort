@@ -1,6 +1,7 @@
 #include "expansion.h"
 #include "range_parser.h"
 #include <algorithm>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 
@@ -47,18 +48,31 @@ static std::vector<std::map<std::string, std::string>> cartesian_attribs(
         values.push_back(expand_value(kv.second));
     }
 
-    std::vector<std::map<std::string, std::string>> result = {{}};
-    for (size_t ki = 0; ki < keys.size(); ++ki) {
-        std::vector<std::map<std::string, std::string>> next;
-        for (auto& existing : result) {
-            for (auto& v : values[ki]) {
-                auto copy = existing;
-                copy[keys[ki]] = v;
-                next.push_back(std::move(copy));
-            }
+    size_t total = 1;
+    for (const auto& vs : values)
+        total *= std::max<size_t>(1, vs.size());
+
+    std::vector<std::map<std::string, std::string>> result;
+    result.reserve(total);
+    std::map<std::string, std::string> current;
+
+    std::function<void(size_t)> dfs = [&](size_t ki) {
+        if (ki == keys.size()) {
+            result.push_back(current);
+            return;
         }
-        result = std::move(next);
+        for (const auto& v : values[ki]) {
+            current[keys[ki]] = v;
+            dfs(ki + 1);
+        }
+    };
+
+    if (keys.empty()) {
+        result.push_back({});
+    } else {
+        dfs(0);
     }
+
     return result;
 }
 

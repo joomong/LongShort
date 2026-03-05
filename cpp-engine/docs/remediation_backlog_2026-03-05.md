@@ -195,7 +195,7 @@
 - `[x]` P2-3 collect_signals policy
 - `[x]` P3-1 search_space sentinel removal
 - `[x]` P3-2 range parser unification
-- `[ ]` P3-3 expansion copy reduction
+- `[x]` P3-3 expansion copy reduction
 - `[ ]` H-1 timeseries per-iter branch cleanup
 - `[ ]` H-2 MData bounds-check policy cleanup
 
@@ -207,3 +207,4 @@
 - 2026-03-05: `ModuleInput` legacy wire format(`vector<vector<float>>`) 로딩 호환 테스트를 추가해 기존 체크포인트 파일 호환성을 검증했다.
 - 2026-03-05: `search_space`와 `expansion`의 range 파서를 `range_parser` 공용 로직으로 통합해 파싱 불일치 리스크를 줄였다.
 - 2026-03-05: 멀티 알파는 기본적으로 시그널 수집을 하지 않도록 하고, 요청 시 `collectSignalsTopK` 범위에서만 배치별 signal payload를 선택 수집하도록 정책화했다.
+- 2026-03-05: `cartesian_attribs`를 DFS 기반 생성으로 바꿔 확장 단계의 중간 `std::map` 복사를 줄였다.
