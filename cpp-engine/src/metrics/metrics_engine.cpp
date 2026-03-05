@@ -2,14 +2,6 @@
 #include <algorithm>
 #include <cstddef>
 
-// Helper: slice a vector by index range [start, end)
-template<typename T>
-static std::vector<T> slice(const std::vector<T>& v, size_t start, size_t end) {
-    if (start >= v.size()) return {};
-    size_t e = std::min(end, v.size());
-    return std::vector<T>(v.begin() + start, v.begin() + e);
-}
-
 FullMetricsResult compute_full_metrics(
     const std::vector<int64_t>& timestamps,
     const std::vector<double>& ret,
@@ -61,26 +53,16 @@ FullMetricsResult compute_full_metrics(
 
     // IS summary: [is_for_summary, os_idx)  — skip global bar 0
     if (is_for_summary < os_idx) {
-        auto is_ret = slice(ret,           is_for_summary, os_idx);
-        auto is_tvr = slice(turnover,      is_for_summary, os_idx);
-        auto is_mb  = slice(min_bet,       is_for_summary, os_idx);
-        auto is_mw  = slice(max_weight,    is_for_summary, os_idx);
-        auto is_lw  = slice(long_weight,   is_for_summary, os_idx);
-        auto is_sw  = slice(short_weight,  is_for_summary, os_idx);
-        auto is_nz  = slice(nonzero_count, is_for_summary, os_idx);
-        result.is_summary = compute_summary(is_ret, is_tvr, is_mb, is_mw, is_lw, is_sw, is_nz, bars_per_year);
+        result.is_summary = compute_summary_range(
+            ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+            is_for_summary, os_idx, bars_per_year);
     }
 
     // OS summary: [os_idx, T)
     if (os_idx < T) {
-        auto os_ret = slice(ret,           os_idx, T);
-        auto os_tvr = slice(turnover,      os_idx, T);
-        auto os_mb  = slice(min_bet,       os_idx, T);
-        auto os_mw  = slice(max_weight,    os_idx, T);
-        auto os_lw  = slice(long_weight,   os_idx, T);
-        auto os_sw  = slice(short_weight,  os_idx, T);
-        auto os_nz  = slice(nonzero_count, os_idx, T);
-        result.os_summary = compute_summary(os_ret, os_tvr, os_mb, os_mw, os_lw, os_sw, os_nz, bars_per_year);
+        result.os_summary = compute_summary_range(
+            ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+            os_idx, T, bars_per_year);
     }
 
     return result;

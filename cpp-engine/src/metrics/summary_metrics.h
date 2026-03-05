@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <vector>
 
 constexpr unsigned BARS_PER_YEAR = 365;
@@ -32,5 +33,18 @@ SummaryMetrics compute_summary(
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
     const std::vector<int>& nonzero_count,
+    unsigned bars_per_year = BARS_PER_YEAR
+);
+
+SummaryMetrics compute_summary_range(
+    const std::vector<double>& ret,
+    const std::vector<double>& turnover,
+    const std::vector<double>& min_bet,
+    const std::vector<double>& max_weight,
+    const std::vector<double>& long_weight,
+    const std::vector<double>& short_weight,
+    const std::vector<int>& nonzero_count,
+    size_t start,
+    size_t end,
     unsigned bars_per_year = BARS_PER_YEAR
 );

@@ -186,8 +186,8 @@
 - `[x]` P0-4 event cache-reference architecture
 - `[x]` P1-1 rank O(N log N)
 - `[x]` P1-2 TsMean/TsZscore input(w) hoist
-- `[~]` P1-3 metrics slice removal
-- `[ ]` P1-4 simulator copy reduction
+- `[x]` P1-3 metrics slice removal
+- `[~]` P1-4 simulator copy reduction
 - `[ ]` P1-5 AVX2 real path wiring
 - `[ ]` P2-1 ModuleInput flat ring
 - `[ ]` P2-2 parquet memory de-dup

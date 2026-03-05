@@ -4,7 +4,7 @@
 #include <numeric>
 #include <limits>
 
-SummaryMetrics compute_summary(
+SummaryMetrics compute_summary_range(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
     const std::vector<double>& min_bet,
@@ -12,14 +12,21 @@ SummaryMetrics compute_summary(
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
     const std::vector<int>& nonzero_count,
+    size_t start,
+    size_t end,
     unsigned bars_per_year)
 {
     SummaryMetrics m{};
+    if (start >= end)
+        return m;
 
     // Collect finite returns (caller guarantees no warmup bar in input)
     std::vector<double> finite_r;
-    finite_r.reserve(ret.size());
-    for (size_t i = 0; i < ret.size(); ++i) {
+    const size_t ret_end = std::min(end, ret.size());
+    if (start >= ret_end)
+        return m;
+    finite_r.reserve(ret_end - start);
+    for (size_t i = start; i < ret_end; ++i) {
         if (std::isfinite(ret[i])) finite_r.push_back(ret[i]);
     }
     if (finite_r.empty()) return m;
@@ -68,7 +75,8 @@ SummaryMetrics compute_summary(
     // turnover: mean of finite values
     {
         double sum = 0.0; int cnt = 0;
-        for (size_t i = 0; i < turnover.size(); ++i) {
+        const size_t turnover_end = std::min(end, turnover.size());
+        for (size_t i = start; i < turnover_end; ++i) {
             if (std::isfinite(turnover[i])) { sum += turnover[i]; ++cnt; }
         }
         m.turnover = (cnt > 0) ? sum / cnt : 0.0;
@@ -77,7 +85,8 @@ SummaryMetrics compute_summary(
     // min_bet: average number of symbols with position
     {
         double sum = 0.0; int cnt = 0;
-        for (size_t i = 0; i < nonzero_count.size(); ++i) {
+        const size_t nz_end = std::min(end, nonzero_count.size());
+        for (size_t i = start; i < nz_end; ++i) {
             sum += nonzero_count[i]; ++cnt;
         }
         m.min_bet = (cnt > 0) ? sum / cnt : 0.0;
@@ -86,7 +95,8 @@ SummaryMetrics compute_summary(
     // max_weight: max of finite values
     {
         double mx = 0.0;
-        for (size_t i = 0; i < max_weight.size(); ++i) {
+        const size_t max_weight_end = std::min(end, max_weight.size());
+        for (size_t i = start; i < max_weight_end; ++i) {
             if (std::isfinite(max_weight[i]) && max_weight[i] > mx)
                 mx = max_weight[i];
         }
@@ -96,7 +106,8 @@ SummaryMetrics compute_summary(
     // nonzero_position: count(nonzero_count > 0)
     {
         int cnt = 0;
-        for (size_t i = 0; i < nonzero_count.size(); ++i) {
+        const size_t nz_end = std::min(end, nonzero_count.size());
+        for (size_t i = start; i < nz_end; ++i) {
             if (nonzero_count[i] > 0) ++cnt;
         }
         m.nonzero_position = cnt;
@@ -118,8 +129,8 @@ SummaryMetrics compute_summary(
     // long_ratio / short_ratio: mean(lw / (lw + sw)) for valid bars where lw+sw > 0
     {
         double sum_ratio = 0.0; int cnt = 0;
-        size_t sz = std::min(long_weight.size(), short_weight.size());
-        for (size_t i = 0; i < sz; ++i) {
+        size_t sz = std::min(std::min(long_weight.size(), short_weight.size()), end);
+        for (size_t i = start; i < sz; ++i) {
             double lw = long_weight[i];
             double sw = short_weight[i];
             if (std::isfinite(lw) && std::isfinite(sw)) {
@@ -139,7 +150,8 @@ SummaryMetrics compute_summary(
     // avg_max_bet: mean of max_weight series (finite values)
     {
         double sum = 0.0; int cnt = 0;
-        for (size_t i = 0; i < max_weight.size(); ++i) {
+        const size_t max_weight_end = std::min(end, max_weight.size());
+        for (size_t i = start; i < max_weight_end; ++i) {
             if (std::isfinite(max_weight[i])) { sum += max_weight[i]; ++cnt; }
         }
         m.avg_max_bet = (cnt > 0) ? sum / cnt : 0.0;
@@ -149,7 +161,8 @@ SummaryMetrics compute_summary(
     {
         int mn = std::numeric_limits<int>::max();
         bool found = false;
-        for (size_t i = 0; i < nonzero_count.size(); ++i) {
+        const size_t nz_end = std::min(end, nonzero_count.size());
+        for (size_t i = start; i < nz_end; ++i) {
             if (nonzero_count[i] < mn) { mn = nonzero_count[i]; found = true; }
         }
         m.min_bet_min = found ? static_cast<double>(mn) : 0.0;
@@ -159,8 +172,8 @@ SummaryMetrics compute_summary(
     // maxexp = max(abs(long_weight - short_weight))
     {
         double maxexp = 0.0;
-        size_t sz = std::min(long_weight.size(), short_weight.size());
-        for (size_t i = 0; i < sz; ++i) {
+        size_t sz = std::min(std::min(long_weight.size(), short_weight.size()), end);
+        for (size_t i = start; i < sz; ++i) {
             if (std::isfinite(long_weight[i]) && std::isfinite(short_weight[i])) {
                 double diff = std::fabs(long_weight[i] - short_weight[i]);
                 if (diff > maxexp) maxexp = diff;
@@ -209,8 +222,8 @@ SummaryMetrics compute_summary(
     {
         double mn = std::numeric_limits<double>::max();
         bool found = false;
-        size_t sz = std::min(long_weight.size(), short_weight.size());
-        for (size_t i = 0; i < sz; ++i) {
+        size_t sz = std::min(std::min(long_weight.size(), short_weight.size()), end);
+        for (size_t i = start; i < sz; ++i) {
             if (std::isfinite(long_weight[i]) && std::isfinite(short_weight[i])) {
                 double soc = long_weight[i] + short_weight[i];
                 if (soc < mn) mn = soc;
@@ -221,4 +234,19 @@ SummaryMetrics compute_summary(
     }
 
     return m;
+}
+
+SummaryMetrics compute_summary(
+    const std::vector<double>& ret,
+    const std::vector<double>& turnover,
+    const std::vector<double>& min_bet,
+    const std::vector<double>& max_weight,
+    const std::vector<double>& long_weight,
+    const std::vector<double>& short_weight,
+    const std::vector<int>& nonzero_count,
+    unsigned bars_per_year)
+{
+    return compute_summary_range(
+        ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+        0, ret.size(), bars_per_year);
 }
