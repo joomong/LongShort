@@ -182,8 +182,8 @@
 ## 현재 상태 (2026-03-05)
 - `[x]` P0-1 days/delay compile-time validation
 - `[x]` P0-2 multi-alpha streaming combine
-- `[~]` P0-3 allocator bad_alloc contract
-- `[ ]` P0-4 event cache-reference architecture
+- `[x]` P0-3 allocator bad_alloc contract
+- `[~]` P0-4 event cache-reference architecture
 - `[ ]` P1-1 rank O(N log N)
 - `[ ]` P1-2 TsMean/TsZscore input(w) hoist
 - `[ ]` P1-3 metrics slice removal

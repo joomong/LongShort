@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "simd/simd_utils.h"
@@ -69,4 +70,15 @@ TEST(SIMD, AlignedVectorDouble) {
     if (!v.empty()) {
         EXPECT_EQ(reinterpret_cast<uintptr_t>(v.data()) % 32u, 0u);
     }
+}
+
+TEST(SIMD, AlignedAllocatorThrowsBadAllocOnOverflow) {
+    AlignedAllocator<float> alloc;
+    const size_t too_large = std::numeric_limits<size_t>::max() / sizeof(float) + 1u;
+    EXPECT_THROW(
+        {
+            const auto* p = alloc.allocate(too_large);
+            (void)p;
+        },
+        std::bad_alloc);
 }

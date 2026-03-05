@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <limits>
+#include <new>
 #include <vector>
 
 // Runtime AVX2 detection.
@@ -21,7 +23,12 @@ struct AlignedAllocator {
     AlignedAllocator(const AlignedAllocator<U>&) noexcept {}
 
     T* allocate(size_t n) {
-        return static_cast<T*>(aligned_alloc_32(n * sizeof(T)));
+        if (n > std::numeric_limits<size_t>::max() / sizeof(T))
+            throw std::bad_alloc();
+        T* p = static_cast<T*>(aligned_alloc_32(n * sizeof(T)));
+        if (p == nullptr)
+            throw std::bad_alloc();
+        return p;
     }
 
     void deallocate(T* p, size_t) noexcept {
