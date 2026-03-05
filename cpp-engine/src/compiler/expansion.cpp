@@ -1,4 +1,5 @@
 #include "expansion.h"
+#include "range_parser.h"
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
@@ -7,63 +8,21 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
-static std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos) return "";
-    size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
-
 // Split on '|', trim each piece.
 static std::vector<std::string> split_pipe(const std::string& val) {
     std::vector<std::string> parts;
     std::istringstream ss(val);
     std::string tok;
     while (std::getline(ss, tok, '|'))
-        parts.push_back(trim(tok));
+        parts.push_back(range_parser::trim_copy(tok));
     return parts;
-}
-
-// Parse "start...step...end" or "start...end" (step defaults to 1).
-// Returns empty vector if the value doesn't look like a range.
-static std::vector<std::string> parse_range(const std::string& val) {
-    // Must contain "..."
-    size_t p1 = val.find("...");
-    if (p1 == std::string::npos) return {};
-
-    size_t p2 = val.find("...", p1 + 3);
-
-    int start, step, end;
-    if (p2 == std::string::npos) {
-        // "start...end"
-        start = std::stoi(trim(val.substr(0, p1)));
-        step  = 1;
-        end   = std::stoi(trim(val.substr(p1 + 3)));
-    } else {
-        // "start...step...end"
-        start = std::stoi(trim(val.substr(0, p1)));
-        step  = std::stoi(trim(val.substr(p1 + 3, p2 - p1 - 3)));
-        end   = std::stoi(trim(val.substr(p2 + 3)));
-    }
-
-    if (step == 0) throw std::runtime_error("Range step must not be zero");
-
-    std::vector<std::string> result;
-    if (step > 0) {
-        for (int v = start; v <= end; v += step)
-            result.push_back(std::to_string(v));
-    } else {
-        for (int v = start; v >= end; v += step)
-            result.push_back(std::to_string(v));
-    }
-    return result;
 }
 
 // Expand a single attribute value into multiple string values.
 // Checks range first (has "..."), then pipe (has "|"), else single value.
 static std::vector<std::string> expand_value(const std::string& val) {
     if (val.find("...") != std::string::npos) {
-        auto r = parse_range(val);
+        auto r = range_parser::parse_range_notation(val);
         if (!r.empty()) return r;
     }
     if (val.find('|') != std::string::npos) {

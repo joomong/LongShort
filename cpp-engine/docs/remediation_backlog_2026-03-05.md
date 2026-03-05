@@ -194,7 +194,7 @@
 - `[ ]` P2-2 parquet memory de-dup
 - `[ ]` P2-3 collect_signals policy
 - `[x]` P3-1 search_space sentinel removal
-- `[ ]` P3-2 range parser unification
+- `[x]` P3-2 range parser unification
 - `[ ]` P3-3 expansion copy reduction
 - `[ ]` H-1 timeseries per-iter branch cleanup
 - `[ ]` H-2 MData bounds-check policy cleanup
@@ -205,3 +205,4 @@
 - 2026-03-05: `SearchSpace`의 sentinel gene 템플릿 저장 트릭을 제거하고 `template_xml` 필드로 단순화했다.
 - 2026-03-05: `ModuleInput` flat ring 변경에 대한 checkpoint round-trip 테스트를 추가해 직렬화 회귀를 방지했다.
 - 2026-03-05: `ModuleInput` legacy wire format(`vector<vector<float>>`) 로딩 호환 테스트를 추가해 기존 체크포인트 파일 호환성을 검증했다.
+- 2026-03-05: `search_space`와 `expansion`의 range 파서를 `range_parser` 공용 로직으로 통합해 파싱 불일치 리스크를 줄였다.

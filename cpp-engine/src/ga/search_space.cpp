@@ -1,6 +1,7 @@
 #include "search_space.h"
 #include "../compiler/xml_parser.h"
 #include "../compiler/expansion.h"
+#include "../compiler/range_parser.h"
 
 #include <sstream>
 #include <stdexcept>
@@ -74,41 +75,10 @@ std::vector<std::string> split(const std::string& s, char delim) {
     return parts;
 }
 
-// Try to parse range syntax "start...step...end" or "start...end"
-// Returns empty vector if not a range pattern
+// Try to parse range syntax "start...step...end" or "start...end".
+// Returns empty vector if not a range pattern.
 std::vector<std::string> try_parse_range(const std::string& val) {
-    // Must contain "..."
-    if (val.find("...") == std::string::npos) return {};
-
-    auto parts = split(val, '.');
-    // Remove empty parts (from consecutive dots)
-    std::vector<std::string> tokens;
-    for (auto& p : parts) {
-        if (!p.empty()) tokens.push_back(p);
-    }
-
-    // tokens should be 2 (start, end) or 3 (start, step, end)
-    if (tokens.size() == 2) {
-        int start = std::stoi(tokens[0]);
-        int end   = std::stoi(tokens[1]);
-        int step  = (start <= end) ? 1 : -1;
-        std::vector<std::string> values;
-        for (int v = start; step > 0 ? v <= end : v >= end; v += step) {
-            values.push_back(std::to_string(v));
-        }
-        return values;
-    } else if (tokens.size() == 3) {
-        int start = std::stoi(tokens[0]);
-        int step  = std::stoi(tokens[1]);
-        int end   = std::stoi(tokens[2]);
-        if (step == 0) return {};
-        std::vector<std::string> values;
-        for (int v = start; step > 0 ? v <= end : v >= end; v += step) {
-            values.push_back(std::to_string(v));
-        }
-        return values;
-    }
-    return {};
+    return range_parser::parse_range_notation(val);
 }
 
 // Check if a value looks like a pipe list (contains '|')
