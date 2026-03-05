@@ -3,7 +3,7 @@
 import React, { startTransition } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getMetricCellColor } from '@/lib/metricColors';
-import type { BacktestAlphaResult } from '@/types';
+import type { BacktestAlphaResult, ISMetrics, OSMetrics } from '@/types';
 
 const EMPTY_ALPHAS: BacktestAlphaResult[] = [];
 
@@ -24,7 +24,7 @@ const metricClass = (metric: string, value: number | undefined | null) =>
   isFiniteNumber(value) ? getMetricCellColor(metric, value) : 'text-foreground-muted';
 
 // Hoisted static thead — column labels never change (rendering-hoist-jsx)
-// Order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover
+// Order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe80 | turnover
 const TABLE_HEADER = (
   <thead className="sticky top-0 bg-background-secondary/50">
     {/* Group Header Row */}
@@ -47,7 +47,7 @@ const TABLE_HEADER = (
       <th className="text-right px-2.5">quality</th>
       <th className="text-right px-2.5">return</th>
       <th className="text-right px-2.5">sharpe</th>
-      <th className="text-right px-2.5">sharpe400</th>
+      <th className="text-right px-2.5">sharpe80</th>
       <th className="text-right px-2.5">turnover</th>
       <th className="text-right px-2.5 border-l border-border-strong">avgBet</th>
       <th className="text-right px-2.5">avgMaxBet</th>
@@ -56,11 +56,47 @@ const TABLE_HEADER = (
       <th className="text-right px-2.5">quality</th>
       <th className="text-right px-2.5">return</th>
       <th className="text-right px-2.5">sharpe</th>
-      <th className="text-right px-2.5">sharpe400</th>
+      <th className="text-right px-2.5">sharpe80</th>
       <th className="text-right px-2.5">turnover</th>
     </tr>
   </thead>
 );
+
+function MetricCells({ m, borderLeft }: { m: ISMetrics | OSMetrics; borderLeft?: boolean }) {
+  const cellClass = "text-xs font-mono tabular-nums text-right px-3 py-1.5 text-data-color";
+  return (
+    <>
+      <td className={`${cellClass}${borderLeft ? ' border-l border-border-strong' : ''}`}>{isFiniteNumber(m.min_bet) ? m.min_bet.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(m.avgMaxBet) ? m.avgMaxBet.toFixed(1) + '%' : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(m.max_weight) ? `${m.max_weight.toFixed(1)}%` : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(m.minBetMin) ? m.minBetMin.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(m.quality) ? m.quality.toFixed(2) : '-'}</td>
+      <td className={`${cellClass} ${metricClass('pnl', m.ann_ret ?? m.pnl)}`}>{formatPnl(m.ann_ret ?? m.pnl)}</td>
+      <td className={`${cellClass} ${metricClass('sharpe', m.sharpe)}`}>{formatNumber(m.sharpe)}</td>
+      <td className={`${cellClass} ${metricClass('sharpe', m.sharpe80)}`}>{formatNumber(m.sharpe80)}</td>
+      <td className={`${cellClass} ${metricClass('turnover', m.turnover)}`}>{isFiniteNumber(m.turnover) ? m.turnover.toFixed(1) + '%' : '-'}</td>
+    </>
+  );
+}
+
+// Batch row — combined alpha (rank 0 equivalent)
+function BatchRow() {
+  const combined = useAlphaStore(s => s.result?.combined);
+  if (!combined) return null;
+
+  const { isMetrics, osMetrics } = combined;
+  if (!isMetrics || !osMetrics) return null;
+
+  return (
+    <tr className="rank-row border-b-2 border-border-strong bg-background-secondary/30">
+      <td className="px-1 py-1"></td>
+      <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5 font-semibold">batch</td>
+      <td className="text-xs font-mono px-3 py-1.5 font-semibold text-foreground-secondary">0</td>
+      <MetricCells m={isMetrics} />
+      <MetricCells m={osMetrics} borderLeft />
+    </tr>
+  );
+}
 
 // React.memo — prevents re-render when parent state (selectedCount, sortedBy) changes
 // but this row's item/index props are unchanged (rerender-memo)
@@ -72,8 +108,6 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
   // Actions read via getState() — not subscribed as selectors (rerender-defer-reads)
 
   if (!isMetrics || !osMetrics) return null;
-
-  const cellClass = "text-xs font-mono tabular-nums text-right px-3 py-1.5 text-data-color";
 
   return (
     <tr
@@ -105,28 +139,8 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
       </td>
       {/* Name */}
       <td className="text-xs font-mono px-3 py-1.5 truncate max-w-[100px]" title={item.name}>{item.name}</td>
-
-      {/* IS Metrics — order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover */}
-      <td className={cellClass}>{isFiniteNumber(isMetrics.min_bet) ? isMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.avgMaxBet) ? isMetrics.avgMaxBet.toFixed(1) + '%' : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.max_weight) ? `${isMetrics.max_weight.toFixed(1)}%` : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.minBetMin) ? isMetrics.minBetMin.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(isMetrics.quality) ? isMetrics.quality.toFixed(2) : '-'}</td>
-      <td className={`${cellClass} ${metricClass('pnl', isMetrics.ann_ret ?? isMetrics.pnl)}`}>{formatPnl(isMetrics.ann_ret ?? isMetrics.pnl)}</td>
-      <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe)}`}>{formatNumber(isMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('sharpe', isMetrics.sharpe400)}`}>{formatNumber(isMetrics.sharpe400)}</td>
-      <td className={`${cellClass} ${metricClass('turnover', isMetrics.turnover)}`}>{isFiniteNumber(isMetrics.turnover) ? isMetrics.turnover.toFixed(1) + '%' : '-'}</td>
-
-      {/* OS Metrics — order: avgBet | avgMaxBet | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover */}
-      <td className={`${cellClass} border-l border-border-strong`}>{isFiniteNumber(osMetrics.min_bet) ? osMetrics.min_bet.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(osMetrics.avgMaxBet) ? osMetrics.avgMaxBet.toFixed(1) + '%' : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(osMetrics.max_weight) ? `${osMetrics.max_weight.toFixed(1)}%` : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(osMetrics.minBetMin) ? osMetrics.minBetMin.toFixed(2) : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(osMetrics.quality) ? osMetrics.quality.toFixed(2) : '-'}</td>
-      <td className={`${cellClass} ${metricClass('pnl', osMetrics.ann_ret ?? osMetrics.pnl)}`}>{formatPnl(osMetrics.ann_ret ?? osMetrics.pnl)}</td>
-      <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe)}`}>{formatNumber(osMetrics.sharpe)}</td>
-      <td className={`${cellClass} ${metricClass('sharpe', osMetrics.sharpe400)}`}>{formatNumber(osMetrics.sharpe400)}</td>
-      <td className={`${cellClass} ${metricClass('turnover', osMetrics.turnover)}`}>{isFiniteNumber(osMetrics.turnover) ? osMetrics.turnover.toFixed(1) + '%' : '-'}</td>
+      <MetricCells m={isMetrics} />
+      <MetricCells m={osMetrics} borderLeft />
     </tr>
   );
 });
@@ -135,6 +149,7 @@ export default function AlphaRankingTable() {
   const alphas = useAlphaStore(s => s.result?.alphas) ?? EMPTY_ALPHAS;
   const sortedBy = useAlphaStore(s => s.result?.sortedBy);
   const selectedCount = useAlphaStore(s => s.selectedAlphaIndices.length);
+  const hasCombined = useAlphaStore(s => s.result?.combined != null);
   // clearAlphaSelection read via getState() — not subscribed as selector (rerender-defer-reads)
 
   const alphaCount = alphas.length;
@@ -164,6 +179,7 @@ export default function AlphaRankingTable() {
         <table className="w-full border-collapse">
           {TABLE_HEADER}
           <tbody>
+            {hasCombined ? <BatchRow /> : null}
             {alphas.map((item, index) => (
               <RankRow key={`${item.name}-${index}`} item={item} index={index} />
             ))}

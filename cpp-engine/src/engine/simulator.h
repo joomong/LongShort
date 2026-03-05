@@ -31,6 +31,7 @@ class Simulator {
 public:
     Simulator(const DataPanel& data, const SimulatorConfig& config);
     SimulatorOutput run(const std::vector<Module*>& pipeline);
+    SimulatorOutput run_from_signals(const std::vector<std::vector<float>>& signals);
 private:
     const DataPanel& data_;
     SimulatorConfig config_;

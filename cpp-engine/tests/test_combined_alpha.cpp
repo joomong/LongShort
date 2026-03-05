@@ -1,0 +1,217 @@
+#include <gtest/gtest.h>
+#include <cmath>
+#include <limits>
+#include "data/data_panel.h"
+#include "engine/simulator.h"
+#include "metrics/metrics_engine.h"
+#include "modules/Data.h"
+#include "modules/Rank.h"
+#include "compiler/dag_builder.h"
+
+// Helper: build a small DataPanel for tests
+static DataPanel make_test_panel(unsigned T, unsigned N) {
+    DataPanel dp;
+    dp.T = T;
+    dp.N = N;
+    dp.timestamps.resize(T);
+    for (unsigned t = 0; t < T; ++t)
+        dp.timestamps[t] = static_cast<int64_t>(t) * 86400000;
+    dp.symbols.resize(N);
+    for (unsigned i = 0; i < N; ++i)
+        dp.symbols[i] = "SYM" + std::to_string(i);
+
+    auto& close = dp.arrays["close"];
+    close.resize(T * N);
+    for (unsigned t = 0; t < T; ++t)
+        for (unsigned i = 0; i < N; ++i)
+            close[t * N + i] = 100.0f + static_cast<float>(t) + static_cast<float>(i) * 10.0f;
+
+    return dp;
+}
+
+TEST(CombinedAlpha, NaNTolerantSignalSummation) {
+    // 2 alphas, 3 timestamps, 2 symbols
+    const float NaN = std::numeric_limits<float>::quiet_NaN();
+
+    std::vector<std::vector<float>> alpha0 = {
+        {1.0f, 2.0f},
+        {NaN,  3.0f},
+        {4.0f, NaN},
+    };
+    std::vector<std::vector<float>> alpha1 = {
+        {0.5f, NaN},
+        {1.0f, 1.0f},
+        {NaN,  2.0f},
+    };
+
+    const unsigned T = 3, N = 2;
+    std::vector<std::vector<float>> combined(T,
+        std::vector<float>(N, std::numeric_limits<float>::quiet_NaN()));
+
+    std::vector<std::vector<std::vector<float>>> all_signals = {alpha0, alpha1};
+    for (size_t a = 0; a < all_signals.size(); ++a) {
+        const auto& sigs = all_signals[a];
+        for (unsigned di = 0; di < T; ++di) {
+            for (unsigned ii = 0; ii < N; ++ii) {
+                float s = sigs[di][ii];
+                if (!std::isfinite(s)) continue;
+                float& c = combined[di][ii];
+                c = std::isfinite(c) ? c + s : s;
+            }
+        }
+    }
+
+    // [0][0]: 1.0 + 0.5 = 1.5
+    EXPECT_FLOAT_EQ(combined[0][0], 1.5f);
+    // [0][1]: 2.0 + NaN = 2.0
+    EXPECT_FLOAT_EQ(combined[0][1], 2.0f);
+    // [1][0]: NaN + 1.0 = 1.0
+    EXPECT_FLOAT_EQ(combined[1][0], 1.0f);
+    // [1][1]: 3.0 + 1.0 = 4.0
+    EXPECT_FLOAT_EQ(combined[1][1], 4.0f);
+    // [2][0]: 4.0 + NaN = 4.0
+    EXPECT_FLOAT_EQ(combined[2][0], 4.0f);
+    // [2][1]: NaN + 2.0 = 2.0
+    EXPECT_FLOAT_EQ(combined[2][1], 2.0f);
+}
+
+TEST(CombinedAlpha, RunFromSignalsProducesValidOutput) {
+    const unsigned T = 10, N = 3;
+    auto dp = make_test_panel(T, N);
+
+    // Fixed signals: symbol 0 positive, symbol 1 negative, symbol 2 zero
+    std::vector<std::vector<float>> signals(T, std::vector<float>(N, 0.0f));
+    for (unsigned di = 0; di < T; ++di) {
+        signals[di][0] = 1.0f;
+        signals[di][1] = -1.0f;
+        signals[di][2] = 0.0f;
+    }
+
+    SimulatorConfig cfg;
+    cfg.T = T;
+    cfg.N = N;
+    cfg.fee_rate = 0.0005;
+    cfg.mode = 1;
+    cfg.bars_per_year = 365;
+    cfg.collect_signals = false;
+
+    Simulator sim(dp, cfg);
+    auto out = sim.run_from_signals(signals);
+
+    EXPECT_EQ(out.ret.size(), T);
+    EXPECT_EQ(out.turnover.size(), T);
+    EXPECT_EQ(out.timestamps.size(), T);
+
+    // D1 mode: di=0 has no return (prev_target is 0)
+    EXPECT_DOUBLE_EQ(out.ret[0], 0.0);
+
+    // From di=2 onward, returns should be finite and non-zero
+    for (unsigned di = 2; di < T; ++di) {
+        EXPECT_TRUE(std::isfinite(out.ret[di]));
+    }
+
+    // Turnover at di=1 should be positive (positions initiated from D1 delay)
+    EXPECT_GT(out.turnover[1], 0.0);
+
+    // Nonzero count: only 2 symbols have nonzero signal
+    // D1 mode: at di=0 prev_target is all zero, so nz=0
+    EXPECT_EQ(out.nonzero_count[0], 0);
+    // From di=1 onward: prev_target has 2 nonzero entries
+    for (unsigned di = 1; di < T; ++di)
+        EXPECT_EQ(out.nonzero_count[di], 2);
+}
+
+TEST(CombinedAlpha, RunFromSignalsMatchesPipelineRun) {
+    // Compile a pipeline, run it, collect signals, then run_from_signals
+    // and verify they produce the same returns
+    const unsigned T = 10, N = 3;
+    auto dp = make_test_panel(T, N);
+
+    MData data_mod;
+    data_mod.column_name = "close";
+    data_mod.panel = &dp;
+    MRank rank_mod;
+    rank_mod.pct = IntParameter(1);
+    std::vector<Module*> pipeline = {&data_mod, &rank_mod};
+
+    SimulatorConfig cfg;
+    cfg.T = T;
+    cfg.N = N;
+    cfg.fee_rate = 0.0005;
+    cfg.mode = 1;
+    cfg.bars_per_year = 365;
+    cfg.collect_signals = true;
+
+    Simulator sim1(dp, cfg);
+    auto out1 = sim1.run(pipeline);
+
+    // Now run_from_signals with the collected signals
+    cfg.collect_signals = false;
+    Simulator sim2(dp, cfg);
+    auto out2 = sim2.run_from_signals(out1.signals);
+
+    ASSERT_EQ(out1.ret.size(), out2.ret.size());
+    for (unsigned di = 0; di < T; ++di) {
+        EXPECT_DOUBLE_EQ(out1.ret[di], out2.ret[di]) << "ret mismatch at di=" << di;
+        EXPECT_DOUBLE_EQ(out1.turnover[di], out2.turnover[di]) << "tvr mismatch at di=" << di;
+        EXPECT_DOUBLE_EQ(out1.min_bet[di], out2.min_bet[di]) << "min_bet mismatch at di=" << di;
+        EXPECT_DOUBLE_EQ(out1.max_weight[di], out2.max_weight[di]) << "max_weight mismatch at di=" << di;
+        EXPECT_EQ(out1.nonzero_count[di], out2.nonzero_count[di]) << "nz mismatch at di=" << di;
+    }
+}
+
+TEST(CombinedAlpha, CombinedMetricsAreFinite) {
+    const unsigned T = 20, N = 3;
+    auto dp = make_test_panel(T, N);
+
+    // 2 alphas with different signals
+    std::vector<std::vector<float>> sig0(T, std::vector<float>(N, 0.0f));
+    std::vector<std::vector<float>> sig1(T, std::vector<float>(N, 0.0f));
+    for (unsigned di = 0; di < T; ++di) {
+        sig0[di][0] = 1.0f;  sig0[di][1] = -0.5f; sig0[di][2] = 0.0f;
+        sig1[di][0] = -0.5f; sig1[di][1] = 1.0f;  sig1[di][2] = 0.5f;
+    }
+
+    // NaN-tolerant summation
+    std::vector<std::vector<float>> combined(T,
+        std::vector<float>(N, std::numeric_limits<float>::quiet_NaN()));
+    std::vector<std::vector<std::vector<float>>> all_signals = {sig0, sig1};
+    for (size_t a = 0; a < all_signals.size(); ++a) {
+        const auto& sigs = all_signals[a];
+        for (unsigned di = 0; di < T; ++di) {
+            for (unsigned ii = 0; ii < N; ++ii) {
+                float s = sigs[di][ii];
+                if (!std::isfinite(s)) continue;
+                float& c = combined[di][ii];
+                c = std::isfinite(c) ? c + s : s;
+            }
+        }
+    }
+
+    SimulatorConfig cfg;
+    cfg.T = T;  cfg.N = N;
+    cfg.fee_rate = 0.0005;
+    cfg.mode = 1;
+    cfg.bars_per_year = 365;
+    cfg.collect_signals = false;
+
+    Simulator sim(dp, cfg);
+    auto out = sim.run_from_signals(combined);
+
+    int64_t is_ms = dp.timestamps[5];
+    int64_t os_ms = dp.timestamps[15];
+
+    auto metrics = compute_full_metrics(
+        out.timestamps, out.ret, out.turnover,
+        out.min_bet, out.max_weight,
+        out.long_weight, out.short_weight,
+        out.nonzero_count,
+        is_ms, os_ms, 0.0005, 365);
+
+    EXPECT_TRUE(std::isfinite(metrics.is_summary.sharpe));
+    EXPECT_TRUE(std::isfinite(metrics.os_summary.sharpe));
+    EXPECT_TRUE(std::isfinite(metrics.is_summary.pnl));
+    EXPECT_TRUE(std::isfinite(metrics.os_summary.pnl));
+    EXPECT_FALSE(metrics.yearly.empty());
+    EXPECT_FALSE(metrics.timeseries.timestamps.empty());
+}

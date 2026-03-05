@@ -54,6 +54,7 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_CTL OFF CACHE BOOL "" FORCE)
 set(BUILD_ORM OFF CACHE BOOL "" FORCE)
+set(BUILD_YAML_CONFIG OFF CACHE BOOL "" FORCE)
 set(BUILD_BROTLI OFF CACHE BOOL "" FORCE)
 set(COZ_PROFILING OFF CACHE BOOL "" FORCE)
 
@@ -131,6 +132,10 @@ target_link_libraries(engine PUBLIC
 add_executable(longshort-server src/main.cpp)
 target_link_libraries(longshort-server PRIVATE engine drogon)
 
+# One-off benchmark utility for large multi-alpha request breakdown
+add_executable(bench_2000_breakdown tools/bench_2000_breakdown.cpp)
+target_link_libraries(bench_2000_breakdown PRIVATE engine)
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -146,9 +151,16 @@ add_engine_test(test_data_loader      tests/test_data_loader.cpp)
 add_engine_test(test_modules          tests/test_modules.cpp)
 add_engine_test(test_simulator        tests/test_simulator.cpp)
 add_engine_test(test_summary_metrics  tests/test_summary_metrics.cpp)
+add_engine_test(test_module_oracles   tests/test_module_oracles.cpp)
+add_engine_test(test_metrics_oracle   tests/test_metrics_oracle.cpp)
+add_engine_test(test_pipeline_contract tests/test_pipeline_contract.cpp)
+add_engine_test(test_http_contract    tests/test_http_contract.cpp)
+add_engine_test(test_extreme_alpha_stress tests/test_extreme_alpha_stress.cpp)
 add_engine_test(test_yearly_metrics   tests/test_yearly_metrics.cpp)
 add_engine_test(test_checkpoint       tests/test_checkpoint.cpp)
 add_engine_test(test_simd_parity      tests/test_simd_parity.cpp)
 add_engine_test(test_ga               tests/test_ga.cpp)
 add_engine_test(test_determinism      tests/test_determinism.cpp)
 add_engine_test(test_xml_compiler     tests/test_xml_compiler.cpp)
+add_engine_test(test_golden_crossval  tests/test_golden_crossval.cpp)
+add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
