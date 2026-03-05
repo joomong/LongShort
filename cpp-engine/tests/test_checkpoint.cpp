@@ -36,6 +36,26 @@ struct CounterModule : public Module {
     }
 };
 
+struct LegacyModuleInputWire {
+    unsigned num_assets = 0;
+    unsigned max_lookback = 0;
+    unsigned head = 0;
+    unsigned push_count = 0;
+    std::vector<std::vector<float>> ring;
+    std::vector<float> nan_buf;
+
+    template<class Archive>
+    void serialize(Archive& ar, const unsigned int /*version*/)
+    {
+        ar & num_assets;
+        ar & max_lookback;
+        ar & head;
+        ar & push_count;
+        ar & ring;
+        ar & nan_buf;
+    }
+};
+
 // ---------------------------------------------------------------------------
 // Helper: build a small DataPanel
 // ---------------------------------------------------------------------------
@@ -130,12 +150,18 @@ TEST(Checkpoint, ModuleInputRoundTripPreservesRows) {
     std::vector<float> row0 = {1.0f, 10.0f};
     std::vector<float> row1 = {2.0f, 20.0f};
     std::vector<float> row2 = {3.0f, 30.0f};
+    std::vector<float> row3 = {4.0f, 40.0f};
+    std::vector<float> row4 = {5.0f, 50.0f};
     SignalVector sv0{row0.data(), 2};
     SignalVector sv1{row1.data(), 2};
     SignalVector sv2{row2.data(), 2};
+    SignalVector sv3{row3.data(), 2};
+    SignalVector sv4{row4.data(), 2};
     input.push(sv0);
     input.push(sv1);
     input.push(sv2);
+    input.push(sv3);
+    input.push(sv4);
 
     {
         std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
@@ -160,12 +186,66 @@ TEST(Checkpoint, ModuleInputRoundTripPreservesRows) {
     ASSERT_EQ(prev1.size, 2u);
     ASSERT_EQ(prev2.size, 2u);
 
-    EXPECT_FLOAT_EQ(latest[0], 3.0f);
-    EXPECT_FLOAT_EQ(latest[1], 30.0f);
-    EXPECT_FLOAT_EQ(prev1[0], 2.0f);
-    EXPECT_FLOAT_EQ(prev1[1], 20.0f);
-    EXPECT_FLOAT_EQ(prev2[0], 1.0f);
-    EXPECT_FLOAT_EQ(prev2[1], 10.0f);
+    EXPECT_FLOAT_EQ(latest[0], 5.0f);
+    EXPECT_FLOAT_EQ(latest[1], 50.0f);
+    EXPECT_FLOAT_EQ(prev1[0], 4.0f);
+    EXPECT_FLOAT_EQ(prev1[1], 40.0f);
+    EXPECT_FLOAT_EQ(prev2[0], 3.0f);
+    EXPECT_FLOAT_EQ(prev2[1], 30.0f);
+
+    std::remove(tmp);
+}
+
+// ---------------------------------------------------------------------------
+// TEST: ModuleInput can load legacy wire format (vector<vector<float>> ring)
+// ---------------------------------------------------------------------------
+TEST(Checkpoint, ModuleInputLoadsLegacyWireFormat) {
+    const char* tmp = "/tmp/test_checkpoint_module_input_legacy.bin";
+
+    LegacyModuleInputWire legacy;
+    legacy.num_assets = 2;
+    legacy.max_lookback = 2;
+    legacy.head = 1;
+    legacy.push_count = 4;
+    legacy.ring = {
+        {11.0f, 110.0f},
+        {22.0f, 220.0f},
+        {33.0f, 330.0f},
+    };
+    legacy.nan_buf = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+    };
+
+    {
+        std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ofs.good());
+        boost::archive::binary_oarchive ar(ofs);
+        ar & legacy;
+    }
+
+    ModuleInput loaded;
+    {
+        std::ifstream ifs(tmp, std::ios::binary);
+        ASSERT_TRUE(ifs.good());
+        boost::archive::binary_iarchive ar(ifs);
+        ar & loaded;
+    }
+
+    EXPECT_EQ(loaded.maxLookBack, 2u);
+    const auto latest = loaded(0);
+    const auto prev1 = loaded(1);
+    const auto prev2 = loaded(2);
+    ASSERT_EQ(latest.size, 2u);
+    ASSERT_EQ(prev1.size, 2u);
+    ASSERT_EQ(prev2.size, 2u);
+
+    EXPECT_FLOAT_EQ(latest[0], 22.0f);
+    EXPECT_FLOAT_EQ(latest[1], 220.0f);
+    EXPECT_FLOAT_EQ(prev1[0], 11.0f);
+    EXPECT_FLOAT_EQ(prev1[1], 110.0f);
+    EXPECT_FLOAT_EQ(prev2[0], 33.0f);
+    EXPECT_FLOAT_EQ(prev2[1], 330.0f);
 
     std::remove(tmp);
 }
