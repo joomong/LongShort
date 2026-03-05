@@ -189,7 +189,7 @@
 - `[x]` P1-2 TsMean/TsZscore input(w) hoist
 - `[x]` P1-3 metrics slice removal
 - `[x]` P1-4 simulator copy reduction
-- `[~]` P1-5 AVX2 real path wiring
+- `[x]` P1-5 AVX2 real path wiring
 - `[ ]` P2-1 ModuleInput flat ring
 - `[ ]` P2-2 parquet memory de-dup
 - `[ ]` P2-3 collect_signals policy

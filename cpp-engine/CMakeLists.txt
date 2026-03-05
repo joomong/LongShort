@@ -18,6 +18,7 @@ find_package(Boost REQUIRED COMPONENTS serialization)
 # FetchContent for pugixml, yaml-cpp, googletest
 # ---------------------------------------------------------------------------
 include(FetchContent)
+include(CheckCXXCompilerFlag)
 
 FetchContent_Declare(pugixml
     GIT_REPOSITORY https://github.com/zeux/pugixml.git
@@ -106,6 +107,21 @@ add_library(engine STATIC
     # Phase 8: API
     src/api/json_serializer.cpp
 )
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$")
+    if (MSVC)
+        set_source_files_properties(
+            src/simd/m_decay_avx2.cpp
+            PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    else()
+        check_cxx_compiler_flag("-mavx2" CPP_ENGINE_HAS_MAVX2_FLAG)
+        if (CPP_ENGINE_HAS_MAVX2_FLAG)
+            set_source_files_properties(
+                src/simd/m_decay_avx2.cpp
+                PROPERTIES COMPILE_OPTIONS "-mavx2")
+        endif()
+    endif()
+endif()
 
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

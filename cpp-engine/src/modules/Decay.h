@@ -15,6 +15,7 @@ struct MDecay : public Module
         div.resize(n, 0.0);
         for (int i = 1; i < n; ++i)
             div[i] = 1.0/(double)i;
+        use_avx2_kernel = mdecay_runtime_avx2_enabled();
         setting_output_to_nan_is_not_necessary();
     }
     void calculate(unsigned /*di*/, SignalVector &output)
@@ -22,24 +23,20 @@ struct MDecay : public Module
         input.push(output);
         const float* past = input(days).data();
         const float* curr = input().data();
-        #ifdef __AVX2__
-            unsigned ii = 0;
-            unsigned ii_aligned_end = numAssets/8*8;
-            for(; ii < ii_aligned_end; ii+=8)
-                process_8instruments(ii, curr, past, output);
-            for(; ii < (unsigned)numAssets; ++ii)
-                process_1instrument(ii, curr, past, output);
-        #else
-            unsigned ii = 0;
-            unsigned ii_aligned_end = numAssets/2*2;
-            for(; ii < ii_aligned_end; ii+=2)
-            {
-                process_1instrument(ii+0, curr, past, output);
-                process_1instrument(ii+1, curr, past, output);
-            }
-            for(; ii < (unsigned)numAssets; ++ii)
-                process_1instrument(ii, curr, past, output);
-        #endif
+        unsigned ii = 0;
+        if (use_avx2_kernel) {
+            const unsigned ii_aligned_end = numAssets / 8 * 8;
+            for (; ii < ii_aligned_end; ii += 8)
+                process_8instruments_avx2(ii, curr, past, output);
+        }
+
+        const unsigned ii_aligned_end = numAssets / 2 * 2;
+        for (; ii < ii_aligned_end; ii += 2) {
+            process_1instrument(ii + 0, curr, past, output);
+            process_1instrument(ii + 1, curr, past, output);
+        }
+        for (; ii < (unsigned)numAssets; ++ii)
+            process_1instrument(ii, curr, past, output);
     }
     void checkpoint(boost::archive::binary_iarchive &ar)
     {
@@ -55,6 +52,7 @@ struct MDecay : public Module
     StarVector<double> sum, diff;
     ModuleInput input;
     IntParameter days;
+    bool use_avx2_kernel = false;
     //TEST days:"10"
     //TEST days:"50"
     // HELP linear decay, n.g.: days=5, out = (in[di] * 5 + in[di-1] * 4 + ...) / weighted_cnt
@@ -84,9 +82,19 @@ struct MDecay : public Module
             output[ii] = std::numeric_limits<float>::quiet_NaN();
     }
 
-    void process_8instruments(unsigned ii, const float* curr, const float* past, SignalVector &output)
+    void process_8instruments_avx2(unsigned ii, const float* curr, const float* past, SignalVector &output)
     {
-        for (unsigned k = 0; k < 8; ++k)
-            process_1instrument(ii + k, curr, past, output);
+        mdecay_process_8_avx2(
+            ii,
+            days,
+            curr,
+            past,
+            weights.data(),
+            num.data(),
+            sum.data(),
+            diff.data(),
+            div.data(),
+            div.size(),
+            output.data);
     }
 };

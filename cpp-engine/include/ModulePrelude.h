@@ -13,6 +13,7 @@
 #include "star_vector.h"
 #include "module.h"
 #include "data/data_panel.h"
+#include "simd/m_decay_avx2.h"
 
 using std::isfinite;
 using std::isnan;
