@@ -14,24 +14,24 @@ static std::string ms_to_date(int64_t ms) {
 
 Json::Value summary_to_json(const SummaryMetrics& m) {
     Json::Value j;
-    j["return"]    = m.ann_ret;
+    j["return"]    = m.ann_ret * 100;      // fraction → pp
     j["sharpe"]    = m.sharpe;
-    j["mdd"]       = m.mdd;
-    j["turnover"]  = m.turnover;
-    j["maxWeight"] = m.max_weight;
-    j["minBet"]    = m.min_bet;
-    j["pnl"]       = m.pnl;
-    j["winRate"]   = m.win_rate;
+    j["mdd"]       = m.mdd * 100;          // fraction → pp
+    j["turnover"]  = m.turnover * 100;     // fraction → pp
+    j["maxWeight"] = m.max_weight * 100;   // fraction → pp
+    j["minBet"]    = m.min_bet;            // count (symbols)
+    j["pnl"]       = m.pnl * 100;          // fraction → pp
+    j["winRate"]   = m.win_rate * 100;     // fraction → pp
     j["margin"]    = m.margin;
     j["longRatio"] = m.long_ratio;
     j["shortRatio"]= m.short_ratio;
     j["nonzeroPosition"] = m.nonzero_position;
-    j["avgMaxBet"]  = m.avg_max_bet;
-    j["minBetMin"]  = m.min_bet_min;
+    j["avgMaxBet"]  = m.avg_max_bet * 100; // fraction → pp
+    j["minBetMin"]  = m.min_bet_min;       // count (symbols)
     j["quality"]    = m.quality;
     j["sharpe400"]  = m.sharpe400;
     j["sharpe80"]   = m.sharpe80;
-    j["minsoc"]     = m.minsoc;
+    j["minsoc"]     = m.minsoc * 100;      // fraction → pp
     return j;
 }
 
@@ -177,52 +177,3 @@ Json::Value signal_distribution_to_json(
     return j;
 }
 
-Json::Value single_alpha_response(
-    const FullMetricsResult& metrics,
-    const SimulatorOutput& sim_out,
-    const std::vector<std::string>& symbols)
-{
-    Json::Value j;
-
-    // Summary: IS + OS side by side
-    Json::Value summary;
-    summary["is"] = summary_to_json(metrics.is_summary);
-    summary["os"] = summary_to_json(metrics.os_summary);
-    j["summary"] = summary;
-
-    // Yearly (full period, single table)
-    j["yearly"] = yearly_to_json(metrics.yearly);
-
-    // Timeseries (full period, single series)
-    j["timeseries"] = timeseries_to_json(metrics.timeseries);
-
-    // IS/OS boundary indices
-    j["isStartIndex"] = static_cast<Json::UInt64>(metrics.is_start_index);
-    j["osStartIndex"] = static_cast<Json::UInt64>(metrics.os_start_index);
-
-    // Signal plot (if collected)
-    if (!sim_out.signals.empty()) {
-        j["signalPlot"] = signal_plot_to_json(
-            sim_out.signals, sim_out.timestamps, symbols);
-
-        // Signal range
-        float sig_min = 0, sig_max = 0;
-        bool first = true;
-        for (const auto& row : sim_out.signals) {
-            for (float v : row) {
-                if (!std::isfinite(v)) continue;
-                if (first) { sig_min = sig_max = v; first = false; }
-                else { if (v < sig_min) sig_min = v; if (v > sig_max) sig_max = v; }
-            }
-        }
-        Json::Value sr;
-        sr["min"] = sig_min;
-        sr["max"] = sig_max;
-        j["signalRange"] = sr;
-
-        // Distribution
-        j["distribution"] = signal_distribution_to_json(sim_out.signals);
-    }
-
-    return j;
-}

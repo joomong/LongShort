@@ -74,11 +74,11 @@ SummaryMetrics compute_summary(
         m.turnover = (cnt > 0) ? sum / cnt : 0.0;
     }
 
-    // min_bet: mean of finite values
+    // min_bet: average number of symbols with position
     {
         double sum = 0.0; int cnt = 0;
-        for (size_t i = 0; i < min_bet.size(); ++i) {
-            if (std::isfinite(min_bet[i])) { sum += min_bet[i]; ++cnt; }
+        for (size_t i = 0; i < nonzero_count.size(); ++i) {
+            sum += nonzero_count[i]; ++cnt;
         }
         m.min_bet = (cnt > 0) ? sum / cnt : 0.0;
     }
@@ -145,17 +145,14 @@ SummaryMetrics compute_summary(
         m.avg_max_bet = (cnt > 0) ? sum / cnt : 0.0;
     }
 
-    // min_bet_min: minimum of min_bet series (finite values)
+    // min_bet_min: minimum number of symbols with position
     {
-        double mn = std::numeric_limits<double>::max();
+        int mn = std::numeric_limits<int>::max();
         bool found = false;
-        for (size_t i = 0; i < min_bet.size(); ++i) {
-            if (std::isfinite(min_bet[i])) {
-                if (min_bet[i] < mn) mn = min_bet[i];
-                found = true;
-            }
+        for (size_t i = 0; i < nonzero_count.size(); ++i) {
+            if (nonzero_count[i] < mn) { mn = nonzero_count[i]; found = true; }
         }
-        m.min_bet_min = found ? mn : 0.0;
+        m.min_bet_min = found ? static_cast<double>(mn) : 0.0;
     }
 
     // quality: sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)

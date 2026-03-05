@@ -70,8 +70,8 @@ TEST(SummaryMetrics, AllBarsProcessed) {
     // turnover = mean(0.1, 0.2, 0.3) = 0.2
     EXPECT_NEAR(m.turnover, 0.2, 1e-10);
 
-    // min_bet = mean(0.05, 0.06, 0.07) = 0.06
-    EXPECT_NEAR(m.min_bet, 0.06, 1e-10);
+    // min_bet = mean(nonzero_count) = mean(2, 3, 3) = 8/3 ≈ 2.6667
+    EXPECT_NEAR(m.min_bet, 8.0 / 3.0, 1e-10);
 
     // max_weight = max(0.4, 0.5, 0.6) = 0.6
     EXPECT_NEAR(m.max_weight, 0.6, 1e-10);
