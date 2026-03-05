@@ -110,8 +110,12 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
         out.nonzero_count[di] = nz;
 
         // 7. State update
-        prev_weights = exec_w;
-        prev_target = target;
+        if (mode == 1) {
+            prev_weights.swap(prev_target);
+            prev_target.swap(target);
+        } else {
+            prev_weights.swap(target);
+        }
     }
 
     return out;
@@ -201,8 +205,12 @@ SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>
         out.nonzero_count[di] = nz;
 
         // State update
-        prev_weights = exec_w;
-        prev_target = target;
+        if (mode == 1) {
+            prev_weights.swap(prev_target);
+            prev_target.swap(target);
+        } else {
+            prev_weights.swap(target);
+        }
     }
 
     return out;
