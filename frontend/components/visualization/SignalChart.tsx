@@ -294,17 +294,21 @@ export default function SignalChart() {
       return;
     }
 
-    // Zoom
+    // Zoom — cursor-anchored: the data point under the mouse stays fixed on screen
     const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-    const center = (xMin + xMax) / 2;
+    const overRect = u.over.getBoundingClientRect();
+    const mouseOffsetX = e.clientX - overRect.left;
+    const t = Math.max(0, Math.min(1, mouseOffsetX / overRect.width));
+    const cursorVal = xMin + t * xRange;
+
     const newRange = xRange * zoomFactor;
     const spacing = u.data[0].length > 1 ? u.data[0][1] - u.data[0][0] : 86400;
     const minRange = spacing * 5;
     const maxRange = dataMax - dataMin;
     const clamped = Math.max(minRange, Math.min(maxRange, newRange));
 
-    let newMin = center - clamped / 2;
-    let newMax = center + clamped / 2;
+    let newMin = cursorVal - t * clamped;
+    let newMax = cursorVal + (1 - t) * clamped;
     if (newMin < dataMin) { newMin = dataMin; newMax = newMin + clamped; }
     if (newMax > dataMax) { newMax = dataMax; newMin = newMax - clamped; }
 
