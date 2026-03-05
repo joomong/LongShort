@@ -7,10 +7,12 @@ struct MData : public Module {
     }
     void calculate(unsigned di, SignalVector &output)
     {
+#ifndef NDEBUG
         if (di >= panel->T) {
             output.fill_nan();
             return;
         }
+#endif
         const float* src = panel->row(column_name, di);
         for (unsigned ii = 0; ii < numAssets; ++ii)
             output[ii] = src[ii];

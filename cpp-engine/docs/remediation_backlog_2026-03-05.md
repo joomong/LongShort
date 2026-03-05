@@ -197,7 +197,7 @@
 - `[x]` P3-2 range parser unification
 - `[x]` P3-3 expansion copy reduction
 - `[x]` H-1 timeseries per-iter branch cleanup
-- `[ ]` H-2 MData bounds-check policy cleanup
+- `[x]` H-2 MData bounds-check policy cleanup
 
 ## 최근 업데이트
 - 2026-03-05: 멀티알파 합산 경로에서 worker별 `sim_out.signals (T*N)` 임시 보관을 제거했다. `Simulator` signal-row callback 기반으로 즉시 누적해 피크 메모리 리스크를 낮췄다.
@@ -209,3 +209,4 @@
 - 2026-03-05: 멀티 알파는 기본적으로 시그널 수집을 하지 않도록 하고, 요청 시 `collectSignalsTopK` 범위에서만 배치별 signal payload를 선택 수집하도록 정책화했다.
 - 2026-03-05: `cartesian_attribs`를 DFS 기반 생성으로 바꿔 확장 단계의 중간 `std::map` 복사를 줄였다.
 - 2026-03-05: `compute_timeseries`의 루프 내 size 분기를 제거하고, 함수 시작 시 입력 길이 계약을 1회 검증하도록 정리했다.
+- 2026-03-05: `MData`의 범위 체크는 디버그 빌드에서만 유지하고 릴리즈 핫패스 분기를 제거했다.
