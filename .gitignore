@@ -209,6 +209,10 @@ __marimo__/
 # Code agent
 GEMINI.md
 
+# Build/runtime artifacts
+.next/
+reports/test-runs/
+
 # Data
 Data/
 data/
