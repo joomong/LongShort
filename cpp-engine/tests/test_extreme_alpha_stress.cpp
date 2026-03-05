@@ -14,7 +14,7 @@
 
 namespace {
 
-DataPanel make_panel(unsigned T = 48, unsigned N = 8)
+DataPanel make_panel(unsigned T = 2048, unsigned N = 8)
 {
     DataPanel dp;
     dp.T = T;
@@ -73,7 +73,7 @@ std::string build_delay_options(unsigned n)
 
 TEST(ExtremeAlphaStress, CompileExpandsToTwoThousandAlphas)
 {
-    auto dp = make_panel();
+    auto dp = make_panel(2048, 8);
     const unsigned kAlphaCount = 2000;
     const std::string xml = "<data expr=\"close\" delay=\"" + build_delay_options(kAlphaCount)
         + "\"/><rank/>";
@@ -100,7 +100,7 @@ TEST(ExtremeAlphaStress, CompileExpandsToTwoThousandAlphas)
 
 TEST(ExtremeAlphaStress, SimulateAndScoreTwoThousandAlphasWithoutCrash)
 {
-    auto dp = make_panel();
+    auto dp = make_panel(2048, 8);
     const unsigned kAlphaCount = 2000;
     const std::string xml = "<data expr=\"close\" delay=\"" + build_delay_options(kAlphaCount)
         + "\"/><rank/>";
