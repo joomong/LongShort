@@ -65,6 +65,13 @@ bool parse_json(const std::string& s, Json::Value* out)
     return Json::parseFromStream(rb, iss, out, &errs);
 }
 
+std::string compact_json(const Json::Value& v)
+{
+    Json::StreamWriterBuilder wb;
+    wb["indentation"] = "";
+    return Json::writeString(wb, v);
+}
+
 HttpResult http_get(int port, const std::string& path)
 {
     HttpResult out;
@@ -366,6 +373,42 @@ TEST_F(HttpContractTest, MultiAlphaBatchesSortedByIsSharpeDesc)
         prev = s;
     }
     EXPECT_EQ(indices.size(), 4u);
+}
+
+TEST_F(HttpContractTest, MultiAlphaCombinedDeterministicAcrossRepeatedThreadedCalls)
+{
+    if (!available_)
+        GTEST_SKIP() << skip_reason_;
+
+    Json::Value req;
+    req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4|5\"/><rank/>";
+    req["isStart"] = "2000-01-01";
+    req["osStart"] = "2100-01-01";
+    req["threads"] = 4;
+
+    std::string baseline_combined;
+    std::string baseline_top_level;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        const HttpResult res = simulate(req);
+        ASSERT_EQ(res.status, 200) << res.body;
+
+        Json::Value body;
+        ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
+        ASSERT_TRUE(body.isMember("combined"));
+        ASSERT_TRUE(body["combined"].isObject());
+        ASSERT_TRUE(body.isMember("timeseries"));
+        ASSERT_TRUE(body["timeseries"].isObject());
+
+        const std::string combined_compact = compact_json(body["combined"]);
+        const std::string top_level_compact = compact_json(body["timeseries"]);
+        if (attempt == 0) {
+            baseline_combined = combined_compact;
+            baseline_top_level = top_level_compact;
+            continue;
+        }
+        EXPECT_EQ(combined_compact, baseline_combined) << "attempt=" << attempt;
+        EXPECT_EQ(top_level_compact, baseline_top_level) << "attempt=" << attempt;
+    }
 }
 
 TEST_F(HttpContractTest, SingleAlphaIncludesSignalPlotWithValues)

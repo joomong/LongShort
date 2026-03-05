@@ -33,6 +33,7 @@
   - 대형 요청에서 메모리 폭발(OOM) 차단
 - DoD:
   - 대형 A/T/N 입력에서 RSS가 `O(T*N)` 수준으로 제한됨
+  - `threads>1`에서도 combined 누적 순서가 알파 인덱스 기준으로 결정론 보장
 
 ### P0-3. `AlignedAllocator` 규약 준수
 - 대상: `src/simd/simd_utils.h`
@@ -181,7 +182,7 @@
 
 ## 현재 상태 (2026-03-05)
 - `[x]` P0-1 days/delay compile-time validation
-- `[x]` P0-2 multi-alpha streaming combine
+- `[x]` P0-2 multi-alpha streaming combine + deterministic accumulation order
 - `[x]` P0-3 allocator bad_alloc contract
 - `[x]` P0-4 event cache-reference architecture
 - `[x]` P1-1 rank O(N log N)
