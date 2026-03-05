@@ -180,8 +180,8 @@
 - `[x]` 완료
 
 ## 현재 상태 (2026-03-05)
-- `[ ]` P0-1 days/delay compile-time validation
-- `[ ]` P0-2 multi-alpha streaming combine
+- `[x]` P0-1 days/delay compile-time validation
+- `[~]` P0-2 multi-alpha streaming combine
 - `[ ]` P0-3 allocator bad_alloc contract
 - `[ ]` P0-4 event cache-reference architecture
 - `[ ]` P1-1 rank O(N log N)

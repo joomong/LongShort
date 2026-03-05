@@ -2,6 +2,7 @@
 #include "xml_parser.h"
 #include "expansion.h"
 #include "expr_parser.h"
+#include "../data/data_panel.h"
 #include "../modules/Data.h"
 #include "../modules/Delay.h"
 #include "../modules/TsMean.h"
@@ -16,6 +17,8 @@
 #include "../modules/SignalCache.h"
 #include <stdexcept>
 #include <sstream>
+#include <limits>
+#include <cctype>
 
 // ---------------------------------------------------------------------------
 // Helper: get required int/double/bool attrib with default
@@ -26,6 +29,76 @@ static int get_int(const std::map<std::string, std::string>& a,
     auto it = a.find(key);
     if (it == a.end()) return def;
     return std::stoi(it->second);
+}
+
+static int panel_time_limit(const DataPanel* panel) {
+    if (panel == nullptr)
+        throw CompileError("DataPanel is required for compile-time range validation");
+    if (panel->T > static_cast<unsigned>(std::numeric_limits<int>::max()))
+        throw CompileError("DataPanel T exceeds supported range for compile-time validation");
+    return static_cast<int>(panel->T);
+}
+
+static std::string make_range(int min_value, int max_value) {
+    return "[" + std::to_string(min_value) + ", " + std::to_string(max_value) + "]";
+}
+
+static std::string trim_ascii_whitespace(const std::string& value) {
+    size_t begin = 0;
+    while (begin < value.size() &&
+           std::isspace(static_cast<unsigned char>(value[begin]))) {
+        ++begin;
+    }
+
+    size_t end = value.size();
+    while (end > begin &&
+           std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+        --end;
+    }
+
+    return value.substr(begin, end - begin);
+}
+
+static int parse_bounded_int(const std::string& tag,
+                             const std::string& attribute,
+                             const std::string& raw_value,
+                             int min_value,
+                             int max_value) {
+    int parsed = 0;
+    const std::string trimmed = trim_ascii_whitespace(raw_value);
+    try {
+        size_t consumed = 0;
+        parsed = std::stoi(trimmed, &consumed);
+        if (consumed != trimmed.size()) {
+            throw CompileError(
+                "Invalid value for <" + tag + "> attribute '" + attribute + "': '" + raw_value +
+                "' (expected integer in range " + make_range(min_value, max_value) + ")");
+        }
+    } catch (const std::exception&) {
+        throw CompileError(
+            "Invalid value for <" + tag + "> attribute '" + attribute + "': '" + raw_value +
+            "' (expected integer in range " + make_range(min_value, max_value) + ")");
+    }
+
+    if (parsed < min_value || parsed > max_value) {
+        throw CompileError(
+            "Invalid value for <" + tag + "> attribute '" + attribute + "': '" + raw_value +
+            "' (expected range " + make_range(min_value, max_value) + ")");
+    }
+    return parsed;
+}
+
+static int get_bounded_int(const std::map<std::string, std::string>& attribs,
+                           const std::string& tag,
+                           const std::string& attribute,
+                           int default_value,
+                           int min_value,
+                           int max_value) {
+    auto it = attribs.find(attribute);
+    if (it == attribs.end())
+        return parse_bounded_int(
+            tag, attribute, std::to_string(default_value), min_value, max_value);
+    return parse_bounded_int(tag, attribute, it->second, min_value, max_value);
 }
 
 static double get_double(const std::map<std::string, std::string>& a,
@@ -86,7 +159,6 @@ std::unique_ptr<Module> ModuleRegistry::create(
     const std::map<std::string, std::string>& attribs,
     const DataPanel* panel) const
 {
-    (void)panel;
     auto it = factories_.find(tag);
     if (it == factories_.end())
         throw CompileError("Unknown module tag: '" + tag + "'");
@@ -97,39 +169,44 @@ ModuleRegistry& ModuleRegistry::default_registry() {
     static ModuleRegistry reg = [](){
         ModuleRegistry r;
 
-        r.register_module("tsmean", [](const auto& a, const auto*) {
+        r.register_module("tsmean", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MTsMean>();
-            m->days = IntParameter(get_int(a, "days", 20));
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsmean", "days", 20, 1, max_days));
             return m;
         });
 
-        r.register_module("tszscore", [](const auto& a, const auto*) {
+        r.register_module("tszscore", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MTsZscore>();
-            m->days = IntParameter(get_int(a, "days", 20));
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tszscore", "days", 20, 1, max_days));
             m->ddof = IntParameter(get_int(a, "ddof", 1));
             m->min_count = IntParameter(get_int(a, "min_count", -1));
             m->eps = FloatParameter(get_double(a, "eps", 1e-12));
             return m;
         });
 
-        r.register_module("tsrank", [](const auto& a, const auto*) {
+        r.register_module("tsrank", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MTsRank>();
-            m->days = IntParameter(get_int(a, "days", 20));
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsrank", "days", 20, 1, max_days));
             m->pct = IntParameter(get_bool(a, "pct", true) ? 1 : 0);
             m->ascending = IntParameter(get_bool(a, "ascending", false) ? 1 : 0);
             m->min_count = IntParameter(get_int(a, "min_count", -1));
             return m;
         });
 
-        r.register_module("decay", [](const auto& a, const auto*) {
+        r.register_module("decay", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MDecay>();
-            m->days = IntParameter(get_int(a, "days", 20));
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "decay", "days", 20, 1, max_days));
             return m;
         });
 
-        r.register_module("delay", [](const auto& a, const auto*) {
+        r.register_module("delay", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MDelay>();
-            m->days = IntParameter(get_int(a, "days", 1));
+            const int max_delay = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "delay", "days", 1, 0, max_delay));
             return m;
         });
 
@@ -184,7 +261,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
     {
         auto it = data_attribs.find("delay");
         if (it != data_attribs.end()) {
-            int d = std::stoi(it->second);
+            const int max_lookback = panel_time_limit(panel);
+            int d = parse_bounded_int("data", "delay", it->second, 0, max_lookback);
             if (d != 0) {
                 auto delay = std::make_unique<MDelay>();
                 delay->days = IntParameter(d);
@@ -213,7 +291,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
             {
                 auto it = attribs.find("delay");
                 if (it != attribs.end()) {
-                    int d = std::stoi(it->second);
+                    const int max_lookback = panel_time_limit(panel);
+                    int d = parse_bounded_int("data", "delay", it->second, 0, max_lookback);
                     if (d != 0) {
                         auto delay_mod = std::make_unique<MDelay>();
                         delay_mod->days = IntParameter(d);

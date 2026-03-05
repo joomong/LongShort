@@ -30,6 +30,23 @@ static DataPanel make_panel(unsigned T = 30, unsigned N = 3) {
     return dp;
 }
 
+static void expect_compile_error_contains(const std::string& xml,
+                                          const DataPanel& panel,
+                                          const std::vector<std::string>& tokens) {
+    try {
+        (void)compile_xml(xml, &panel);
+        FAIL() << "Expected CompileError, but compile_xml succeeded";
+    } catch (const CompileError& e) {
+        const std::string message = e.what();
+        for (const auto& token : tokens) {
+            EXPECT_NE(message.find(token), std::string::npos)
+                << "Missing token '" << token << "' in CompileError: " << message;
+        }
+    } catch (const std::exception& e) {
+        FAIL() << "Expected CompileError, got: " << e.what();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TEST: BasicPipeline
 // <data expr="close" delay="1"/><tsmean days="20"/><zscore/>
@@ -130,6 +147,92 @@ TEST(XmlCompiler, UnknownTag) {
     auto dp = make_panel();
     std::string xml = R"(<data expr="close"/><unknown/>)";
     EXPECT_THROW(compile_xml(xml, &dp), std::runtime_error);
+}
+
+TEST(XmlCompiler, DaysValidationRejectsZeroNegativeAndTooLarge) {
+    auto dp = make_panel(30, 3);
+    const std::vector<std::string> tags = {"tsmean", "tsrank", "tszscore", "decay"};
+    const std::vector<std::string> invalid_days = {"0", "-1", "31"};
+
+    for (const auto& tag : tags) {
+        for (const auto& days : invalid_days) {
+            SCOPED_TRACE("tag=" + tag + ", days=" + days);
+            const std::string xml = "<data expr=\"close\"/><" + tag + " days=\"" + days + "\"/>";
+            expect_compile_error_contains(
+                xml,
+                dp,
+                {"<" + tag + ">", "'days'", "'" + days + "'", "[1, 30]"});
+        }
+    }
+}
+
+TEST(XmlCompiler, DaysValidationRejectsMalformedNumericStrings) {
+    auto dp = make_panel(30, 3);
+    const std::vector<std::string> tags = {"tsmean", "tsrank", "tszscore", "decay"};
+    const std::vector<std::string> malformed_days = {"1x", "1.5"};
+
+    for (const auto& tag : tags) {
+        for (const auto& days : malformed_days) {
+            SCOPED_TRACE("tag=" + tag + ", days=" + days);
+            const std::string xml = "<data expr=\"close\"/><" + tag + " days=\"" + days + "\"/>";
+            expect_compile_error_contains(
+                xml,
+                dp,
+                {"<" + tag + ">", "'days'", "'" + days + "'", "expected integer in range [1, 30]"});
+        }
+    }
+}
+
+TEST(XmlCompiler, DataDelayValidationRejectsNegativeAndTooLarge) {
+    auto dp = make_panel(30, 3);
+    expect_compile_error_contains(
+        R"(<data expr="close" delay="-1"/>)",
+        dp,
+        {"<data>", "'delay'", "'-1'", "[0, 30]"});
+    expect_compile_error_contains(
+        R"(<data expr="close" delay="31"/>)",
+        dp,
+        {"<data>", "'delay'", "'31'", "[0, 30]"});
+}
+
+TEST(XmlCompiler, DelayModuleValidationRejectsNegativeAndTooLarge) {
+    auto dp = make_panel(30, 3);
+    expect_compile_error_contains(
+        R"(<data expr="close"/><delay days="-1"/>)",
+        dp,
+        {"<delay>", "'days'", "'-1'", "[0, 30]"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><delay days="31"/>)",
+        dp,
+        {"<delay>", "'days'", "'31'", "[0, 30]"});
+}
+
+TEST(XmlCompiler, DelayValidationRejectsMalformedNumericStrings) {
+    auto dp = make_panel(30, 3);
+    expect_compile_error_contains(
+        R"(<data expr="close" delay="2foo"/>)",
+        dp,
+        {"<data>", "'delay'", "'2foo'", "expected integer in range [0, 30]"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><delay days="2foo"/>)",
+        dp,
+        {"<delay>", "'days'", "'2foo'", "expected integer in range [0, 30]"});
+}
+
+TEST(XmlCompiler, DelayZeroValidForDataAttributeAndModule) {
+    auto dp = make_panel(30, 3);
+
+    auto baseline = compile_xml(R"(<data expr="close"/><zscore/>)", &dp);
+    auto data_delay_zero = compile_xml(R"(<data expr="close" delay="0"/><zscore/>)", &dp);
+    ASSERT_EQ(baseline.size(), 1u);
+    ASSERT_EQ(data_delay_zero.size(), 1u);
+    EXPECT_EQ(data_delay_zero[0].modules.size(), baseline[0].modules.size());
+    EXPECT_EQ(data_delay_zero[0].pipeline.size(), baseline[0].pipeline.size());
+
+    auto delay_module_zero = compile_xml(R"(<data expr="close"/><delay days="0"/>)", &dp);
+    ASSERT_EQ(delay_module_zero.size(), 1u);
+    EXPECT_EQ(delay_module_zero[0].modules.size(), 2u);
+    ASSERT_NE(delay_module_zero[0].output, nullptr);
 }
 
 // ---------------------------------------------------------------------------
