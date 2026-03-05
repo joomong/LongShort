@@ -19,6 +19,7 @@ struct MTsZscore : public Module {
         ++bar_count;
 
         const float* curr = input().data();
+        const float* old = (bar_count > w) ? input(w).data() : nullptr;
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
             float new_val = curr[ii];
@@ -28,8 +29,8 @@ struct MTsZscore : public Module {
                 running_sum_sq[ii] += (double)new_val * new_val;
                 running_count[ii] += 1;
             }
-            if (bar_count > w) {
-                float old_val = input(w)[ii];
+            if (old != nullptr) {
+                float old_val = old[ii];
                 if (std::isfinite(old_val)) {
                     running_sum[ii] -= (double)old_val;
                     running_sum_sq[ii] -= (double)old_val * old_val;

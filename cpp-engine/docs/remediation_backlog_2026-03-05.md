@@ -185,8 +185,8 @@
 - `[x]` P0-3 allocator bad_alloc contract
 - `[x]` P0-4 event cache-reference architecture
 - `[x]` P1-1 rank O(N log N)
-- `[~]` P1-2 TsMean/TsZscore input(w) hoist
-- `[ ]` P1-3 metrics slice removal
+- `[x]` P1-2 TsMean/TsZscore input(w) hoist
+- `[~]` P1-3 metrics slice removal
 - `[ ]` P1-4 simulator copy reduction
 - `[ ]` P1-5 AVX2 real path wiring
 - `[ ]` P2-1 ModuleInput flat ring

@@ -16,14 +16,15 @@ struct MTsMean : public Module {
         ++bar_count;
 
         const float* curr = input().data();
+        const float* old = (bar_count > w) ? input(w).data() : nullptr;
 
         for (unsigned ii = 0; ii < numAssets; ++ii) {
             if (std::isfinite(curr[ii])) {
                 running_sum[ii] += (double)curr[ii];
                 running_count[ii] += 1;
             }
-            if (bar_count > w) {
-                float old_val = input(w)[ii];
+            if (old != nullptr) {
+                float old_val = old[ii];
                 if (std::isfinite(old_val)) {
                     running_sum[ii] -= (double)old_val;
                     running_count[ii] -= 1;
