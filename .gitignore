@@ -212,6 +212,9 @@ GEMINI.md
 # Data
 Data/
 data/
+!cpp-engine/src/data/
+!cpp-engine/src/data/*.h
+!cpp-engine/src/data/*.cpp
 
 # Claude Code / OMC
 .omc/

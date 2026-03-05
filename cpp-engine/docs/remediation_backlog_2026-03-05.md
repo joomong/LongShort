@@ -191,7 +191,7 @@
 - `[x]` P1-4 simulator copy reduction
 - `[x]` P1-5 AVX2 real path wiring
 - `[x]` P2-1 ModuleInput flat ring
-- `[ ]` P2-2 parquet memory de-dup
+- `[x]` P2-2 parquet memory de-dup
 - `[x]` P2-3 collect_signals policy
 - `[x]` P3-1 search_space sentinel removal
 - `[x]` P3-2 range parser unification
@@ -210,3 +210,4 @@
 - 2026-03-05: `cartesian_attribs`를 DFS 기반 생성으로 바꿔 확장 단계의 중간 `std::map` 복사를 줄였다.
 - 2026-03-05: `compute_timeseries`의 루프 내 size 분기를 제거하고, 함수 시작 시 입력 길이 계약을 1회 검증하도록 정리했다.
 - 2026-03-05: `MData`의 범위 체크는 디버그 빌드에서만 유지하고 릴리즈 핫패스 분기를 제거했다.
+- 2026-03-05: Parquet 로더에서 row별 symbol string/전체 컬럼 평탄화 버퍼 중복을 제거하고 row 인덱스 매핑 기반 직접 적재로 메모리 사용량을 줄였다.
