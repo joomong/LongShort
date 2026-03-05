@@ -2,14 +2,18 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <functional>
 
 struct SimulatorConfig {
+    using SignalRowCallback = std::function<void(unsigned di, const float* row, unsigned n)>;
+
     unsigned T;
     unsigned N;
     double fee_rate;        // fraction (e.g., 0.0005)
     int mode;               // 0=D0, 1=D1
     unsigned bars_per_year; // 365
     bool collect_signals = false;  // true = store T×N raw signal matrix (single alpha)
+    SignalRowCallback signal_row_callback{};
 };
 
 struct SimulatorOutput {

@@ -51,6 +51,8 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
         // Collect raw signal (before normalization)
         if (collect)
             out.signals[di].assign(signal_buf.begin(), signal_buf.end());
+        if (config_.signal_row_callback)
+            config_.signal_row_callback(di, signal_buf.data(), N);
 
         // 2. Normalize signal -> target weights
         const float* close_row = data_.row("close", di);

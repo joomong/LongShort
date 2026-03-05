@@ -7,7 +7,6 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
-#include <condition_variable>
 #include <algorithm>
 #include <limits>
 #include "data/config_loader.h"
@@ -280,7 +279,9 @@ int main(int argc, char* argv[])
                 bool single = (alphas.size() == 1);
 
                 // Helper: run one alpha through simulator + metrics
-                auto run_one = [&](CompiledAlpha& alpha, bool collect) {
+                auto run_one = [&](CompiledAlpha& alpha,
+                                   bool collect,
+                                   const SimulatorConfig::SignalRowCallback& signal_row_callback = {}) {
                     const auto& pipeline = alpha.pipeline;
 
                     SimulatorConfig sim_cfg;
@@ -290,6 +291,7 @@ int main(int argc, char* argv[])
                     sim_cfg.mode = 1;  // D1
                     sim_cfg.bars_per_year = 365;
                     sim_cfg.collect_signals = collect;
+                    sim_cfg.signal_row_callback = signal_row_callback;
 
                     Simulator sim(g_data, sim_cfg);
                     auto sim_out = sim.run(pipeline);
@@ -343,20 +345,18 @@ int main(int argc, char* argv[])
                     std::atomic<size_t> next_idx{0};
                     std::atomic<bool> has_err{false};
                     std::mutex err_mu;
-                    std::mutex ordered_accumulate_mu;
-                    std::condition_variable ordered_accumulate_cv;
-                    size_t next_accumulate_idx = 0;
+                    std::mutex combined_mu;
                     std::string first_err;
 
-                    auto accumulate_combined = [&](const std::vector<std::vector<float>>& alpha_signals) {
-                        for (unsigned di = 0; di < T; ++di) {
-                            for (unsigned ii = 0; ii < N; ++ii) {
-                                const float s = alpha_signals[di][ii];
-                                if (!std::isfinite(s))
-                                    continue;
-                                float& c = combined_signals[di][ii];
-                                c = std::isfinite(c) ? c + s : s;
-                            }
+                    auto accumulate_combined_row = [&](unsigned di, const float* row, unsigned row_n) {
+                        std::lock_guard<std::mutex> lock(combined_mu);
+                        auto& combined_row = combined_signals[di];
+                        for (unsigned ii = 0; ii < row_n; ++ii) {
+                            const float s = row[ii];
+                            if (!std::isfinite(s))
+                                continue;
+                            float& c = combined_row[ii];
+                            c = std::isfinite(c) ? c + s : s;
                         }
                     };
 
@@ -369,28 +369,15 @@ int main(int argc, char* argv[])
                             if (i >= alphas.size())
                                 return;
                             try {
-                                auto [sim_out, metrics] = run_one(alphas[i], true);
+                                auto [sim_out, metrics] = run_one(
+                                    alphas[i], false, accumulate_combined_row);
                                 assign_batch(i, std::move(metrics));
-
-                                std::unique_lock<std::mutex> lock(ordered_accumulate_mu);
-                                ordered_accumulate_cv.wait(lock, [&]() {
-                                    return has_err.load(std::memory_order_acquire) ||
-                                           i == next_accumulate_idx;
-                                });
-                                if (has_err.load(std::memory_order_acquire))
-                                    return;
-
-                                accumulate_combined(sim_out.signals);
-                                ++next_accumulate_idx;
-                                lock.unlock();
-                                ordered_accumulate_cv.notify_all();
                             } catch (const std::exception& e) {
                                 std::lock_guard<std::mutex> lock(err_mu);
                                 if (first_err.empty()) {
                                     first_err = e.what();
                                     has_err.store(true, std::memory_order_release);
                                 }
-                                ordered_accumulate_cv.notify_all();
                                 return;
                             }
                         }
