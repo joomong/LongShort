@@ -1,6 +1,7 @@
 #include "timeseries_output.h"
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 
 TimeseriesOutput compute_timeseries(
     const std::vector<int64_t>& timestamps,
@@ -16,6 +17,9 @@ TimeseriesOutput compute_timeseries(
 
     // Skip first bar (index 0); output starts from index 1
     const size_t T = timestamps.size();
+    if (ret.size() < T || turnover.size() < T || max_weight.size() < T || nonzero_count.size() < T) {
+        throw std::invalid_argument("compute_timeseries: input vectors must be at least timestamps.size()");
+    }
     const size_t n = (T > 1) ? T - 1 : 0;
 
     out.timestamps.reserve(n);
@@ -31,10 +35,10 @@ TimeseriesOutput compute_timeseries(
     double peak_net = 0.0;
 
     for (size_t i = 1; i < T; ++i) {
-        double r = (i < ret.size()) ? ret[i] : 0.0;
-        double tvr = (i < turnover.size()) ? turnover[i] : 0.0;
-        double mw = (i < max_weight.size()) ? max_weight[i] : 0.0;
-        int nz = (i < nonzero_count.size()) ? nonzero_count[i] : 0;
+        double r = ret[i];
+        double tvr = turnover[i];
+        double mw = max_weight[i];
+        int nz = nonzero_count[i];
 
         // Net cumulative PnL (additive)
         cp_net += r;

@@ -196,7 +196,7 @@
 - `[x]` P3-1 search_space sentinel removal
 - `[x]` P3-2 range parser unification
 - `[x]` P3-3 expansion copy reduction
-- `[ ]` H-1 timeseries per-iter branch cleanup
+- `[x]` H-1 timeseries per-iter branch cleanup
 - `[ ]` H-2 MData bounds-check policy cleanup
 
 ## 최근 업데이트
@@ -208,3 +208,4 @@
 - 2026-03-05: `search_space`와 `expansion`의 range 파서를 `range_parser` 공용 로직으로 통합해 파싱 불일치 리스크를 줄였다.
 - 2026-03-05: 멀티 알파는 기본적으로 시그널 수집을 하지 않도록 하고, 요청 시 `collectSignalsTopK` 범위에서만 배치별 signal payload를 선택 수집하도록 정책화했다.
 - 2026-03-05: `cartesian_attribs`를 DFS 기반 생성으로 바꿔 확장 단계의 중간 `std::map` 복사를 줄였다.
+- 2026-03-05: `compute_timeseries`의 루프 내 size 분기를 제거하고, 함수 시작 시 입력 길이 계약을 1회 검증하도록 정리했다.
