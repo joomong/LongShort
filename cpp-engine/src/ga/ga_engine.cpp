@@ -13,7 +13,12 @@ GAEngine::GAEngine(const std::string& xml_template,
                    const SearchSpace& space,
                    const GAConfig& config)
     : xml_template_(xml_template), space_(space), config_(config)
-{}
+{
+    if (config_.population_size == 0)
+        throw std::invalid_argument("GA population_size must be positive");
+    if (config_.generations == 0)
+        throw std::invalid_argument("GA generations must be positive");
+}
 
 // ---------------------------------------------------------------------------
 // Public entry points

@@ -63,7 +63,7 @@ SummaryMetrics compute_summary_range(
     m.sharpe = sharpe_val;
 
     // mdd (additive: peak cumPnL - current cumPnL)
-    double peak = cum_pnl[0];
+    double peak = 0.0;  // Include the starting book before the first return.
     double max_dd = 0.0;
     for (size_t i = 0; i < n; ++i) {
         if (cum_pnl[i] > peak) peak = cum_pnl[i];

@@ -22,6 +22,8 @@ This document is the single source of truth for C++ engine test math.
   - realized return at bar `t` uses previous executed weights (`prev_weights`) and close-to-close move.
 - Turnover formula:
   - `turnover[t] = sum_i(abs(exec_w[i] - prev_weights[i]))`
+- Close prices must be finite and positive to form target weights.
+- A missing/invalid close for a held or executing position is a calculation error; it must not be converted to zero PnL or an assumed liquidation. Missing prices for unheld, untraded assets do not contribute to return.
 - Fee impact:
   - `ret[t] -= turnover[t] * fee_rate`
 
@@ -33,8 +35,11 @@ This document is the single source of truth for C++ engine test math.
 - `sharpe = (mean / std_ddof1) * sqrt(bars_per_year)` when `n>=2` and `std>0`, else `0`
 - `mdd` uses additive drawdown on cumulative additive PnL:
   - `cum[t] = sum_{k<=t}(ret[k])`
+  - `peak_so_far[t] = max(0, cum[0], ..., cum[t])`, including the starting book before any returns
   - `mdd = min_t(cum[t] - peak_so_far[t])`
-- `turnover`, `min_bet`: mean of finite values
+  - yearly drawdown uses the same zero starting PnL for each year; the chart reports `(equity - peak_equity) / initial_capital * 100`
+- `turnover`: mean of finite values
+- `min_bet = mean(nonzero_count)` within the summary period, or `0` if empty. This is the average number of held symbols (UI `avgBet`, JSON `minBet`).
 - `max_weight`: max of finite values
 - `margin = mean(ret_finite) / (turnover + eps)`
 - `long_ratio`:
@@ -43,7 +48,9 @@ This document is the single source of truth for C++ engine test math.
 - `short_ratio = 1 - long_ratio`
 - `nonzero_position = count(nonzero_count > 0)`
 - `avg_max_bet = mean(max_weight finite)`
-- `min_bet_min = min(min_bet finite)` or `0` if none
+- `min_bet_min = min(nonzero_count)` within the summary period, or `0` if empty. This is the minimum number of held symbols (UI `minBet`, JSON `minBetMin`).
+- Position-count summaries include zero-position bars. The simulator counts weights with `abs(weight) > 1e-12`.
+- The legacy `SimulatorOutput.min_bet` array contains gross exposure divided by the full asset count. It is not the input to either position-count summary above.
 - `quality = sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)`
   - `maxexp = max(abs(long_weight - short_weight))` on valid bars
 - `sharpe80`, `sharpe400`:
@@ -52,7 +59,7 @@ This document is the single source of truth for C++ engine test math.
 
 ## IS/OS Split Contract
 
-- `is_idx`: first index where `timestamp >= is_start_ms`
+- `is_idx`: first index where `timestamp >= is_start_ms`, or `T` when no such bar exists
 - `os_idx`: first index where `timestamp >= os_start_ms`
 - Summary IS slice:
   - starts at `max(is_idx, 1)` (global bar 0 excluded)
@@ -67,6 +74,8 @@ This document is the single source of truth for C++ engine test math.
   - `osStartIndex = (os_idx > 0) ? os_idx - 1 : 0`
 
 ## Module Contracts
+
+- Calling `init()` starts a fresh run: rolling sums, counts and input history must reset, including when the asset count changes. Checkpoint restoration happens after initialization.
 
 - `MDelay(days)`:
   - output at `t` is input at `t-days`; unavailable lookback -> `NaN`

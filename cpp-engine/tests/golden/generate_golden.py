@@ -250,7 +250,7 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
     ann_ret = mean_r * bars_per_year
     sharpe = sharpe_of(finite_r, bars_per_year)
 
-    peak = np.maximum.accumulate(cum)
+    peak = np.maximum.accumulate(np.concatenate(([0.0], cum)))[1:]
     mdd = float(np.min(cum - peak))
 
     to_finite = turnover[np.isfinite(turnover)]

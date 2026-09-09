@@ -3,7 +3,7 @@
 struct MDelay : public Module {
     void init()
     {
-        input.maxLookBack = days;
+        input.init(days, numAssets);
     }
     void calculate(unsigned /*di*/, SignalVector &output)
     {

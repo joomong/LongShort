@@ -103,12 +103,17 @@ export function buildPnlBundleFromRet(
 
 export function buildMddDataFromEquity(
   netEquityData: SingleSeriesPoint[],
+  initialCapital: number,
 ): SingleSeriesPoint[] {
   if (netEquityData.length === 0) return [];
-  let peak = -Infinity;
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0) {
+    throw new Error('Drawdown requires positive initial capital');
+  }
+  let peak = initialCapital;
   return netEquityData.map(({ date, value }) => {
     if (value > peak) peak = value;
-    const dd = (value / peak - 1) * 100;
+    // Fixed-book additive PnL: percentage points of initial capital.
+    const dd = ((value - peak) / initialCapital) * 100;
     return { date, value: dd };
   });
 }
@@ -419,7 +424,7 @@ export default function DetailTimeSeries({
   }, [fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate]);
 
   const { isMddData, osMddData } = useMemo(() => {
-    const fullMdd = buildMddDataFromEquity(pnlBundle.netEquityData);
+    const fullMdd = buildMddDataFromEquity(pnlBundle.netEquityData, capital);
     const isEntries: SingleSeriesPoint[] = [];
     const osEntries: SingleSeriesPoint[] = [];
     for (const p of fullMdd) {
@@ -430,7 +435,7 @@ export default function DetailTimeSeries({
       }
     }
     return { isMddData: isEntries, osMddData: osEntries };
-  }, [pnlBundle.netEquityData, alpha.osStartDate]);
+  }, [pnlBundle.netEquityData, alpha.osStartDate, capital]);
 
   const turnoverData = useMemo(
     () => seriesToChartData(alpha.isTurnoverSeries),

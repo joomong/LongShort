@@ -117,3 +117,13 @@ TEST(GA, DeterministicSeed) {
         EXPECT_DOUBLE_EQ(r1.history[i].second, r2.history[i].second);
     }
 }
+
+
+TEST(GA, RejectsAnEmptyPopulationOrZeroGenerations) {
+    const std::string xml=R"(<tsmean days="2|3"/>)";
+    const auto space=extract_search_space(xml);
+    GAConfig cfg; cfg.population_size=0;
+    EXPECT_THROW(GAEngine(xml,space,cfg),std::invalid_argument);
+    cfg.population_size=2; cfg.generations=0;
+    EXPECT_THROW(GAEngine(xml,space,cfg),std::invalid_argument);
+}

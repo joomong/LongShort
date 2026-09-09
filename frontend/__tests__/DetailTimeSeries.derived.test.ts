@@ -47,16 +47,34 @@ describe('DetailTimeSeries derived data', () => {
     expect(Number.isFinite(out.pnlData[2].gross)).toBe(false);
   });
 
-  it('builds running MDD percent from equity series', () => {
+  it('builds additive drawdown against the initial book', () => {
     const mdd = buildMddDataFromEquity([
       { date: '2024-01-02', value: 101000 },
       { date: '2024-01-03', value: 98980 },
       { date: '2024-01-04', value: 101949.4 },
-    ]);
+    ], 100000);
 
     expect(mdd[0].value).toBeCloseTo(0.0, 9);
-    expect(mdd[1].value).toBeCloseTo(-2.0, 9);
+    expect(mdd[1].value).toBeCloseTo(-2.02, 9);
     expect(mdd[2].value).toBeCloseTo(0.0, 9);
+  });
+
+  it('includes a loss on the first bar in additive drawdown', () => {
+    const rows = buildMddDataFromEquity([
+      { date: '2024-01-02', value: 90000 },
+      { date: '2024-01-03', value: 95000 },
+      { date: '2024-01-04', value: 85000 },
+    ], 100000);
+    expect(rows.map(row => row.value)).toEqual([-10, -5, -15]);
+  });
+
+  it('uses the fixed book after gains and below zero equity', () => {
+    const rows = buildMddDataFromEquity([
+      { date: '2024-01-02', value: 200000 },
+      { date: '2024-01-03', value: 150000 },
+      { date: '2024-01-04', value: -10000 },
+    ], 100000);
+    expect(rows.map(row => row.value)).toEqual([0, -50, -210]);
   });
 
   it('converts sparse nullable series to sorted finite chart rows', () => {

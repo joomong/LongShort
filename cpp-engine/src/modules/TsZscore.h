@@ -6,10 +6,10 @@ struct MTsZscore : public Module {
     {
         if (min_count < 0)
             min_count = IntParameter(days);
-        input.maxLookBack = days;
-        running_sum.resize(numAssets, 0.0);
-        running_sum_sq.resize(numAssets, 0.0);
-        running_count.resize(numAssets, 0);
+        input.init(days, numAssets);
+        running_sum.assign(numAssets, 0.0);
+        running_sum_sq.assign(numAssets, 0.0);
+        running_count.assign(numAssets, 0);
         bar_count = 0;
     }
     void calculate(unsigned /*di*/, SignalVector &output)

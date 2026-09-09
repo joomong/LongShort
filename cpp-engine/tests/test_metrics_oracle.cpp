@@ -117,7 +117,7 @@ OracleSummary oracle_summary(
     out.ann_ret = mean_r * static_cast<double>(bars_per_year);
     out.sharpe = sharpe_of(finite_r, bars_per_year);
 
-    double peak = cum[0];
+    double peak = 0.0;
     double mdd = 0.0;
     for (double c : cum) {
         peak = std::max(peak, c);
@@ -388,4 +388,32 @@ TEST(MetricsOracle, SingleDayInputProducesEmptyTimeseries)
     EXPECT_TRUE(result.yearly.empty());
     EXPECT_DOUBLE_EQ(result.is_summary.pnl, 0.0);
     EXPECT_DOUBLE_EQ(result.os_summary.pnl, 0.0);
+}
+
+
+TEST(MetricsOracle, DrawdownIncludesLossFromTheInitialBook) {
+    const std::vector<int64_t> dates={0,86400000,172800000,259200000};
+    const std::vector<double> ret={0,-0.10,0.05,-0.10}, zeros(4,0.0);
+    const std::vector<int> counts(4,0);
+    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,zeros,counts,
+                                0,10LL*86400000,0,365);
+    EXPECT_NEAR(m.is_summary.mdd,-0.15,1e-12);
+    ASSERT_EQ(m.yearly.size(),1u);
+    EXPECT_NEAR(m.yearly[0].max_dd,-15.0,1e-12);
+    ASSERT_EQ(m.timeseries.drawdown.size(),3u);
+    EXPECT_NEAR(m.timeseries.drawdown[0],-0.10,1e-12);
+    EXPECT_NEAR(*std::min_element(m.timeseries.drawdown.begin(),m.timeseries.drawdown.end()),
+                m.is_summary.mdd,1e-12);
+}
+
+TEST(MetricsOracle, InSampleStartAfterDataDoesNotEvaluateTheWholeHistory) {
+    const std::vector<int64_t> dates={0,86400000,172800000};
+    const std::vector<double> ret={0,0.1,-0.2}, zeros(3,0.0);
+    const std::vector<int> counts(3,0);
+    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,zeros,counts,
+                                10LL*86400000,20LL*86400000,0,365);
+    EXPECT_DOUBLE_EQ(m.is_summary.pnl,0.0);
+    EXPECT_DOUBLE_EQ(m.is_summary.sharpe,0.0);
+    EXPECT_EQ(m.is_start_index,m.timeseries.timestamps.size());
+    EXPECT_EQ(m.os_start_index,m.timeseries.timestamps.size());
 }

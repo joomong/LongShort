@@ -6,11 +6,11 @@ struct MDecay : public Module
 {
     void init()
     {
-        input.maxLookBack = days;
-        weights.resize(numAssets, 0);
-        num.resize(numAssets, 0);
-        sum.resize(numAssets, 0.0);
-        diff.resize(numAssets, 0.0);
+        input.init(days, numAssets);
+        weights.assign(numAssets, 0);
+        num.assign(numAssets, 0);
+        sum.assign(numAssets, 0.0);
+        diff.assign(numAssets, 0.0);
         int n = days*(days+1)/2 + 1;
         div.resize(n, 0.0);
         for (int i = 1; i < n; ++i)

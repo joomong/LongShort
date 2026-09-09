@@ -96,7 +96,7 @@ std::vector<YearlyMetrics> compute_yearly(
 
         // max_dd (additive: peak cumPnL - current cumPnL)
         {
-            double peak = cum_pnl.empty() ? 0.0 : cum_pnl[0];
+            double peak = 0.0;  // Include the starting book for this year.
             double mdd = 0.0;
             for (double c : cum_pnl) {
                 if (c > peak) peak = c;

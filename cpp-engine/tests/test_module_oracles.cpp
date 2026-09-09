@@ -436,3 +436,22 @@ TEST(ModuleOracle, ZscoreMatchesReference)
 
     expect_matrix_near(actual, expected);
 }
+
+
+TEST(ModuleOracles, ReinitializationClearsAllRollingState)
+{
+    const Matrix input = make_fixture();
+    MTsMean mean; mean.days = IntParameter(3);
+    MTsZscore z; z.days = IntParameter(3); z.min_count = IntParameter(2);
+    MDelay delay; delay.days = IntParameter(2);
+    MDecay decay; decay.days = IntParameter(3);
+    for (Module* mod : std::vector<Module*>{&mean, &z, &delay, &decay}) {
+        const Matrix first = run_module(*mod, input);
+        expect_matrix_near(run_module(*mod, input), first);
+        // Asset-count changes must also reset the ring's shape and history.
+        Matrix wider = input;
+        for (auto& row : wider) row.push_back(7.0f);
+        run_module(*mod, wider);
+        expect_matrix_near(run_module(*mod, input), first);
+    }
+}

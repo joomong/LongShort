@@ -22,7 +22,7 @@ FullMetricsResult compute_full_metrics(
     if (T == 0) return result;
 
     // Find IS start index
-    size_t is_idx = 0;
+    size_t is_idx = T;
     for (size_t i = 0; i < T; ++i) {
         if (timestamps[i] >= is_timestamp_ms) {
             is_idx = i;

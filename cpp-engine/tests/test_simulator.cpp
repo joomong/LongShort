@@ -87,3 +87,71 @@ TEST(Simulator, D1DelayedExecution) {
     // turnover should be > 0 at di=1
     EXPECT_GT(out.turnover[1], 0.0);
 }
+
+
+namespace {
+DataPanel timing_panel() {
+    DataPanel p;
+    p.T = 5; p.N = 2; p.symbols = {"A", "B"};
+    p.timestamps = {0, 86400000, 172800000, 259200000, 345600000};
+    p.arrays["close"] = {100,100,110,90,121,81,110,90,100,100};
+    return p;
+}
+}
+
+TEST(Simulator, CloseToCloseTimingAndOneWayFeesMatchHandCalculation) {
+    auto p = timing_panel();
+    const std::vector<std::vector<float>> signals = {{1,-1},{1,-1},{-1,1},{-1,1},{0,0}};
+    SimulatorConfig cfg{p.T,p.N,0.001,1,365,false,{}};
+    auto d1 = Simulator(p,cfg).run_from_signals(signals);
+    EXPECT_DOUBLE_EQ(d1.ret[0],0.0);
+    EXPECT_NEAR(d1.ret[1],-0.001,1e-12);  // Enter at day 1 close.
+    EXPECT_NEAR(d1.ret[2],0.10,1e-12);    // Day 0 signal earns day 2 holding return.
+    const double down = 0.5*(110.0/121.0-1.0)-0.5*(90.0/81.0-1.0);
+    EXPECT_NEAR(d1.ret[3],down-0.002,1e-12);  // Flip both 50% positions: turnover=2.
+    EXPECT_NEAR(d1.turnover[3],2.0,1e-12);
+    cfg.mode = 0;
+    auto d0 = Simulator(p,cfg).run_from_signals(signals);
+    EXPECT_NEAR(d0.ret[0],-0.001,1e-12);
+    EXPECT_NEAR(d0.ret[1],0.10,1e-12);
+    EXPECT_NEAR(d0.ret[2],0.10-0.002,1e-12);
+}
+
+TEST(Simulator, InvalidHeldCloseIsAnErrorInBothExecutionPaths) {
+    for (float bad : {std::numeric_limits<float>::quiet_NaN(),
+                      std::numeric_limits<float>::infinity(),0.0f,-1.0f}) {
+        auto p = timing_panel(); p.arrays["close"][4] = bad;
+        for (int mode : {0,1}) {
+            SimulatorConfig cfg{p.T,p.N,0.001,mode,365,false,{}};
+            MData data; data.column_name="close"; data.panel=&p;
+            EXPECT_THROW(Simulator(p,cfg).run({&data}),std::runtime_error);
+            const std::vector<std::vector<float>> signals(p.T,{1,-1});
+            EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::runtime_error);
+        }
+    }
+}
+
+TEST(Simulator, MissingExecutionCloseCannotCreateAPosition) {
+    auto p=timing_panel(); p.arrays["close"][2]=std::numeric_limits<float>::quiet_NaN();
+    SimulatorConfig cfg{p.T,p.N,0.001,1,365,false,{}};
+    const std::vector<std::vector<float>> signals(p.T,{1,-1});
+    EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::runtime_error);
+}
+
+TEST(Simulator, MissingUnheldAssetDoesNotPoisonReturns) {
+    auto p=timing_panel();
+    for (unsigned t=0;t<p.T;++t) p.arrays["close"][t*2]=std::numeric_limits<float>::infinity();
+    SimulatorConfig cfg{p.T,p.N,0.0,1,365,false,{}};
+    const std::vector<std::vector<float>> signals(p.T,{1,-1});
+    auto out=Simulator(p,cfg).run_from_signals(signals);
+    for (double r:out.ret) EXPECT_TRUE(std::isfinite(r));
+    EXPECT_NEAR(out.ret[2],0.1,1e-12);
+}
+
+TEST(Simulator, RejectsMismatchedSignalDimensions) {
+    auto p=timing_panel();
+    SimulatorConfig cfg{p.T,p.N,0.0,1,365,false,{}};
+    EXPECT_THROW(Simulator(p,cfg).run_from_signals({{1,-1}}),std::invalid_argument);
+    std::vector<std::vector<float>> signals(p.T,{1});
+    EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::invalid_argument);
+}
