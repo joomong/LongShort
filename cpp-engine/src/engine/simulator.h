@@ -11,19 +11,17 @@ struct SimulatorConfig {
     unsigned N;
     double fee_rate;        // fraction (e.g., 0.0005)
     int mode;               // 0=D0, 1=D1
-    unsigned bars_per_year; // 365
-    bool collect_signals = false;  // true = store T×N raw signal matrix (single alpha)
-    SignalRowCallback signal_row_callback{};
+    bool collect_signals = false;  // run() stores the T×N raw signal matrix
+    SignalRowCallback signal_row_callback{}; // run() observes raw rows before normalization
 };
 
 struct SimulatorOutput {
     std::vector<double> ret;
     std::vector<double> turnover;
-    std::vector<double> min_bet;
     std::vector<double> max_weight;
     std::vector<double> long_weight;
     std::vector<double> short_weight;
-    std::vector<int> nonzero_count;
+    std::vector<int> position_count;
     std::vector<int64_t> timestamps;
     std::vector<std::vector<float>> signals;  // T×N raw signal (only when collect_signals=true)
 };

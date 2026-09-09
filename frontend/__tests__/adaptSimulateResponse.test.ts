@@ -39,7 +39,32 @@ function makeSummary() {
 }
 
 describe('adaptSimulateResponse', () => {
-  it('builds per-alpha detail payloads without Combined row', () => {
+  it('maps legacy wire count keys to explicit IS/OS names without changing values', () => {
+    const is = { ...makeSummary(), minBet: 3.5, minBetMin: 2, nonzeroPosition: 8 };
+    const os = { ...makeSummary(), minBet: 5.25, minBetMin: 1, nonzeroPosition: 13 };
+    const resp: StarBatchResponse = {
+      batches: [{ index: 0, summary: { is, os } }],
+      yearly: [],
+      timeseries: makeBaseTimeseries(),
+      isStartIndex: 0,
+      osStartIndex: 2,
+    };
+
+    const adapted = adaptSimulateResponse(resp).alphas[0];
+    expect(adapted.isMetrics).toMatchObject({
+      avgPositionCount: 3.5, minPositionCount: 2, activeBarCount: 8,
+    });
+    expect(adapted.osMetrics).toMatchObject({
+      avgPositionCount: 5.25, minPositionCount: 1, activeBarCount: 13,
+    });
+    expect(resp.batches[0].summary.is).toMatchObject({
+      minBet: 3.5, minBetMin: 2, nonzeroPosition: 8,
+    });
+    expect(adapted).not.toHaveProperty('isEquitySeries');
+    expect(adapted).not.toHaveProperty('osEquitySeries');
+  });
+
+  it('builds per-alpha detail payloads and falls back to the first batch for Combined', () => {
     const ts0 = makeBaseTimeseries();
     const ts1 = {
       ...makeBaseTimeseries(),
@@ -77,20 +102,18 @@ describe('adaptSimulateResponse', () => {
 
     const adapted = adaptSimulateResponse(resp);
 
-    // No Combined row — just 2 alphas directly
+    // The alpha list contains only the two individual alphas.
     expect(adapted.alphas).toHaveLength(2);
     expect(adapted.alphas[0].name).toBe('alpha_3');
     expect(adapted.alphas[0].rank).toBe(1);
     expect(adapted.alphas[0].xml).toBe('<data expr="close" delay="1"/>');
-    expect(adapted.alphas[0].isEquitySeries).toEqual({
+    expect(adapted.alphas[0].isRetSeries).toEqual({
       '2024-01-01': 0,
       '2024-01-02': 0.01,
     });
     expect(adapted.alphas[0].isMaxWeightSeries?.['2024-01-02']).toBeCloseTo(30, 9);
-    expect(adapted.alphas[0].osEquitySeries).toEqual({
-      '2024-01-03': 0.015,
-      '2024-01-04': 0.03,
-    });
+    expect(adapted.alphas[0].osRetSeries?.['2024-01-03']).toBeCloseTo(0.005, 9);
+    expect(adapted.alphas[0].osRetSeries?.['2024-01-04']).toBeCloseTo(0.015, 9);
     expect(adapted.alphas[0].yearly?.[0].year).toBe(2024);
 
     expect(adapted.alphas[1].name).toBe('alpha_7');

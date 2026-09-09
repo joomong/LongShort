@@ -39,18 +39,17 @@ This document is the single source of truth for C++ engine test math.
   - `mdd = min_t(cum[t] - peak_so_far[t])`
   - yearly drawdown uses the same zero starting PnL for each year; the chart reports `(equity - peak_equity) / initial_capital * 100`
 - `turnover`: mean of finite values
-- `min_bet = mean(nonzero_count)` within the summary period, or `0` if empty. This is the average number of held symbols (UI `avgBet`, JSON `minBet`).
+- `avg_position_count = mean(position_count)` within the summary period, or `0` if empty. This is the average number of held symbols (UI `avgBet`, JSON `minBet`).
 - `max_weight`: max of finite values
 - `margin = mean(ret_finite) / (turnover + eps)`
 - `long_ratio`:
   - per valid bar: `long_weight / (long_weight + short_weight)` if denominator > 0
   - summary: mean of valid bar ratios
 - `short_ratio = 1 - long_ratio`
-- `nonzero_position = count(nonzero_count > 0)`
+- `active_bar_count = count(position_count > 0)`
 - `avg_max_bet = mean(max_weight finite)`
-- `min_bet_min = min(nonzero_count)` within the summary period, or `0` if empty. This is the minimum number of held symbols (UI `minBet`, JSON `minBetMin`).
+- `min_position_count = min(position_count)` within the summary period, or `0` if empty. This is the minimum number of held symbols (UI `minBet`, JSON `minBetMin`).
 - Position-count summaries include zero-position bars. The simulator counts weights with `abs(weight) > 1e-12`.
-- The legacy `SimulatorOutput.min_bet` array contains gross exposure divided by the full asset count. It is not the input to either position-count summary above.
 - `quality = sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)`
   - `maxexp = max(abs(long_weight - short_weight))` on valid bars
 - `sharpe80`, `sharpe400`:

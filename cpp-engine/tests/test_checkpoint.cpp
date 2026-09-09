@@ -285,7 +285,6 @@ TEST(Checkpoint, RoundTrip) {
     cfg.N = dp.N;
     cfg.fee_rate = 0.001;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
 
     // --- Full run (reference) ---
     std::vector<double> ref_ret;

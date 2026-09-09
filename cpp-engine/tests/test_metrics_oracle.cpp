@@ -18,15 +18,15 @@ struct OracleSummary {
     double sharpe = 0.0;
     double mdd = 0.0;
     double turnover = 0.0;
-    double min_bet = 0.0;
+    double avg_position_count = 0.0;
     double max_weight = 0.0;
-    int nonzero_position = 0;
+    int active_bar_count = 0;
     double win_rate = 0.0;
     double margin = 0.0;
     double long_ratio = 0.0;
     double short_ratio = 0.0;
     double avg_max_bet = 0.0;
-    double min_bet_min = 0.0;
+    double min_position_count = 0.0;
     double quality = 0.0;
     double sharpe400 = 0.0;
     double sharpe80 = 0.0;
@@ -88,11 +88,10 @@ double sharpe_of(const std::vector<double>& r, unsigned bars_per_year)
 OracleSummary oracle_summary(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
-    const std::vector<double>& min_bet,
     const std::vector<double>& max_weight,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     unsigned bars_per_year)
 {
     OracleSummary out;
@@ -126,20 +125,20 @@ OracleSummary oracle_summary(
     out.mdd = mdd;
 
     out.turnover = mean_finite(turnover);
-    // min_bet: average number of symbols with position
+    // avg_position_count: average number of symbols with position
     {
         double sum = 0.0;
-        for (int c : nonzero_count) sum += c;
-        out.min_bet = nonzero_count.empty() ? 0.0 : sum / static_cast<double>(nonzero_count.size());
+        for (int c : position_count) sum += c;
+        out.avg_position_count = position_count.empty() ? 0.0 : sum / static_cast<double>(position_count.size());
     }
     out.max_weight = max_finite(max_weight);
 
     int nz = 0;
-    for (int c : nonzero_count) {
+    for (int c : position_count) {
         if (c > 0)
             ++nz;
     }
-    out.nonzero_position = nz;
+    out.active_bar_count = nz;
 
     int wins = 0;
     for (double x : finite_r) {
@@ -171,14 +170,14 @@ OracleSummary oracle_summary(
     }
 
     out.avg_max_bet = mean_finite(max_weight);
-    // min_bet_min: minimum number of symbols with position
+    // min_position_count: minimum number of symbols with position
     {
         int mn = std::numeric_limits<int>::max();
         bool found = false;
-        for (int c : nonzero_count) {
+        for (int c : position_count) {
             if (c < mn) { mn = c; found = true; }
         }
-        out.min_bet_min = found ? static_cast<double>(mn) : 0.0;
+        out.min_position_count = found ? static_cast<double>(mn) : 0.0;
     }
 
     {
@@ -240,15 +239,15 @@ void expect_summary_near(const SummaryMetrics& actual, const OracleSummary& expe
     EXPECT_NEAR(actual.sharpe, expected.sharpe, tol);
     EXPECT_NEAR(actual.mdd, expected.mdd, tol);
     EXPECT_NEAR(actual.turnover, expected.turnover, tol);
-    EXPECT_NEAR(actual.min_bet, expected.min_bet, tol);
+    EXPECT_NEAR(actual.avg_position_count, expected.avg_position_count, tol);
     EXPECT_NEAR(actual.max_weight, expected.max_weight, tol);
-    EXPECT_EQ(actual.nonzero_position, expected.nonzero_position);
+    EXPECT_EQ(actual.active_bar_count, expected.active_bar_count);
     EXPECT_NEAR(actual.win_rate, expected.win_rate, tol);
     EXPECT_NEAR(actual.margin, expected.margin, tol);
     EXPECT_NEAR(actual.long_ratio, expected.long_ratio, tol);
     EXPECT_NEAR(actual.short_ratio, expected.short_ratio, tol);
     EXPECT_NEAR(actual.avg_max_bet, expected.avg_max_bet, tol);
-    EXPECT_NEAR(actual.min_bet_min, expected.min_bet_min, tol);
+    EXPECT_NEAR(actual.min_position_count, expected.min_position_count, tol);
     EXPECT_NEAR(actual.quality, expected.quality, tol);
     EXPECT_NEAR(actual.sharpe400, expected.sharpe400, tol);
     EXPECT_NEAR(actual.sharpe80, expected.sharpe80, tol);
@@ -264,11 +263,11 @@ TEST(MetricsOracle, SummaryMatchesReferenceImplementation)
 
     std::vector<double> ret(T, 0.0);
     std::vector<double> turnover(T, 0.0);
-    std::vector<double> min_bet(T, 0.0);
+
     std::vector<double> max_weight(T, 0.0);
     std::vector<double> long_weight(T, 0.0);
     std::vector<double> short_weight(T, 0.0);
-    std::vector<int> nonzero_count(T, 0);
+    std::vector<int> position_count(T, 0);
 
     for (size_t i = 0; i < T; ++i) {
         ret[i] = (((static_cast<int>(i) % 7) - 3) * 0.0015) + ((i % 5 == 0) ? 0.0007 : -0.0002);
@@ -279,9 +278,6 @@ TEST(MetricsOracle, SummaryMatchesReferenceImplementation)
         if (i % 19 == 0)
             turnover[i] = nan;
 
-        min_bet[i] = 0.015 + 0.004 * static_cast<double>(i % 3);
-        if (i % 13 == 0)
-            min_bet[i] = nan;
 
         max_weight[i] = 0.15 + 0.03 * static_cast<double>(i % 5);
         if (i % 11 == 0)
@@ -289,13 +285,13 @@ TEST(MetricsOracle, SummaryMatchesReferenceImplementation)
 
         long_weight[i] = 0.48 + 0.06 * std::sin(static_cast<double>(i) * 0.2);
         short_weight[i] = 0.52 + 0.04 * std::cos(static_cast<double>(i) * 0.1);
-        nonzero_count[i] = (i % 6 == 0) ? 0 : 3;
+        position_count[i] = (i % 6 == 0) ? 0 : 3;
     }
 
     const auto actual = compute_summary(
-        ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count, 365);
+        ret, turnover, max_weight, long_weight, short_weight, position_count, 365);
     const auto expected = oracle_summary(
-        ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count, 365);
+        ret, turnover, max_weight, long_weight, short_weight, position_count, 365);
 
     expect_summary_near(actual, expected, 1e-9);
 }
@@ -312,17 +308,17 @@ TEST(MetricsOracle, FullMetricsSplitMatchesReferenceSlices)
 
     std::vector<double> ret = {0.0, 0.01, -0.002, 0.004, -0.003, 0.006, 0.001, -0.005, 0.008, 0.002, -0.001, 0.003};
     std::vector<double> turnover(T, 0.2);
-    std::vector<double> min_bet(T, 0.02);
+
     std::vector<double> max_weight(T, 0.3);
     std::vector<double> long_weight(T, 0.55);
     std::vector<double> short_weight(T, 0.45);
-    std::vector<int> nonzero_count(T, 3);
+    std::vector<int> position_count(T, 3);
 
     const int64_t is_ms = timestamps[2];
     const int64_t os_ms = timestamps[8];
 
     const auto actual = compute_full_metrics(
-        timestamps, ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+        timestamps, ret, turnover, max_weight, long_weight, short_weight, position_count,
         is_ms, os_ms, 0.0005, 365);
 
     EXPECT_EQ(actual.is_start_index, 1u);
@@ -347,21 +343,19 @@ TEST(MetricsOracle, FullMetricsSplitMatchesReferenceSlices)
     const auto is_expected = oracle_summary(
         slice(ret, is_for_summary, os_idx),
         slice(turnover, is_for_summary, os_idx),
-        slice(min_bet, is_for_summary, os_idx),
         slice(max_weight, is_for_summary, os_idx),
         slice(long_weight, is_for_summary, os_idx),
         slice(short_weight, is_for_summary, os_idx),
-        slice(nonzero_count, is_for_summary, os_idx),
+        slice(position_count, is_for_summary, os_idx),
         365);
 
     const auto os_expected = oracle_summary(
         slice(ret, os_idx, T),
         slice(turnover, os_idx, T),
-        slice(min_bet, os_idx, T),
         slice(max_weight, os_idx, T),
         slice(long_weight, os_idx, T),
         slice(short_weight, os_idx, T),
-        slice(nonzero_count, os_idx, T),
+        slice(position_count, os_idx, T),
         365);
 
     expect_summary_near(actual.is_summary, is_expected, 1e-9);
@@ -374,14 +368,14 @@ TEST(MetricsOracle, SingleDayInputProducesEmptyTimeseries)
     std::vector<int64_t> timestamps = {t0};
     std::vector<double> ret = {0.0};
     std::vector<double> turnover = {0.0};
-    std::vector<double> min_bet = {0.0};
+
     std::vector<double> max_weight = {0.0};
     std::vector<double> long_weight = {0.0};
     std::vector<double> short_weight = {0.0};
-    std::vector<int> nonzero_count = {0};
+    std::vector<int> position_count = {0};
 
     const auto result = compute_full_metrics(
-        timestamps, ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+        timestamps, ret, turnover, max_weight, long_weight, short_weight, position_count,
         t0, t0 + 86400000LL, 0.0, 365);
 
     EXPECT_TRUE(result.timeseries.timestamps.empty());
@@ -395,7 +389,7 @@ TEST(MetricsOracle, DrawdownIncludesLossFromTheInitialBook) {
     const std::vector<int64_t> dates={0,86400000,172800000,259200000};
     const std::vector<double> ret={0,-0.10,0.05,-0.10}, zeros(4,0.0);
     const std::vector<int> counts(4,0);
-    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,zeros,counts,
+    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,counts,
                                 0,10LL*86400000,0,365);
     EXPECT_NEAR(m.is_summary.mdd,-0.15,1e-12);
     ASSERT_EQ(m.yearly.size(),1u);
@@ -410,7 +404,7 @@ TEST(MetricsOracle, InSampleStartAfterDataDoesNotEvaluateTheWholeHistory) {
     const std::vector<int64_t> dates={0,86400000,172800000};
     const std::vector<double> ret={0,0.1,-0.2}, zeros(3,0.0);
     const std::vector<int> counts(3,0);
-    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,zeros,counts,
+    auto m=compute_full_metrics(dates,ret,zeros,zeros,zeros,zeros,counts,
                                 10LL*86400000,20LL*86400000,0,365);
     EXPECT_DOUBLE_EQ(m.is_summary.pnl,0.0);
     EXPECT_DOUBLE_EQ(m.is_summary.sharpe,0.0);

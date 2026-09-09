@@ -198,11 +198,10 @@ def generate_metrics_input():
     T = 140
     ret = np.zeros(T)
     turnover = np.zeros(T)
-    min_bet = np.zeros(T)
     max_weight = np.zeros(T)
     long_weight = np.zeros(T)
     short_weight = np.zeros(T)
-    nonzero_count = np.zeros(T, dtype=int)
+    position_count = np.zeros(T, dtype=int)
 
     for i in range(T):
         ret[i] = ((i % 7 - 3) * 0.0015) + (0.0007 if i % 5 == 0 else -0.0002)
@@ -213,19 +212,15 @@ def generate_metrics_input():
         if i % 19 == 0:
             turnover[i] = np.nan
 
-        min_bet[i] = 0.015 + 0.004 * (i % 3)
-        if i % 13 == 0:
-            min_bet[i] = np.nan
-
         max_weight[i] = 0.15 + 0.03 * (i % 5)
         if i % 11 == 0:
             max_weight[i] = np.nan
 
         long_weight[i] = 0.48 + 0.06 * math.sin(i * 0.2)
         short_weight[i] = 0.52 + 0.04 * math.cos(i * 0.1)
-        nonzero_count[i] = 0 if i % 6 == 0 else 3
+        position_count[i] = 0 if i % 6 == 0 else 3
 
-    return ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count
+    return ret, turnover, max_weight, long_weight, short_weight, position_count
 
 
 def sharpe_of(r: np.ndarray, bars_per_year: int) -> float:
@@ -238,7 +233,7 @@ def sharpe_of(r: np.ndarray, bars_per_year: int) -> float:
     return float((mean / (std + 1e-12)) * np.sqrt(bars_per_year))
 
 
-def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count, bars_per_year):
+def golden_summary(ret, turnover, max_weight, long_weight, short_weight, position_count, bars_per_year):
     finite_r = ret[np.isfinite(ret)]
     if len(finite_r) == 0:
         return {}
@@ -256,13 +251,13 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
     to_finite = turnover[np.isfinite(turnover)]
     avg_turnover = float(np.mean(to_finite)) if len(to_finite) > 0 else 0.0
 
-    # min_bet: average number of symbols with position (matches C++ which uses nonzero_count)
-    avg_min_bet = float(np.mean(nonzero_count))
+    # avg_position_count: average number of symbols with position
+    avg_position_count = float(np.mean(position_count))
 
     mw_finite = max_weight[np.isfinite(max_weight)]
     max_max_weight = float(np.max(mw_finite)) if len(mw_finite) > 0 else 0.0
 
-    nz = int(np.sum(nonzero_count > 0))
+    nz = int(np.sum(position_count > 0))
 
     wins = int(np.sum(finite_r > 0.0))
     win_rate = wins / len(finite_r)
@@ -287,8 +282,8 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
     # avg_max_bet = mean of finite max_weight
     avg_max_bet = float(np.mean(mw_finite)) if len(mw_finite) > 0 else 0.0
 
-    # min_bet_min: minimum number of symbols with position (matches C++ nonzero_count)
-    min_bet_min = float(np.min(nonzero_count))
+    # min_position_count: minimum number of symbols with position
+    min_position_count = float(np.min(position_count))
 
     # quality
     maxexp = 0.0
@@ -324,15 +319,15 @@ def golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight
         "sharpe": sharpe,
         "mdd": mdd,
         "turnover": avg_turnover,
-        "min_bet": avg_min_bet,
+        "avg_position_count": avg_position_count,
         "max_weight": max_max_weight,
-        "nonzero_position": nz,
+        "active_bar_count": nz,
         "win_rate": win_rate,
         "margin": margin,
         "long_ratio": long_ratio,
         "short_ratio": short_ratio,
         "avg_max_bet": avg_max_bet,
-        "min_bet_min": min_bet_min,
+        "min_position_count": min_position_count,
         "quality": quality,
         "sharpe400": sharpe400,
         "sharpe80": sharpe80,
@@ -401,9 +396,9 @@ def main():
     print(f"Wrote {OUTPUT_DIR / 'modules.json'}")
 
     # ── Metrics golden file ──
-    ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count = generate_metrics_input()
+    ret, turnover, max_weight, long_weight, short_weight, position_count = generate_metrics_input()
 
-    summary = golden_summary(ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count, 365)
+    summary = golden_summary(ret, turnover, max_weight, long_weight, short_weight, position_count, 365)
 
     # Also save raw input so C++ can verify it loaded correctly
     def vec_to_list(v):
@@ -414,11 +409,10 @@ def main():
         "input": {
             "ret": vec_to_list(ret),
             "turnover": vec_to_list(turnover),
-            "min_bet": vec_to_list(min_bet),
             "max_weight": vec_to_list(max_weight),
             "long_weight": vec_to_list(long_weight),
             "short_weight": vec_to_list(short_weight),
-            "nonzero_count": [int(x) for x in nonzero_count],
+            "position_count": [int(x) for x in position_count],
         },
         "expected": summary,
     }

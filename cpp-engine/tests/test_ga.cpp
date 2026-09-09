@@ -65,7 +65,6 @@ TEST(GA, GAConverges) {
     cfg.population_size = 20;
     cfg.generations     = 10;
     cfg.seed            = 42;
-    cfg.fitness_metric  = "sharpe";
 
     GAEngine engine(xml, space, cfg);
 

@@ -7,8 +7,7 @@ import type {
   StarTimeseries,
   BacktestRunResponse,
   BacktestAlphaResult,
-  ISMetrics,
-  OSMetrics,
+  PeriodMetrics,
   AlphaListResponse,
   AlphaDetailResponse,
 } from '@/types';
@@ -41,39 +40,19 @@ function parseApiErrorPayload(data: unknown): string | undefined {
 // percentage points (e.g. 26.7 = 26.7%), counts as counts. Field mapping only.
 // ---------------------------------------------------------------------------
 
-function adaptStarToIS(s: StarSummary): ISMetrics {
+function adaptStarSummary(s: StarSummary): PeriodMetrics {
   return {
     pnl: s.pnl,
     sharpe: s.sharpe,
     mdd: s.mdd,
     turnover: s.turnover,
-    min_bet: s.minBet,
+    avgPositionCount: s.minBet,
     max_weight: s.maxWeight,
     ann_ret: s.return,
     margin: s.margin,
-    nonzeroPosition: s.nonzeroPosition,
+    activeBarCount: s.nonzeroPosition,
     avgMaxBet: s.avgMaxBet,
-    minBetMin: s.minBetMin,
-    quality: s.quality,
-    sharpe400: s.sharpe400,
-    sharpe80: s.sharpe80,
-    minsoc: s.minsoc,
-  };
-}
-
-function adaptStarToOS(s: StarSummary): OSMetrics {
-  return {
-    pnl: s.pnl,
-    sharpe: s.sharpe,
-    mdd: s.mdd,
-    ann_ret: s.return,
-    turnover: s.turnover,
-    min_bet: s.minBet,
-    max_weight: s.maxWeight,
-    margin: s.margin,
-    nonzeroPosition: s.nonzeroPosition,
-    avgMaxBet: s.avgMaxBet,
-    minBetMin: s.minBetMin,
+    minPositionCount: s.minBetMin,
     quality: s.quality,
     sharpe400: s.sharpe400,
     sharpe80: s.sharpe80,
@@ -127,8 +106,6 @@ function buildSplitSeriesFromTimeseries(
     osMaxWeightSeries: tsArrayToRecord(osTs, ts.maxWeight.slice(osStart)),
     isNonzeroPositionSeries: tsArrayToRecord(isTs, ts.nonzeroCount.slice(isStart, osStart)),
     osNonzeroPositionSeries: tsArrayToRecord(osTs, ts.nonzeroCount.slice(osStart)),
-    isEquitySeries: tsArrayToRecord(isTs, isCumPnl),
-    osEquitySeries: tsArrayToRecord(osTs, osCumPnl),
     osStartDate: ts.timestamps[osStart],
   };
 }
@@ -158,8 +135,8 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     combined = {
       name: 'combined',
       rank: 0,
-      isMetrics: adaptStarToIS(combinedSource.summary.is),
-      osMetrics: adaptStarToOS(combinedSource.summary.os),
+      isMetrics: adaptStarSummary(combinedSource.summary.is),
+      osMetrics: adaptStarSummary(combinedSource.summary.os),
       xml: combinedSource.xml,
       yearly: combinedSource.yearly ?? resp.yearly,
       longRatio: combinedSource.summary.is.longRatio,
@@ -177,8 +154,8 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     return {
       name: `alpha_${batch.index}`,
       rank: i + 1,
-      isMetrics: adaptStarToIS(batch.summary.is),
-      osMetrics: adaptStarToOS(batch.summary.os),
+      isMetrics: adaptStarSummary(batch.summary.is),
+      osMetrics: adaptStarSummary(batch.summary.os),
       xml: batch.xml,
       yearly: batch.yearly ?? resp.yearly,
       longRatio: batch.summary.is.longRatio,

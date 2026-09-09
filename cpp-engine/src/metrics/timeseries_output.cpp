@@ -8,7 +8,7 @@ TimeseriesOutput compute_timeseries(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
     const std::vector<double>& max_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     double fee_rate)
 {
     TimeseriesOutput out;
@@ -17,7 +17,7 @@ TimeseriesOutput compute_timeseries(
 
     // Skip first bar (index 0); output starts from index 1
     const size_t T = timestamps.size();
-    if (ret.size() < T || turnover.size() < T || max_weight.size() < T || nonzero_count.size() < T) {
+    if (ret.size() < T || turnover.size() < T || max_weight.size() < T || position_count.size() < T) {
         throw std::invalid_argument("compute_timeseries: input vectors must be at least timestamps.size()");
     }
     const size_t n = (T > 1) ? T - 1 : 0;
@@ -26,7 +26,7 @@ TimeseriesOutput compute_timeseries(
     out.cum_pnl.reserve(n);
     out.cum_pnl_gross.reserve(n);
     out.turnover_pct.reserve(n);
-    out.nonzero_positions.reserve(n);
+    out.position_count.reserve(n);
     out.max_weight_pct.reserve(n);
     out.drawdown.reserve(n);
 
@@ -38,7 +38,7 @@ TimeseriesOutput compute_timeseries(
         double r = ret[i];
         double tvr = turnover[i];
         double mw = max_weight[i];
-        int nz = nonzero_count[i];
+        int nz = position_count[i];
 
         // Net cumulative PnL (additive)
         cp_net += r;
@@ -55,7 +55,7 @@ TimeseriesOutput compute_timeseries(
         out.cum_pnl.push_back(cp_net);
         out.cum_pnl_gross.push_back(cp_gross);
         out.turnover_pct.push_back(tvr * 100.0);
-        out.nonzero_positions.push_back(nz);
+        out.position_count.push_back(nz);
         out.max_weight_pct.push_back(mw * 100.0);
         out.drawdown.push_back(dd);
     }

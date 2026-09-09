@@ -117,7 +117,6 @@ TEST(PipelineContract, SingleAlphaCollectsSignalsForDetailPlot)
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);
@@ -152,15 +151,14 @@ TEST(PipelineContract, SamePriceReturnProducesZeroSharpe)
     cfg.N = dp.N;
     cfg.fee_rate = 0.0;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
     auto out = sim.run(alphas[0].pipeline);
 
     const auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover, out.min_bet, out.max_weight,
-        out.long_weight, out.short_weight, out.nonzero_count,
+        out.timestamps, out.ret, out.turnover, out.max_weight,
+        out.long_weight, out.short_weight, out.position_count,
         dp.timestamps[1], dp.timestamps[5], 0.0, 365);
 
     EXPECT_NEAR(metrics.is_summary.pnl, 0.0, 1e-12);
@@ -181,7 +179,6 @@ TEST(PipelineContract, SingleDayLikeSplitDoesNotCrashAndKeepsIndicesValid)
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -189,8 +186,8 @@ TEST(PipelineContract, SingleDayLikeSplitDoesNotCrashAndKeepsIndicesValid)
 
     // IS starts on bar 1, OS starts on bar 2 -> very short windows.
     const auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover, out.min_bet, out.max_weight,
-        out.long_weight, out.short_weight, out.nonzero_count,
+        out.timestamps, out.ret, out.turnover, out.max_weight,
+        out.long_weight, out.short_weight, out.position_count,
         dp.timestamps[1], dp.timestamps[2], 0.0005, 365);
 
     EXPECT_LE(metrics.is_start_index, metrics.os_start_index);
@@ -209,7 +206,6 @@ TEST(PipelineContract, SignalPlotPreservesNullForWarmupNaN)
     cfg.N = dp.N;
     cfg.fee_rate = 0.0;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);
@@ -251,7 +247,6 @@ TEST(PipelineContract, VeryDeepPipelineCompilesAndRuns)
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);

@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 
 import AlphaRankingTable from '@/components/multi-alpha/AlphaRankingTable';
 import { useAlphaStore } from '@/store/alphaStore';
-import { multiAlphaFixture } from './pipelineFixtures';
+import { multiAlphaMetricFixture } from './metricFixtures';
 
 const initialState = useAlphaStore.getState();
 
@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('AlphaRankingTable rendering', () => {
   it('renders ranking rows with STAR-aligned columns', () => {
-    useAlphaStore.setState({ result: multiAlphaFixture });
+    useAlphaStore.setState({ result: multiAlphaMetricFixture });
 
     render(<AlphaRankingTable />);
 
@@ -29,5 +29,17 @@ describe('AlphaRankingTable rendering', () => {
     const alpha0Row = screen.getByText('0').closest('tr');
     expect(alpha0Row).not.toBeNull();
     expect(within(alpha0Row as HTMLElement).getByText('6.00')).toBeInTheDocument();
+
+    // Keep avgBet = average held symbols and minBet = minimum held symbols.
+    const headers = within(screen.getAllByRole('row')[1]).getAllByRole('columnheader');
+    const cells = within(alpha0Row as HTMLElement).getAllByRole('cell');
+    expect(headers[2]).toHaveTextContent('avgBet');
+    expect(cells[2]).toHaveTextContent('3.50');
+    expect(headers[5]).toHaveTextContent('minBet');
+    expect(cells[5]).toHaveTextContent('2.00');
+    expect(headers[11]).toHaveTextContent('avgBet');
+    expect(cells[11]).toHaveTextContent('5.25');
+    expect(headers[14]).toHaveTextContent('minBet');
+    expect(cells[14]).toHaveTextContent('1.00');
   });
 });

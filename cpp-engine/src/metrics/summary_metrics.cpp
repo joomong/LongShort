@@ -1,17 +1,15 @@
 #include "summary_metrics.h"
 #include <cmath>
 #include <algorithm>
-#include <numeric>
 #include <limits>
 
 SummaryMetrics compute_summary_range(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
-    const std::vector<double>& min_bet,
     const std::vector<double>& max_weight,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     size_t start,
     size_t end,
     unsigned bars_per_year)
@@ -33,14 +31,18 @@ SummaryMetrics compute_summary_range(
 
     const size_t n = finite_r.size();
 
-    // Cumulative PnL (additive, STAR-style fixed book size)
-    std::vector<double> cum_pnl(n);
-    cum_pnl[0] = finite_r[0];
-    for (size_t i = 1; i < n; ++i)
-        cum_pnl[i] = cum_pnl[i - 1] + finite_r[i];
-
-    // pnl = sum of daily returns
-    m.pnl = cum_pnl.back();
+    // Preserve return addition order while retaining only the running PnL/peak.
+    double cumulative_pnl = finite_r[0];
+    double peak = 0.0;
+    double max_drawdown = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        if (i > 0) cumulative_pnl += finite_r[i];
+        if (cumulative_pnl > peak) peak = cumulative_pnl;
+        const double drawdown = cumulative_pnl - peak;
+        if (drawdown < max_drawdown) max_drawdown = drawdown;
+    }
+    m.pnl = cumulative_pnl;
+    m.mdd = max_drawdown;
 
     // ann_ret = mean(daily_ret) * bars_per_year
     double sum_r = 0.0;
@@ -62,16 +64,6 @@ SummaryMetrics compute_summary_range(
     }
     m.sharpe = sharpe_val;
 
-    // mdd (additive: peak cumPnL - current cumPnL)
-    double peak = 0.0;  // Include the starting book before the first return.
-    double max_dd = 0.0;
-    for (size_t i = 0; i < n; ++i) {
-        if (cum_pnl[i] > peak) peak = cum_pnl[i];
-        double dd = cum_pnl[i] - peak;  // negative when in drawdown
-        if (dd < max_dd) max_dd = dd;
-    }
-    m.mdd = max_dd;
-
     // turnover: mean of finite values
     {
         double sum = 0.0; int cnt = 0;
@@ -82,14 +74,14 @@ SummaryMetrics compute_summary_range(
         m.turnover = (cnt > 0) ? sum / cnt : 0.0;
     }
 
-    // min_bet: average number of symbols with position
+    // avg_position_count: average number of symbols with position
     {
         double sum = 0.0; int cnt = 0;
-        const size_t nz_end = std::min(end, nonzero_count.size());
+        const size_t nz_end = std::min(end, position_count.size());
         for (size_t i = start; i < nz_end; ++i) {
-            sum += nonzero_count[i]; ++cnt;
+            sum += position_count[i]; ++cnt;
         }
-        m.min_bet = (cnt > 0) ? sum / cnt : 0.0;
+        m.avg_position_count = (cnt > 0) ? sum / cnt : 0.0;
     }
 
     // max_weight: max of finite values
@@ -103,14 +95,14 @@ SummaryMetrics compute_summary_range(
         m.max_weight = mx;
     }
 
-    // nonzero_position: count(nonzero_count > 0)
+    // active_bar_count: count(position_count > 0)
     {
         int cnt = 0;
-        const size_t nz_end = std::min(end, nonzero_count.size());
+        const size_t nz_end = std::min(end, position_count.size());
         for (size_t i = start; i < nz_end; ++i) {
-            if (nonzero_count[i] > 0) ++cnt;
+            if (position_count[i] > 0) ++cnt;
         }
-        m.nonzero_position = cnt;
+        m.active_bar_count = cnt;
     }
 
     // win_rate
@@ -157,15 +149,15 @@ SummaryMetrics compute_summary_range(
         m.avg_max_bet = (cnt > 0) ? sum / cnt : 0.0;
     }
 
-    // min_bet_min: minimum number of symbols with position
+    // min_position_count: minimum number of symbols with position
     {
         int mn = std::numeric_limits<int>::max();
         bool found = false;
-        const size_t nz_end = std::min(end, nonzero_count.size());
+        const size_t nz_end = std::min(end, position_count.size());
         for (size_t i = start; i < nz_end; ++i) {
-            if (nonzero_count[i] < mn) { mn = nonzero_count[i]; found = true; }
+            if (position_count[i] < mn) { mn = position_count[i]; found = true; }
         }
-        m.min_bet_min = found ? static_cast<double>(mn) : 0.0;
+        m.min_position_count = found ? static_cast<double>(mn) : 0.0;
     }
 
     // quality: sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)
@@ -239,14 +231,13 @@ SummaryMetrics compute_summary_range(
 SummaryMetrics compute_summary(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
-    const std::vector<double>& min_bet,
     const std::vector<double>& max_weight,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     unsigned bars_per_year)
 {
     return compute_summary_range(
-        ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+        ret, turnover, max_weight, long_weight, short_weight, position_count,
         0, ret.size(), bars_per_year);
 }

@@ -291,7 +291,6 @@ int main(int argc, char* argv[])
                     sim_cfg.N = g_data.N;
                     sim_cfg.fee_rate = g_config.transaction_fee_rate;
                     sim_cfg.mode = 1;  // D1
-                    sim_cfg.bars_per_year = 365;
                     sim_cfg.collect_signals = collect;
                     sim_cfg.signal_row_callback = signal_row_callback;
 
@@ -299,17 +298,16 @@ int main(int argc, char* argv[])
                     auto sim_out = sim.run(pipeline);
 
                     auto metrics = compute_full_metrics(
-                        sim_out.timestamps, sim_out.ret, sim_out.turnover,
-                        sim_out.min_bet, sim_out.max_weight,
+                        sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
                         sim_out.long_weight, sim_out.short_weight,
-                        sim_out.nonzero_count,
+                        sim_out.position_count,
                         is_ms, os_ms,
                         g_config.transaction_fee_rate, 365);
 
                     return std::make_pair(std::move(sim_out), std::move(metrics));
                 };
 
-                auto run_signals_only = [&](CompiledAlpha& alpha) {
+                auto rerun_with_collected_signals = [&](CompiledAlpha& alpha) {
                     const auto& pipeline = alpha.pipeline;
 
                     SimulatorConfig sim_cfg;
@@ -317,7 +315,6 @@ int main(int argc, char* argv[])
                     sim_cfg.N = g_data.N;
                     sim_cfg.fee_rate = g_config.transaction_fee_rate;
                     sim_cfg.mode = 1;  // D1
-                    sim_cfg.bars_per_year = 365;
                     sim_cfg.collect_signals = true;
 
                     Simulator sim(g_data, sim_cfg);
@@ -464,7 +461,7 @@ int main(int argc, char* argv[])
                         if (alpha_idx < 0 || static_cast<size_t>(alpha_idx) >= alphas.size())
                             continue;
 
-                        auto collected = run_signals_only(alphas[static_cast<size_t>(alpha_idx)]);
+                        auto collected = rerun_with_collected_signals(alphas[static_cast<size_t>(alpha_idx)]);
                         if (collected.signals.empty())
                             continue;
 
@@ -482,23 +479,16 @@ int main(int argc, char* argv[])
                         if (plot_start >= collected.signals.size())
                             continue;
 
-                        std::vector<std::vector<float>> plot_signals(
-                            collected.signals.begin() + static_cast<std::ptrdiff_t>(plot_start),
-                            collected.signals.end());
-                        std::vector<int64_t> plot_timestamps(
-                            collected.timestamps.begin() + static_cast<std::ptrdiff_t>(plot_start),
-                            collected.timestamps.end());
-
                         batch_signal_payloads[bi].signal_plot =
-                            signal_plot_to_json(plot_signals, plot_timestamps, g_data.symbols);
+                            signal_plot_to_json(collected.signals, collected.timestamps, g_data.symbols, plot_start);
                         batch_signal_payloads[bi].distribution =
-                            signal_distribution_to_json(plot_signals);
+                            signal_distribution_to_json(collected.signals, plot_start);
 
                         float sig_min = 0.0f;
                         float sig_max = 0.0f;
                         bool first = true;
-                        for (const auto& row : plot_signals) {
-                            for (float v : row) {
+                        for (size_t di = plot_start; di < collected.signals.size(); ++di) {
+                            for (float v : collected.signals[di]) {
                                 if (!std::isfinite(v))
                                     continue;
                                 if (first) {
@@ -530,17 +520,15 @@ int main(int argc, char* argv[])
                     combined_cfg.N = N;
                     combined_cfg.fee_rate = g_config.transaction_fee_rate;
                     combined_cfg.mode = 1;
-                    combined_cfg.bars_per_year = 365;
                     combined_cfg.collect_signals = false;
 
                     Simulator combined_sim(g_data, combined_cfg);
                     auto combined_out = combined_sim.run_from_signals(combined_signals);
 
                     combined_metrics = compute_full_metrics(
-                        combined_out.timestamps, combined_out.ret, combined_out.turnover,
-                        combined_out.min_bet, combined_out.max_weight,
+                        combined_out.timestamps, combined_out.ret, combined_out.turnover, combined_out.max_weight,
                         combined_out.long_weight, combined_out.short_weight,
-                        combined_out.nonzero_count,
+                        combined_out.position_count,
                         is_ms, os_ms, g_config.transaction_fee_rate, 365);
                 }
 
@@ -611,20 +599,13 @@ int main(int argc, char* argv[])
                     } else {
                         plot_start = top_metrics.is_start_index;
                     }
-                    std::vector<std::vector<float>> plot_signals(
-                        single_sim_out.signals.begin() + plot_start,
-                        single_sim_out.signals.end());
-                    std::vector<int64_t> plot_timestamps(
-                        single_sim_out.timestamps.begin() + plot_start,
-                        single_sim_out.timestamps.end());
-
                     json["signalPlot"] = signal_plot_to_json(
-                        plot_signals, plot_timestamps, g_data.symbols);
+                        single_sim_out.signals, single_sim_out.timestamps, g_data.symbols, plot_start);
 
                     float sig_min = 0, sig_max = 0;
                     bool first = true;
-                    for (const auto& row : plot_signals) {
-                        for (float v : row) {
+                    for (size_t di = plot_start; di < single_sim_out.signals.size(); ++di) {
+                        for (float v : single_sim_out.signals[di]) {
                             if (!std::isfinite(v)) continue;
                             if (first) { sig_min = sig_max = v; first = false; }
                             else { if (v < sig_min) sig_min = v; if (v > sig_max) sig_max = v; }
@@ -635,7 +616,7 @@ int main(int argc, char* argv[])
                     sr["max"] = sig_max;
                     json["signalRange"] = sr;
 
-                    json["distribution"] = signal_distribution_to_json(plot_signals);
+                    json["distribution"] = signal_distribution_to_json(single_sim_out.signals, plot_start);
                 }
 
                 callback(drogon::HttpResponse::newHttpJsonResponse(json));
@@ -667,7 +648,8 @@ int main(int argc, char* argv[])
             }
 
             std::string xml = (*body)["xml"].asString();
-            std::string sim_start_str = (*body).get("simStart", "").asString();
+            // Preserve the existing request type check without retaining unused state.
+            (void)(*body).get("simStart", "").asString();
             std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
             std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
             unsigned pop_size = (*body).get("popSize", 50).asUInt();
@@ -704,7 +686,7 @@ int main(int argc, char* argv[])
 
             // Async stream response for NDJSON
             auto resp = drogon::HttpResponse::newAsyncStreamResponse(
-                [xml, sim_start_str, pop_size, generations, n_threads, is_ms, os_ms](drogon::ResponseStreamPtr stream) {
+                [xml, pop_size, generations, n_threads, is_ms, os_ms](drogon::ResponseStreamPtr stream) {
 
                     auto write_json = [&stream](const Json::Value& j) {
                         Json::StreamWriterBuilder wb;
@@ -738,17 +720,15 @@ int main(int argc, char* argv[])
                                 sim_cfg.N = g_data.N;
                                 sim_cfg.fee_rate = g_config.transaction_fee_rate;
                                 sim_cfg.mode = 1;
-                                sim_cfg.bars_per_year = 365;
                                 sim_cfg.collect_signals = false;
 
                                 Simulator sim(g_data, sim_cfg);
                                 auto sim_out = sim.run(pipeline);
 
                                 auto metrics = compute_full_metrics(
-                                    sim_out.timestamps, sim_out.ret, sim_out.turnover,
-                                    sim_out.min_bet, sim_out.max_weight,
+                                    sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
                                     sim_out.long_weight, sim_out.short_weight,
-                                    sim_out.nonzero_count,
+                                    sim_out.position_count,
                                     is_ms, os_ms,
                                     g_config.transaction_fee_rate, 365);
 
@@ -788,17 +768,15 @@ int main(int argc, char* argv[])
                             sim_cfg.N = g_data.N;
                             sim_cfg.fee_rate = g_config.transaction_fee_rate;
                             sim_cfg.mode = 1;
-                            sim_cfg.bars_per_year = 365;
                             sim_cfg.collect_signals = false;
 
                             Simulator sim(g_data, sim_cfg);
                             auto sim_out = sim.run(pipeline);
 
                             auto metrics = compute_full_metrics(
-                                sim_out.timestamps, sim_out.ret, sim_out.turnover,
-                                sim_out.min_bet, sim_out.max_weight,
+                                sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
                                 sim_out.long_weight, sim_out.short_weight,
-                                sim_out.nonzero_count,
+                                sim_out.position_count,
                                 is_ms, os_ms,
                                 g_config.transaction_fee_rate, 365);
 

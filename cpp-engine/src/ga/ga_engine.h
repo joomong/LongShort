@@ -4,7 +4,6 @@
 #include <functional>
 #include <random>
 #include "search_space.h"
-#include "../metrics/summary_metrics.h"
 
 struct GAConfig {
     unsigned population_size  = 50;
@@ -14,12 +13,10 @@ struct GAConfig {
     double   mutation_rate    = 0.1;
     unsigned n_threads        = 0;    // 0 = auto (hardware_concurrency)
     unsigned seed             = 42;
-    std::string fitness_metric = "sharpe";
 };
 
 struct GAResult {
     std::string best_xml;
-    SummaryMetrics best_metrics;
     // per-generation record: (best_xml, best_fitness)
     std::vector<std::pair<std::string, double>> history;
 };
@@ -30,6 +27,7 @@ public:
              const SearchSpace& space,
              const GAConfig& config);
 
+    // The caller supplies the objective; GA maximizes the returned scalar.
     using EvalFunc = std::function<double(const std::string& xml)>;
     using ProgressCallback = std::function<void(unsigned gen,
                                                 const std::string& xml,
@@ -55,7 +53,6 @@ private:
     Individual mutate(const Individual& ind, std::mt19937& rng) const;
     int        tournament_select(const std::vector<double>& fitness,
                                  std::mt19937& rng) const;
-    double     get_fitness(const SummaryMetrics& m) const;
 
     // Core loop shared by run() and run_streaming()
     GAResult run_impl(EvalFunc evaluate, ProgressCallback* cb);

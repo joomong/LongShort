@@ -84,18 +84,6 @@ static std::vector<std::map<std::string, std::string>> cartesian_attribs(
 // For <shuffle>: all permutations of children sequences.
 // ---------------------------------------------------------------------------
 
-static std::vector<Op> expand_element_single(const XmlElement& el);
-
-// Returns a list of "op sequences" — each inner vector is one variant's
-// contribution from this element (usually 1 op, but choice/shuffle may
-// inject multiple ops if children themselves expand).
-// Here we keep it simple: each alternative is exactly one Op.
-static std::vector<Op> expand_element_single(const XmlElement& el) {
-    // This function is not directly used — see expand_element_variants below.
-    (void)el;
-    return {};
-}
-
 // Returns a list of alternatives, each alternative being a list of Ops
 // (for normal elements it's always a list of 1-element lists,
 //  for choice/shuffle it may produce multi-op alternatives).

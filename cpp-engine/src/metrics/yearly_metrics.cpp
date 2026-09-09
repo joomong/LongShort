@@ -53,34 +53,22 @@ std::vector<YearlyMetrics> compute_yearly(
                 yr_ret.push_back(ret[idx]);
         }
 
-        // Cumulative PnL (additive, STAR-style fixed book size)
-        std::vector<double> cum_pnl;
-        cum_pnl.reserve(yr_ret.size());
-        double cp = 0.0;
+        double sum_r = 0.0;
+        double peak = 0.0;
+        double max_drawdown = 0.0;
         for (double r : yr_ret) {
-            cp += r;
-            cum_pnl.push_back(cp);
+            sum_r += r;
+            if (sum_r > peak) peak = sum_r;
+            const double drawdown = sum_r - peak;
+            if (drawdown < max_drawdown) max_drawdown = drawdown;
         }
-
-        // pnl_pct = sum of daily returns * 100
-        double yearly_pnl = cum_pnl.empty() ? 0.0 : cum_pnl.back();
-        ym.pnl_pct = yearly_pnl * 100.0;
-
-        // ann_ret = mean(daily_ret) * bars_per_year * 100
-        if (!yr_ret.empty()) {
-            double sum_r = 0.0;
-            for (double v : yr_ret) sum_r += v;
-            double mean_r = sum_r / static_cast<double>(yr_ret.size());
-            ym.ann_ret = mean_r * static_cast<double>(bars_per_year) * 100.0;
-        } else {
-            ym.ann_ret = 0.0;
-        }
+        const double mean_r = yr_ret.empty() ? 0.0 : sum_r / static_cast<double>(yr_ret.size());
+        ym.pnl_pct = sum_r * 100.0;
+        ym.ann_ret = mean_r * static_cast<double>(bars_per_year) * 100.0;
+        ym.max_dd = max_drawdown * 100.0;
 
         // sharpe
         if (yr_ret.size() >= 2) {
-            double sum_r = 0.0;
-            for (double v : yr_ret) sum_r += v;
-            double mean_r = sum_r / static_cast<double>(yr_ret.size());
             double sq_sum = 0.0;
             for (double v : yr_ret) {
                 double d = v - mean_r;
@@ -92,18 +80,6 @@ std::vector<YearlyMetrics> compute_yearly(
                 : 0.0;
         } else {
             ym.sharpe = 0.0;
-        }
-
-        // max_dd (additive: peak cumPnL - current cumPnL)
-        {
-            double peak = 0.0;  // Include the starting book for this year.
-            double mdd = 0.0;
-            for (double c : cum_pnl) {
-                if (c > peak) peak = c;
-                double dd = c - peak;  // negative when in drawdown
-                if (dd < mdd) mdd = dd;
-            }
-            ym.max_dd = mdd * 100.0;
         }
 
         // win_lose (%)
@@ -128,12 +104,7 @@ std::vector<YearlyMetrics> compute_yearly(
         }
 
         // margin
-        {
-            double sum_r = 0.0;
-            for (double v : yr_ret) sum_r += v;
-            double mean_r = yr_ret.empty() ? 0.0 : sum_r / static_cast<double>(yr_ret.size());
-            ym.margin = mean_r / (ym.daily_tvr + 1e-12);
-        }
+        ym.margin = mean_r / (ym.daily_tvr + 1e-12);
 
         // long_sm, short_sm
         {

@@ -18,8 +18,7 @@ double holding_return(const DataPanel& data, unsigned di,
     const float* previous_close = di > 0 ? data.row("close", di - 1) : nullptr;
     double result = 0.0;
     for (unsigned ii = 0; ii < data.N; ++ii) {
-        // A held or executing position needs a valid close. Missing valuation
-        // cannot be silently treated as a zero return or a free liquidation.
+        // Missing valuation cannot stand for a zero return or free liquidation.
         if ((previous_weights[ii] != 0.0 || execution_weights[ii] != 0.0) &&
             !valid_close(close[ii])) {
             throw std::runtime_error("Cannot value or execute position: invalid close at bar " +
@@ -36,6 +35,84 @@ double holding_return(const DataPanel& data, unsigned di,
     }
     return result;
 }
+
+SimulatorOutput make_output(const DataPanel& data) {
+    SimulatorOutput output;
+    output.ret.assign(data.T, 0.0);
+    output.turnover.assign(data.T, 0.0);
+    output.max_weight.assign(data.T, 0.0);
+    output.long_weight.assign(data.T, 0.0);
+    output.short_weight.assign(data.T, 0.0);
+    output.position_count.assign(data.T, 0);
+    output.timestamps = data.timestamps;
+    return output;
+}
+
+// One portfolio transition shared by generated and precomputed signals.
+class PortfolioSimulation {
+public:
+    PortfolioSimulation(const DataPanel& data, const SimulatorConfig& config)
+        : output(make_output(data)), data_(data), config_(config),
+          previous_weights_(data.N, 0.0),
+          previous_targets_(config.mode == 1 ? data.N : 0, 0.0),
+          targets_(data.N, 0.0) {}
+
+    void advance(unsigned di, const float* signal) {
+        const float* close = data_.row("close", di);
+        double absolute_signal_sum = 0.0;
+        for (unsigned ii = 0; ii < data_.N; ++ii) {
+            if (valid_close(close[ii]) && std::isfinite(signal[ii]))
+                absolute_signal_sum += std::fabs(static_cast<double>(signal[ii]));
+        }
+
+        std::fill(targets_.begin(), targets_.end(), 0.0);
+        if (absolute_signal_sum > 1e-12) {
+            for (unsigned ii = 0; ii < data_.N; ++ii) {
+                if (valid_close(close[ii]) && std::isfinite(signal[ii]))
+                    targets_[ii] = static_cast<double>(signal[ii]) / absolute_signal_sum;
+            }
+        }
+
+        const auto& execution_weights = config_.mode == 0 ? targets_ : previous_targets_;
+        output.ret[di] = holding_return(data_, di, previous_weights_, execution_weights);
+
+        double turnover = 0.0;
+        for (unsigned ii = 0; ii < data_.N; ++ii)
+            turnover += std::fabs(execution_weights[ii] - previous_weights_[ii]);
+        output.turnover[di] = turnover;
+        output.ret[di] -= turnover * config_.fee_rate;
+
+        double max_weight = 0.0, long_weight = 0.0, short_weight = 0.0;
+        int position_count = 0;
+        for (double weight : execution_weights) {
+            const double absolute_weight = std::fabs(weight);
+            if (absolute_weight > max_weight) max_weight = absolute_weight;
+            if (weight > 0.0) long_weight += weight;
+            if (weight < 0.0) short_weight += -weight;
+            if (absolute_weight > 1e-12) ++position_count;
+        }
+        output.max_weight[di] = max_weight;
+        output.long_weight[di] = long_weight;
+        output.short_weight[di] = short_weight;
+        output.position_count[di] = position_count;
+
+        if (config_.mode == 1) {
+            previous_weights_.swap(previous_targets_);
+            previous_targets_.swap(targets_);
+        } else {
+            previous_weights_.swap(targets_);
+        }
+    }
+
+    SimulatorOutput output;
+
+private:
+    const DataPanel& data_;
+    const SimulatorConfig& config_;
+    std::vector<double> previous_weights_;
+    std::vector<double> previous_targets_;
+    std::vector<double> targets_;
+};
 } // namespace
 
 Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
@@ -50,110 +127,29 @@ Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
 }
 
 SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
-    const unsigned T = config_.T;
-    const unsigned N = config_.N;
-    const double fee_rate = config_.fee_rate;
-    const int mode = config_.mode;
+    PortfolioSimulation simulation(data_, config_);
+    std::vector<float> signal_buffer(data_.N, 0.0f);
+    SignalVector signal{signal_buffer.data(), data_.N};
+    if (config_.collect_signals)
+        simulation.output.signals.resize(data_.T);
 
-    SimulatorOutput out;
-    out.ret.assign(T, 0.0);
-    out.turnover.assign(T, 0.0);
-    out.min_bet.assign(T, 0.0);
-    out.max_weight.assign(T, 0.0);
-    out.long_weight.assign(T, 0.0);
-    out.short_weight.assign(T, 0.0);
-    out.nonzero_count.assign(T, 0);
-    out.timestamps = data_.timestamps;
-
-    std::vector<float> signal_buf(N, 0.0f);
-    SignalVector sv{ signal_buf.data(), N };
-
-    std::vector<double> prev_weights(N, 0.0);
-    std::vector<double> prev_target(N, 0.0);
-    std::vector<double> target(N, 0.0);
-
-    const bool collect = config_.collect_signals;
-    if (collect)
-        out.signals.resize(T);
-
-    // STAR-style init: set numAssets before calling init()
-    for (Module* mod : pipeline) {
-        mod->numAssets = N;
-        mod->init();
+    for (Module* module : pipeline) {
+        module->numAssets = data_.N;
+        module->init();
     }
-
-    for (unsigned di = 0; di < T; ++di) {
-        // 1. NaN init + execute module pipeline
+    for (unsigned di = 0; di < data_.T; ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init())
-            sv.fill_nan();
-        for (Module* mod : pipeline)
-            mod->calculate(di, sv);
+            signal.fill_nan();
+        for (Module* module : pipeline)
+            module->calculate(di, signal);
 
-        // Collect raw signal (before normalization)
-        if (collect)
-            out.signals[di].assign(signal_buf.begin(), signal_buf.end());
+        if (config_.collect_signals)
+            simulation.output.signals[di].assign(signal_buffer.begin(), signal_buffer.end());
         if (config_.signal_row_callback)
-            config_.signal_row_callback(di, signal_buf.data(), N);
-
-        // 2. Normalize signal -> target weights
-        const float* close_row = data_.row("close", di);
-
-        double abs_sum = 0.0;
-        for (unsigned ii = 0; ii < N; ++ii) {
-            if (valid_close(close_row[ii]) && std::isfinite(signal_buf[ii]))
-                abs_sum += std::fabs(static_cast<double>(signal_buf[ii]));
-        }
-
-        for (unsigned ii = 0; ii < N; ++ii)
-            target[ii] = 0.0;
-        if (abs_sum > 1e-12) {
-            for (unsigned ii = 0; ii < N; ++ii) {
-                if (valid_close(close_row[ii]) && std::isfinite(signal_buf[ii]))
-                    target[ii] = static_cast<double>(signal_buf[ii]) / abs_sum;
-            }
-        }
-
-        // 3. Execution weight (mode dependent)
-        const std::vector<double>& exec_w = (mode == 0) ? target : prev_target;
-
-        // 4. Portfolio return (prev_weights based -> no-lookahead)
-        out.ret[di] = holding_return(data_, di, prev_weights, exec_w);
-
-        // 5. Turnover + fee
-        double tvr = 0.0;
-        for (unsigned ii = 0; ii < N; ++ii)
-            tvr += std::fabs(exec_w[ii] - prev_weights[ii]);
-        out.turnover[di] = tvr;
-        out.ret[di] -= tvr * fee_rate;
-
-        // 6. Per-bar stats
-        double max_w = 0.0, lw = 0.0, sw = 0.0, abs_sum_exec = 0.0;
-        int nz = 0;
-        for (unsigned ii = 0; ii < N; ++ii) {
-            double ew = exec_w[ii];
-            double aew = std::fabs(ew);
-            abs_sum_exec += aew;
-            if (aew > max_w) max_w = aew;
-            if (ew > 0.0) lw += ew;
-            if (ew < 0.0) sw += -ew;
-            if (aew > 1e-12) ++nz;
-        }
-        out.min_bet[di] = abs_sum_exec / static_cast<double>(N);
-        out.max_weight[di] = max_w;
-        out.long_weight[di] = lw;
-        out.short_weight[di] = sw;
-        out.nonzero_count[di] = nz;
-
-        // 7. State update
-        if (mode == 1) {
-            prev_weights.swap(prev_target);
-            prev_target.swap(target);
-        } else {
-            prev_weights.swap(target);
-        }
+            config_.signal_row_callback(di, signal_buffer.data(), data_.N);
+        simulation.advance(di, signal_buffer.data());
     }
-
-    return out;
+    return std::move(simulation.output);
 }
 
 SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>>& signals) {
@@ -162,88 +158,9 @@ SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>
             return row.size() != config_.N;
         }))
         throw std::invalid_argument("Signal matrix dimensions must match the data panel");
-    const unsigned T = config_.T;
-    const unsigned N = config_.N;
-    const double fee_rate = config_.fee_rate;
-    const int mode = config_.mode;
 
-    SimulatorOutput out;
-    out.ret.assign(T, 0.0);
-    out.turnover.assign(T, 0.0);
-    out.min_bet.assign(T, 0.0);
-    out.max_weight.assign(T, 0.0);
-    out.long_weight.assign(T, 0.0);
-    out.short_weight.assign(T, 0.0);
-    out.nonzero_count.assign(T, 0);
-    out.timestamps = data_.timestamps;
-
-    std::vector<float> signal_buf(N, 0.0f);
-    std::vector<double> prev_weights(N, 0.0);
-    std::vector<double> prev_target(N, 0.0);
-    std::vector<double> target(N, 0.0);
-
-    for (unsigned di = 0; di < T; ++di) {
-        // Copy pre-computed signals
-        for (unsigned ii = 0; ii < N; ++ii)
-            signal_buf[ii] = signals[di][ii];
-
-        // Normalize signal -> target weights
-        const float* close_row = data_.row("close", di);
-
-        double abs_sum = 0.0;
-        for (unsigned ii = 0; ii < N; ++ii) {
-            if (valid_close(close_row[ii]) && std::isfinite(signal_buf[ii]))
-                abs_sum += std::fabs(static_cast<double>(signal_buf[ii]));
-        }
-
-        for (unsigned ii = 0; ii < N; ++ii)
-            target[ii] = 0.0;
-        if (abs_sum > 1e-12) {
-            for (unsigned ii = 0; ii < N; ++ii) {
-                if (valid_close(close_row[ii]) && std::isfinite(signal_buf[ii]))
-                    target[ii] = static_cast<double>(signal_buf[ii]) / abs_sum;
-            }
-        }
-
-        // Execution weight (mode dependent)
-        const std::vector<double>& exec_w = (mode == 0) ? target : prev_target;
-
-        // Portfolio return (prev_weights based -> no-lookahead)
-        out.ret[di] = holding_return(data_, di, prev_weights, exec_w);
-
-        // Turnover + fee
-        double tvr = 0.0;
-        for (unsigned ii = 0; ii < N; ++ii)
-            tvr += std::fabs(exec_w[ii] - prev_weights[ii]);
-        out.turnover[di] = tvr;
-        out.ret[di] -= tvr * fee_rate;
-
-        // Per-bar stats
-        double max_w = 0.0, lw = 0.0, sw = 0.0, abs_sum_exec = 0.0;
-        int nz = 0;
-        for (unsigned ii = 0; ii < N; ++ii) {
-            double ew = exec_w[ii];
-            double aew = std::fabs(ew);
-            abs_sum_exec += aew;
-            if (aew > max_w) max_w = aew;
-            if (ew > 0.0) lw += ew;
-            if (ew < 0.0) sw += -ew;
-            if (aew > 1e-12) ++nz;
-        }
-        out.min_bet[di] = abs_sum_exec / static_cast<double>(N);
-        out.max_weight[di] = max_w;
-        out.long_weight[di] = lw;
-        out.short_weight[di] = sw;
-        out.nonzero_count[di] = nz;
-
-        // State update
-        if (mode == 1) {
-            prev_weights.swap(prev_target);
-            prev_target.swap(target);
-        } else {
-            prev_weights.swap(target);
-        }
-    }
-
-    return out;
+    PortfolioSimulation simulation(data_, config_);
+    for (unsigned di = 0; di < data_.T; ++di)
+        simulation.advance(di, signals[di].data());
+    return std::move(simulation.output);
 }

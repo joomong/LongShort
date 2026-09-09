@@ -87,25 +87,6 @@ int GAEngine::tournament_select(const std::vector<double>& fitness,
     return best;
 }
 
-double GAEngine::get_fitness(const SummaryMetrics& m) const {
-    const auto& metric = config_.fitness_metric;
-    if (metric == "sharpe")    return m.sharpe;
-    if (metric == "pnl")       return m.pnl;
-    if (metric == "ann_ret")   return m.ann_ret;
-    if (metric == "mdd")       return m.mdd;
-    if (metric == "turnover")  return m.turnover;
-    if (metric == "win_rate")  return m.win_rate;
-    if (metric == "min_bet")   return m.min_bet;
-    if (metric == "max_weight") return m.max_weight;
-    if (metric == "margin")    return m.margin;
-    if (metric == "quality")   return m.quality;
-    if (metric == "sharpe400") return m.sharpe400;
-    if (metric == "sharpe80")  return m.sharpe80;
-    if (metric == "minsoc")    return m.minsoc;
-    // Default: sharpe
-    return m.sharpe;
-}
-
 // ---------------------------------------------------------------------------
 // Core GA loop
 // ---------------------------------------------------------------------------
@@ -117,7 +98,6 @@ GAResult GAEngine::run_impl(EvalFunc evaluate, ProgressCallback* cb) {
         GAResult result;
         result.best_xml = xml_template_;
         double fit = evaluate(xml_template_);
-        // best_metrics left default (we only have fitness here)
         result.history.emplace_back(xml_template_, fit);
         return result;
     }
@@ -140,7 +120,6 @@ GAResult GAEngine::run_impl(EvalFunc evaluate, ProgressCallback* cb) {
     }
 
     GAResult result;
-    result.best_metrics = SummaryMetrics{};
     double best_fitness = -std::numeric_limits<double>::infinity();
 
     // --- Generation loop ---
@@ -165,8 +144,6 @@ GAResult GAEngine::run_impl(EvalFunc evaluate, ProgressCallback* cb) {
         if (gen_best_fitness > best_fitness) {
             best_fitness = gen_best_fitness;
             result.best_xml = gen_best_xml;
-            // best_metrics cannot be filled here without re-running the full
-            // backtest — the EvalFunc returns only a scalar.  Leave it default.
         }
 
         result.history.emplace_back(gen_best_xml, gen_best_fitness);
@@ -174,6 +151,10 @@ GAResult GAEngine::run_impl(EvalFunc evaluate, ProgressCallback* cb) {
         if (cb) {
             (*cb)(gen, gen_best_xml, gen_best_fitness);
         }
+
+        // The last generation has no successor to evaluate.
+        if (gen + 1 == config_.generations)
+            break;
 
         // --- Build next generation ---
         std::vector<Individual> next_population;

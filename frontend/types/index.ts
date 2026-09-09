@@ -11,14 +11,17 @@ export interface StarSummary {
   mdd: number;
   turnover: number;
   maxWeight: number;
+  /** Legacy wire key: average number of held symbols per bar. */
   minBet: number;
   pnl: number;
   winRate: number;
   margin: number;
   longRatio: number;
   shortRatio: number;
+  /** Legacy wire key: number of bars with at least one held symbol. */
   nonzeroPosition: number;
   avgMaxBet: number;
+  /** Legacy wire key: minimum number of held symbols in the period. */
   minBetMin: number;
   quality: number;
   sharpe400: number;
@@ -128,21 +131,23 @@ export interface SignalRange {
   max: number;
 }
 
-export interface ISMetrics {
+export interface PeriodMetrics {
   pnl: number;
   sharpe: number;
   mdd?: number;
   /** Percentage points, e.g. 26.7 means 26.7% daily turnover */
   turnover?: number;
   ann_ret?: number;
-  /** Count of symbols with position (average) */
-  min_bet?: number;
+  /** Average number of held symbols per bar (UI avgBet). */
+  avgPositionCount?: number;
   /** Percentage points, e.g. 60.0 means 60% */
   max_weight?: number;
   margin?: number;
-  nonzeroPosition?: number;
+  /** Number of bars with at least one held symbol. */
+  activeBarCount?: number;
   avgMaxBet?: number;
-  minBetMin?: number;
+  /** Minimum number of held symbols in the period (UI minBet). */
+  minPositionCount?: number;
   quality?: number;
   sharpe400?: number;
   sharpe80?: number;
@@ -151,25 +156,8 @@ export interface ISMetrics {
   corr?: number;
 }
 
-export interface OSMetrics {
-  pnl: number;
-  ann_ret?: number;
-  sharpe: number;
-  mdd?: number;
-  turnover?: number;
-  min_bet?: number;
-  max_weight?: number;
-  margin?: number;
-  nonzeroPosition?: number;
-  avgMaxBet?: number;
-  minBetMin?: number;
-  quality?: number;
-  sharpe400?: number;
-  sharpe80?: number;
-  minsoc?: number;
-  ir?: number;
-  corr?: number;
-}
+export type ISMetrics = PeriodMetrics;
+export type OSMetrics = PeriodMetrics;
 
 export interface BacktestAlphaResult {
   name: string;
@@ -190,8 +178,6 @@ export interface BacktestAlphaResult {
   osMaxWeightSeries?: Record<string, number | null> | null;
   isNonzeroPositionSeries?: Record<string, number | null> | null;
   osNonzeroPositionSeries?: Record<string, number | null> | null;
-  isEquitySeries?: Record<string, number | null> | null;
-  osEquitySeries?: Record<string, number | null> | null;
   osStartDate?: string;
   longRatio?: number;
   shortRatio?: number;

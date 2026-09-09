@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 
 import BacktestMetrics from '@/components/visualization/BacktestMetrics';
 import { useAlphaStore } from '@/store/alphaStore';
-import { singleAlphaFixture } from './pipelineFixtures';
+import { singleAlphaMetricFixture } from './metricFixtures';
 
 const initialState = useAlphaStore.getState();
 
@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('BacktestMetrics render formatting', () => {
   it('renders metric strings with sign, percent, and decimals', () => {
-    useAlphaStore.setState({ result: singleAlphaFixture });
+    useAlphaStore.setState({ result: singleAlphaMetricFixture });
 
     render(<BacktestMetrics />);
 
@@ -28,7 +28,7 @@ describe('BacktestMetrics render formatting', () => {
     expect(screen.getByText('26.7%')).toBeInTheDocument();
     expect(screen.getByText('3.50')).toBeInTheDocument();
     expect(screen.getByText('60.0%')).toBeInTheDocument();
-    // Alpha = nonzeroPosition = 3
+    // Alpha = activeBarCount (legacy wire nonzeroPosition) = 3
     expect(screen.getByText('3')).toBeInTheDocument();
     // Margin = 0.000974 -> 0.0010
     expect(screen.getByText('0.0010')).toBeInTheDocument();

@@ -307,16 +307,16 @@ TEST_F(GoldenCrossval, SummaryMetricsMatchNumpy)
 
     auto ret = load_vec_double(input["ret"]);
     auto turnover = load_vec_double(input["turnover"]);
-    auto min_bet = load_vec_double(input["min_bet"]);
+
     auto max_weight = load_vec_double(input["max_weight"]);
     auto long_weight = load_vec_double(input["long_weight"]);
     auto short_weight = load_vec_double(input["short_weight"]);
-    auto nonzero_count = load_vec_int(input["nonzero_count"]);
+    auto position_count = load_vec_int(input["position_count"]);
 
     ASSERT_EQ(ret.size(), 140u);
 
     const auto actual = compute_summary(
-        ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count, bars_per_year);
+        ret, turnover, max_weight, long_weight, short_weight, position_count, bars_per_year);
 
     EXPECT_NEAR(actual.pnl, expected["pnl"].asDouble(), kMetricTol)
         << "pnl: cpp=" << actual.pnl << " numpy=" << expected["pnl"].asDouble();
@@ -328,12 +328,12 @@ TEST_F(GoldenCrossval, SummaryMetricsMatchNumpy)
         << "mdd";
     EXPECT_NEAR(actual.turnover, expected["turnover"].asDouble(), kMetricTol)
         << "turnover";
-    EXPECT_NEAR(actual.min_bet, expected["min_bet"].asDouble(), kMetricTol)
-        << "min_bet";
+    EXPECT_NEAR(actual.avg_position_count, expected["avg_position_count"].asDouble(), kMetricTol)
+        << "avg_position_count";
     EXPECT_NEAR(actual.max_weight, expected["max_weight"].asDouble(), kMetricTol)
         << "max_weight";
-    EXPECT_EQ(actual.nonzero_position, expected["nonzero_position"].asInt())
-        << "nonzero_position";
+    EXPECT_EQ(actual.active_bar_count, expected["active_bar_count"].asInt())
+        << "active_bar_count";
     EXPECT_NEAR(actual.win_rate, expected["win_rate"].asDouble(), kMetricTol)
         << "win_rate";
     EXPECT_NEAR(actual.margin, expected["margin"].asDouble(), kMetricTol)
@@ -344,8 +344,8 @@ TEST_F(GoldenCrossval, SummaryMetricsMatchNumpy)
         << "short_ratio";
     EXPECT_NEAR(actual.avg_max_bet, expected["avg_max_bet"].asDouble(), kMetricTol)
         << "avg_max_bet";
-    EXPECT_NEAR(actual.min_bet_min, expected["min_bet_min"].asDouble(), kMetricTol)
-        << "min_bet_min";
+    EXPECT_NEAR(actual.min_position_count, expected["min_position_count"].asDouble(), kMetricTol)
+        << "min_position_count";
     EXPECT_NEAR(actual.quality, expected["quality"].asDouble(), kMetricTol)
         << "quality";
     EXPECT_NEAR(actual.sharpe400, expected["sharpe400"].asDouble(), kMetricTol)

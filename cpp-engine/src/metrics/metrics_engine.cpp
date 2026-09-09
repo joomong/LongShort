@@ -6,11 +6,10 @@ FullMetricsResult compute_full_metrics(
     const std::vector<int64_t>& timestamps,
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
-    const std::vector<double>& min_bet,
     const std::vector<double>& max_weight,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     int64_t is_timestamp_ms,
     int64_t os_timestamp_ms,
     double fee_rate,
@@ -40,7 +39,7 @@ FullMetricsResult compute_full_metrics(
     }
 
     // Full-period timeseries (STAR: single series, no IS/OS split)
-    result.timeseries = compute_timeseries(timestamps, ret, turnover, max_weight, nonzero_count, fee_rate);
+    result.timeseries = compute_timeseries(timestamps, ret, turnover, max_weight, position_count, fee_rate);
 
     // Full-period yearly (STAR: single table)
     result.yearly = compute_yearly(timestamps, ret, turnover, long_weight, short_weight, bars_per_year);
@@ -54,14 +53,14 @@ FullMetricsResult compute_full_metrics(
     // IS summary: [is_for_summary, os_idx)  — skip global bar 0
     if (is_for_summary < os_idx) {
         result.is_summary = compute_summary_range(
-            ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+            ret, turnover, max_weight, long_weight, short_weight, position_count,
             is_for_summary, os_idx, bars_per_year);
     }
 
     // OS summary: [os_idx, T)
     if (os_idx < T) {
         result.os_summary = compute_summary_range(
-            ret, turnover, min_bet, max_weight, long_weight, short_weight, nonzero_count,
+            ret, turnover, max_weight, long_weight, short_weight, position_count,
             os_idx, T, bars_per_year);
     }
 

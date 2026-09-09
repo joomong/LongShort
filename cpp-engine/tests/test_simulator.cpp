@@ -4,6 +4,7 @@
 #include "engine/simulator.h"
 #include "modules/Data.h"
 #include "modules/Rank.h"
+#include "modules/Delay.h"
 
 // Simple test: run simulator with close -> rank pipeline
 TEST(Simulator, BasicD0Run) {
@@ -37,7 +38,6 @@ TEST(Simulator, BasicD0Run) {
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 0;  // D0
-    cfg.bars_per_year = 365;
 
     Simulator sim(dp, cfg);
     SimulatorOutput out = sim.run(pipeline);
@@ -54,7 +54,7 @@ TEST(Simulator, BasicD0Run) {
 
     // All bars should have nonzero positions
     for (unsigned t = 0; t < 10; ++t)
-        EXPECT_GT(out.nonzero_count[t], 0);
+        EXPECT_GT(out.position_count[t], 0);
 }
 
 TEST(Simulator, D1DelayedExecution) {
@@ -76,7 +76,7 @@ TEST(Simulator, D1DelayedExecution) {
 
     // D1 mode: target = prev_target, execution delayed by 1 bar
     SimulatorConfig cfg;
-    cfg.T = 5; cfg.N = 2; cfg.fee_rate = 0.0; cfg.mode = 1; cfg.bars_per_year = 365;
+    cfg.T = 5; cfg.N = 2; cfg.fee_rate = 0.0; cfg.mode = 1;
 
     Simulator sim(dp, cfg);
     SimulatorOutput out = sim.run(pipeline);
@@ -102,7 +102,7 @@ DataPanel timing_panel() {
 TEST(Simulator, CloseToCloseTimingAndOneWayFeesMatchHandCalculation) {
     auto p = timing_panel();
     const std::vector<std::vector<float>> signals = {{1,-1},{1,-1},{-1,1},{-1,1},{0,0}};
-    SimulatorConfig cfg{p.T,p.N,0.001,1,365,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.001,1,false,{}};
     auto d1 = Simulator(p,cfg).run_from_signals(signals);
     EXPECT_DOUBLE_EQ(d1.ret[0],0.0);
     EXPECT_NEAR(d1.ret[1],-0.001,1e-12);  // Enter at day 1 close.
@@ -122,7 +122,7 @@ TEST(Simulator, InvalidHeldCloseIsAnErrorInBothExecutionPaths) {
                       std::numeric_limits<float>::infinity(),0.0f,-1.0f}) {
         auto p = timing_panel(); p.arrays["close"][4] = bad;
         for (int mode : {0,1}) {
-            SimulatorConfig cfg{p.T,p.N,0.001,mode,365,false,{}};
+            SimulatorConfig cfg{p.T,p.N,0.001,mode,false,{}};
             MData data; data.column_name="close"; data.panel=&p;
             EXPECT_THROW(Simulator(p,cfg).run({&data}),std::runtime_error);
             const std::vector<std::vector<float>> signals(p.T,{1,-1});
@@ -133,7 +133,7 @@ TEST(Simulator, InvalidHeldCloseIsAnErrorInBothExecutionPaths) {
 
 TEST(Simulator, MissingExecutionCloseCannotCreateAPosition) {
     auto p=timing_panel(); p.arrays["close"][2]=std::numeric_limits<float>::quiet_NaN();
-    SimulatorConfig cfg{p.T,p.N,0.001,1,365,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.001,1,false,{}};
     const std::vector<std::vector<float>> signals(p.T,{1,-1});
     EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::runtime_error);
 }
@@ -141,7 +141,7 @@ TEST(Simulator, MissingExecutionCloseCannotCreateAPosition) {
 TEST(Simulator, MissingUnheldAssetDoesNotPoisonReturns) {
     auto p=timing_panel();
     for (unsigned t=0;t<p.T;++t) p.arrays["close"][t*2]=std::numeric_limits<float>::infinity();
-    SimulatorConfig cfg{p.T,p.N,0.0,1,365,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.0,1,false,{}};
     const std::vector<std::vector<float>> signals(p.T,{1,-1});
     auto out=Simulator(p,cfg).run_from_signals(signals);
     for (double r:out.ret) EXPECT_TRUE(std::isfinite(r));
@@ -150,8 +150,43 @@ TEST(Simulator, MissingUnheldAssetDoesNotPoisonReturns) {
 
 TEST(Simulator, RejectsMismatchedSignalDimensions) {
     auto p=timing_panel();
-    SimulatorConfig cfg{p.T,p.N,0.0,1,365,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.0,1,false,{}};
     EXPECT_THROW(Simulator(p,cfg).run_from_signals({{1,-1}}),std::invalid_argument);
     std::vector<std::vector<float>> signals(p.T,{1});
     EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::invalid_argument);
+}
+
+TEST(Simulator, RawSignalObserverAndCollectionKeepTheirExecutionPathContract) {
+    auto panel = timing_panel();
+    SimulatorConfig cfg{panel.T, panel.N, 0.001, 1, true, {}};
+    std::vector<std::vector<float>> observed;
+    cfg.signal_row_callback = [&](unsigned di, const float* row, unsigned size) {
+        EXPECT_EQ(di, observed.size());
+        EXPECT_EQ(size, panel.N);
+        observed.emplace_back(row, row + size);
+    };
+    MData data;
+    data.column_name = "close";
+    data.panel = &panel;
+    MDelay delay;
+    delay.days = IntParameter(1);
+    auto generated = Simulator(panel, cfg).run({&data, &delay});
+    ASSERT_EQ(observed.size(), panel.T);
+    ASSERT_EQ(generated.signals.size(), panel.T);
+    for (unsigned di = 0; di < panel.T; ++di) {
+        for (unsigned ii = 0; ii < panel.N; ++ii) {
+            if (di == 0) {
+                EXPECT_TRUE(std::isnan(observed[di][ii]));
+                EXPECT_TRUE(std::isnan(generated.signals[di][ii]));
+            } else {
+                EXPECT_FLOAT_EQ(observed[di][ii], panel.at("close", di - 1, ii));
+                EXPECT_FLOAT_EQ(generated.signals[di][ii], observed[di][ii]);
+            }
+        }
+    }
+    auto replay = Simulator(panel, cfg).run_from_signals(generated.signals);
+    EXPECT_EQ(observed.size(), panel.T);  // Precomputed input is not observed a second time.
+    EXPECT_TRUE(replay.signals.empty());
+    EXPECT_EQ(replay.ret, generated.ret);
+    EXPECT_EQ(replay.turnover, generated.turnover);
 }

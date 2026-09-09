@@ -3,7 +3,7 @@
 import React, { startTransition } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getMetricCellColor } from '@/lib/metricColors';
-import type { BacktestAlphaResult, ISMetrics, OSMetrics } from '@/types';
+import type { BacktestAlphaResult, PeriodMetrics } from '@/types';
 
 const EMPTY_ALPHAS: BacktestAlphaResult[] = [];
 
@@ -60,14 +60,14 @@ const TABLE_HEADER = (
   </thead>
 );
 
-function MetricCells({ m, borderLeft }: { m: ISMetrics | OSMetrics; borderLeft?: boolean }) {
+function MetricCells({ m, borderLeft }: { m: PeriodMetrics; borderLeft?: boolean }) {
   const cellClass = "text-xs font-mono tabular-nums text-right px-3 py-1.5 text-data-color";
   return (
     <>
-      <td className={`${cellClass}${borderLeft ? ' border-l border-border-strong' : ''}`}>{isFiniteNumber(m.min_bet) ? m.min_bet.toFixed(2) : '-'}</td>
+      <td className={`${cellClass}${borderLeft ? ' border-l border-border-strong' : ''}`}>{isFiniteNumber(m.avgPositionCount) ? m.avgPositionCount.toFixed(2) : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(m.avgMaxBet) ? m.avgMaxBet.toFixed(1) + '%' : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(m.max_weight) ? `${m.max_weight.toFixed(1)}%` : '-'}</td>
-      <td className={cellClass}>{isFiniteNumber(m.minBetMin) ? m.minBetMin.toFixed(2) : '-'}</td>
+      <td className={cellClass}>{isFiniteNumber(m.minPositionCount) ? m.minPositionCount.toFixed(2) : '-'}</td>
       <td className={cellClass}>{isFiniteNumber(m.quality) ? m.quality.toFixed(2) : '-'}</td>
       <td className={`${cellClass} ${metricClass('pnl', m.ann_ret ?? m.pnl)}`}>{formatPnl(m.ann_ret ?? m.pnl)}</td>
       <td className={`${cellClass} ${metricClass('sharpe', m.sharpe)}`}>{formatNumber(m.sharpe)}</td>

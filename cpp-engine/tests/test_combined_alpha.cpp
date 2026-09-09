@@ -92,7 +92,6 @@ TEST(CombinedAlpha, RunFromSignalsProducesValidOutput) {
     cfg.N = N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -115,10 +114,10 @@ TEST(CombinedAlpha, RunFromSignalsProducesValidOutput) {
 
     // Nonzero count: only 2 symbols have nonzero signal
     // D1 mode: at di=0 prev_target is all zero, so nz=0
-    EXPECT_EQ(out.nonzero_count[0], 0);
+    EXPECT_EQ(out.position_count[0], 0);
     // From di=1 onward: prev_target has 2 nonzero entries
     for (unsigned di = 1; di < T; ++di)
-        EXPECT_EQ(out.nonzero_count[di], 2);
+        EXPECT_EQ(out.position_count[di], 2);
 }
 
 TEST(CombinedAlpha, RunFromSignalsMatchesPipelineRun) {
@@ -139,7 +138,6 @@ TEST(CombinedAlpha, RunFromSignalsMatchesPipelineRun) {
     cfg.N = N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = true;
 
     Simulator sim1(dp, cfg);
@@ -154,9 +152,9 @@ TEST(CombinedAlpha, RunFromSignalsMatchesPipelineRun) {
     for (unsigned di = 0; di < T; ++di) {
         EXPECT_DOUBLE_EQ(out1.ret[di], out2.ret[di]) << "ret mismatch at di=" << di;
         EXPECT_DOUBLE_EQ(out1.turnover[di], out2.turnover[di]) << "tvr mismatch at di=" << di;
-        EXPECT_DOUBLE_EQ(out1.min_bet[di], out2.min_bet[di]) << "min_bet mismatch at di=" << di;
+        EXPECT_EQ(out1.position_count[di], out2.position_count[di]) << "position count mismatch at di=" << di;
         EXPECT_DOUBLE_EQ(out1.max_weight[di], out2.max_weight[di]) << "max_weight mismatch at di=" << di;
-        EXPECT_EQ(out1.nonzero_count[di], out2.nonzero_count[di]) << "nz mismatch at di=" << di;
+        EXPECT_EQ(out1.position_count[di], out2.position_count[di]) << "nz mismatch at di=" << di;
     }
 }
 
@@ -192,7 +190,6 @@ TEST(CombinedAlpha, CombinedMetricsAreFinite) {
     cfg.T = T;  cfg.N = N;
     cfg.fee_rate = 0.0005;
     cfg.mode = 1;
-    cfg.bars_per_year = 365;
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -202,10 +199,9 @@ TEST(CombinedAlpha, CombinedMetricsAreFinite) {
     int64_t os_ms = dp.timestamps[15];
 
     auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover,
-        out.min_bet, out.max_weight,
+        out.timestamps, out.ret, out.turnover, out.max_weight,
         out.long_weight, out.short_weight,
-        out.nonzero_count,
+        out.position_count,
         is_ms, os_ms, 0.0005, 365);
 
     EXPECT_TRUE(std::isfinite(metrics.is_summary.sharpe));

@@ -7,7 +7,7 @@ struct TimeseriesOutput {
     std::vector<double> cum_pnl;
     std::vector<double> cum_pnl_gross;
     std::vector<double> turnover_pct;
-    std::vector<int> nonzero_positions;
+    std::vector<int> position_count;
     std::vector<double> max_weight_pct;
     std::vector<double> drawdown;
 };
@@ -17,6 +17,6 @@ TimeseriesOutput compute_timeseries(
     const std::vector<double>& ret,
     const std::vector<double>& turnover,
     const std::vector<double>& max_weight,
-    const std::vector<int>& nonzero_count,
+    const std::vector<int>& position_count,
     double fee_rate
 );

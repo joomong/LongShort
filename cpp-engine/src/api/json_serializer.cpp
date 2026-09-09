@@ -19,15 +19,15 @@ Json::Value summary_to_json(const SummaryMetrics& m) {
     j["mdd"]       = m.mdd * 100;          // fraction → pp
     j["turnover"]  = m.turnover * 100;     // fraction → pp
     j["maxWeight"] = m.max_weight * 100;   // fraction → pp
-    j["minBet"]    = m.min_bet;            // count (symbols)
+    j["minBet"]    = m.avg_position_count; // legacy key: average held-symbol count
     j["pnl"]       = m.pnl * 100;          // fraction → pp
     j["winRate"]   = m.win_rate * 100;     // fraction → pp
     j["margin"]    = m.margin;
     j["longRatio"] = m.long_ratio;
     j["shortRatio"]= m.short_ratio;
-    j["nonzeroPosition"] = m.nonzero_position;
+    j["nonzeroPosition"] = m.active_bar_count;
     j["avgMaxBet"]  = m.avg_max_bet * 100; // fraction → pp
-    j["minBetMin"]  = m.min_bet_min;       // count (symbols)
+    j["minBetMin"]  = m.min_position_count; // legacy key: minimum held-symbol count
     j["quality"]    = m.quality;
     j["sharpe400"]  = m.sharpe400;
     j["sharpe80"]   = m.sharpe80;
@@ -82,7 +82,7 @@ Json::Value timeseries_to_json(const TimeseriesOutput& ts) {
     j["maxWeight"] = max_w;
 
     Json::Value nz(Json::arrayValue);
-    for (int v : ts.nonzero_positions)
+    for (int v : ts.position_count)
         nz.append(v);
     j["nonzeroCount"] = nz;
 
@@ -97,13 +97,14 @@ Json::Value timeseries_to_json(const TimeseriesOutput& ts) {
 Json::Value signal_plot_to_json(
     const std::vector<std::vector<float>>& signals,
     const std::vector<int64_t>& timestamps,
-    const std::vector<std::string>& symbols)
+    const std::vector<std::string>& symbols,
+    std::size_t start_index)
 {
     Json::Value j;
 
     Json::Value ts_arr(Json::arrayValue);
-    for (int64_t ms : timestamps)
-        ts_arr.append(ms_to_date(ms));
+    for (std::size_t di = start_index; di < timestamps.size(); ++di)
+        ts_arr.append(ms_to_date(timestamps[di]));
     j["timestamps"] = ts_arr;
 
     Json::Value sym_arr(Json::arrayValue);
@@ -111,9 +112,10 @@ Json::Value signal_plot_to_json(
         sym_arr.append(s);
     j["symbols"] = sym_arr;
 
-    // T×N matrix: rows = timestamps, cols = symbols
+    // Rows from start_index: rows = timestamps, cols = symbols.
     Json::Value values(Json::arrayValue);
-    for (const auto& row : signals) {
+    for (std::size_t di = start_index; di < signals.size(); ++di) {
+        const auto& row = signals[di];
         Json::Value row_arr(Json::arrayValue);
         for (float v : row) {
             if (std::isfinite(v))
@@ -129,17 +131,29 @@ Json::Value signal_plot_to_json(
 }
 
 Json::Value signal_distribution_to_json(
-    const std::vector<std::vector<float>>& signals)
+    const std::vector<std::vector<float>>& signals,
+    std::size_t start_index)
 {
-    // Collect all finite signal values
-    std::vector<float> all;
-    for (const auto& row : signals)
-        for (float v : row)
-            if (std::isfinite(v) && std::fabs(v) > 1e-12f)
-                all.push_back(v);
+    // First pass: bounds of the same finite, nonzero values used by the histogram.
+    float vmin = 0.0f;
+    float vmax = 0.0f;
+    bool has_values = false;
+    for (std::size_t di = start_index; di < signals.size(); ++di) {
+        for (float v : signals[di]) {
+            if (!std::isfinite(v) || std::fabs(v) <= 1e-12f)
+                continue;
+            if (!has_values) {
+                vmin = vmax = v;
+                has_values = true;
+            } else {
+                vmin = std::min(vmin, v);
+                vmax = std::max(vmax, v);
+            }
+        }
+    }
 
     Json::Value j;
-    if (all.empty()) {
+    if (!has_values) {
         j["bins"] = Json::Value(Json::arrayValue);
         j["counts"] = Json::Value(Json::arrayValue);
         j["min"] = 0.0;
@@ -147,8 +161,6 @@ Json::Value signal_distribution_to_json(
         return j;
     }
 
-    float vmin = *std::min_element(all.begin(), all.end());
-    float vmax = *std::max_element(all.begin(), all.end());
     j["min"] = vmin;
     j["max"] = vmax;
 
@@ -158,11 +170,16 @@ Json::Value signal_distribution_to_json(
     float bin_width = range / nbins;
 
     std::vector<int> counts(nbins, 0);
-    for (float v : all) {
-        int idx = static_cast<int>((v - vmin) / bin_width);
-        if (idx >= nbins) idx = nbins - 1;
-        if (idx < 0) idx = 0;
-        counts[idx]++;
+    // Second pass: count in place; no flattened copy of T×N signal values.
+    for (std::size_t di = start_index; di < signals.size(); ++di) {
+        for (float v : signals[di]) {
+            if (!std::isfinite(v) || std::fabs(v) <= 1e-12f)
+                continue;
+            int idx = static_cast<int>((v - vmin) / bin_width);
+            if (idx >= nbins) idx = nbins - 1;
+            if (idx < 0) idx = 0;
+            counts[idx]++;
+        }
     }
 
     Json::Value bins_arr(Json::arrayValue);
