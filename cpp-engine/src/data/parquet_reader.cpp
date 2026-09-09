@@ -41,7 +41,14 @@ DataPanel load_parquet(const std::string& parquet_path,
                                  " : " + fs_result.status().ToString());
     std::shared_ptr<arrow::io::ReadableFile> infile = *fs_result;
 
-    auto reader_result = parquet::arrow::OpenFile(infile, arrow::default_memory_pool());
+    // FileReaderBuilder is shared by Arrow 18 and newer releases; the OpenFile
+    // convenience overload changed from Status/out-parameter to Result.
+    parquet::arrow::FileReaderBuilder builder;
+    auto open_status = builder.Open(infile);
+    if (!open_status.ok())
+        throw std::runtime_error("Cannot open parquet reader: " + open_status.ToString());
+    builder.memory_pool(arrow::default_memory_pool());
+    auto reader_result = builder.Build();
     if (!reader_result.ok())
         throw std::runtime_error("Cannot open parquet reader: " + reader_result.status().ToString());
     auto reader = std::move(*reader_result);

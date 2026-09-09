@@ -23,12 +23,16 @@ using ModuleFactory = std::function<std::unique_ptr<Module>(
 class ModuleRegistry {
     std::unordered_map<std::string, ModuleFactory> factories_;
 public:
+    // Duplicate tags are errors; discovered modules cannot replace built-ins.
     void register_module(const std::string& tag, ModuleFactory factory);
     std::unique_ptr<Module> create(const std::string& tag,
                                    const std::map<std::string, std::string>& attribs,
                                    const DataPanel* panel) const;
     static ModuleRegistry& default_registry();
 };
+
+// Generated from the configured modules directory during the build.
+void register_discovered_modules(ModuleRegistry& registry);
 
 struct CompiledAlpha {
     std::vector<std::unique_ptr<Module>> modules;  // owns all modules

@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-cmake_policy(SET CMP0167 NEW)
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 project(cpp-engine LANGUAGES CXX)
 
@@ -10,9 +12,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------------------------------------------------------------------
 # Dependencies from conda (Arrow, Parquet)
 # ---------------------------------------------------------------------------
-find_package(Arrow REQUIRED)
-find_package(Parquet REQUIRED)
-find_package(Boost REQUIRED COMPONENTS serialization)
+if(DEFINED ENV{CONDA_PREFIX})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+endif()
+include(cmake/ArrowDependencies.cmake)
+find_package(Boost CONFIG REQUIRED COMPONENTS serialization)
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+
+set(LONGSHORT_MODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../modules" CACHE PATH
+    "Directory containing additional user module headers and sources")
+option(LONGSHORT_BUILD_TESTS "Build engine tests" ON)
 
 # ---------------------------------------------------------------------------
 # FetchContent for pugixml, yaml-cpp, googletest
@@ -44,11 +53,7 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 # ---------------------------------------------------------------------------
 # Conda prefix (jsoncpp, c-ares for Drogon)
 # ---------------------------------------------------------------------------
-if(DEFINED ENV{CONDA_PREFIX})
-    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
-endif()
-
-find_package(jsoncpp REQUIRED)
+find_package(jsoncpp CONFIG REQUIRED)
 
 # Drogon options (disable unused features)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -65,7 +70,10 @@ FetchContent_Declare(drogon
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(pugixml yaml-cpp googletest drogon)
+FetchContent_MakeAvailable(pugixml yaml-cpp drogon)
+if(LONGSHORT_BUILD_TESTS)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 # ---------------------------------------------------------------------------
 # Engine library
@@ -108,6 +116,10 @@ add_library(engine STATIC
     src/api/json_serializer.cpp
 )
 
+include(cmake/DiscoverModules.cmake)
+longshort_discover_modules(engine "${LONGSHORT_MODULE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_modules.py")
+
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$")
     if (MSVC)
         set_source_files_properties(
@@ -129,8 +141,8 @@ target_include_directories(engine PUBLIC
 )
 
 target_compile_options(engine PUBLIC
-    $<$<CXX_COMPILER_ID:MSVC>:SHELL:/FI "${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h">
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:SHELL:-include "${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h">
+    "$<$<CXX_COMPILER_ID:MSVC>:SHELL:/FI \"${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h\">"
+    "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h\">"
 )
 
 target_link_libraries(engine PUBLIC
@@ -147,6 +159,9 @@ target_link_libraries(engine PUBLIC
 # ---------------------------------------------------------------------------
 add_executable(longshort-server src/main.cpp)
 target_link_libraries(longshort-server PRIVATE engine drogon)
+# Stable executable location for the launcher and HTTP tests, also with multi-config generators.
+set_target_properties(longshort-server PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}>")
 
 # One-off benchmark utility for large multi-alpha request breakdown
 add_executable(bench_2000_breakdown tools/bench_2000_breakdown.cpp)
@@ -155,6 +170,7 @@ target_link_libraries(bench_2000_breakdown PRIVATE engine)
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+if(LONGSHORT_BUILD_TESTS)
 enable_testing()
 
 function(add_engine_test name source)
@@ -181,3 +197,10 @@ add_engine_test(test_xml_compiler     tests/test_xml_compiler.cpp)
 add_engine_test(test_golden_crossval  tests/test_golden_crossval.cpp)
 add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
+
+add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
+foreach(tool_test test_generate_modules test_run_engine test_module_build)
+    add_test(NAME ${tool_test}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
+endforeach()
+endif()

@@ -49,3 +49,16 @@
 [기존 통합 리뷰](review_2026-09-08.md) · [추가 리뷰](review_2026-09-09.md) · [연결 설계 조사](data_connection_design.md)
 
 남은 정리 후보와 기존 논리 문제는 종합 보고서에서 적용 완료 항목과 구분했다.
+
+## 4. 사용자 모듈 자동 탐색·빌드
+
+커밋 제목: `feat(engine): discover and build user modules automatically`
+
+- config 옆 modules의 C++ 헤더를 자동 발견하고 파일명 태그·공개 숫자 parameter를 바인딩.
+- 중앙 registry/CMake 파일을 모듈마다 편집하지 않고 startup launcher가 증분 빌드 후 실행.
+- 추가·수정·삭제, companion cpp, 이름 충돌, 속성 오류, 실패 시 stale binary 미실행을 검증.
+- 기존 내장 모듈/손익 규약 유지. CMake 의존성 및 Arrow 18 reader 생성 API를 빌드 호환 범위에서 보완.
+- core 139개, 생성기 19개, launcher 11개, Make/Ninja 증분 통합 검사 및 실제 HTTP 12개+최종 smoke 1건 통과.
+- 자동 반영 시점은 프로그램 시작이며 실행 중 코드 교체는 포함하지 않는다.
+
+[사용법·검증 종합](module_discovery_2026-09-09.md) · [독립 리뷰](module_discovery_review_2026-09-09.md)

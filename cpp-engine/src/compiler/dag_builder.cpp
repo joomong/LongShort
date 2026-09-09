@@ -151,7 +151,8 @@ static std::string pipeline_to_xml(const Pipeline& ops) {
 // ---------------------------------------------------------------------------
 
 void ModuleRegistry::register_module(const std::string& tag, ModuleFactory factory) {
-    factories_[tag] = std::move(factory);
+    if (!factories_.emplace(tag, std::move(factory)).second)
+        throw CompileError("Duplicate module tag: '" + tag + "'");
 }
 
 std::unique_ptr<Module> ModuleRegistry::create(
@@ -224,6 +225,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             return m;
         });
 
+        register_discovered_modules(r);
         return r;
     }();
     return reg;

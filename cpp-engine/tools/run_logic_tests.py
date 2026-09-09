@@ -36,6 +36,19 @@ def checked(command, *, cwd=None):
     return result
 
 
+
+def run_tool_tests(engine, build):
+    results = []
+    for name in ("test_generate_modules", "test_run_engine", "test_module_build"):
+        result = run([sys.executable, str(engine / "tests" / (name + ".py")), "-v"], cwd=engine)
+        result["suite"] = name
+        results.append(result)
+        print(result["stdout"] + result["stderr"], end="", flush=True)
+    (build / "python_tool_test_results.json").write_text(json.dumps(results, indent=2))
+    if any(result["exit_code"] for result in results):
+        raise RuntimeError("Module tool tests failed; engine compilation was not started")
+
+
 def build_objects(sources, out_dir, flags, jobs):
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +83,9 @@ def main():
     parser.add_argument("--cxx", default=os.environ.get("CXX", "g++"))
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--with-tool-tests", action="store_true",
+                        help="also run generator, launcher and incremental-build Python tests")
+    parser.add_argument("--modules-dir", type=Path, help="default: modules/ beside the repository config")
     parser.add_argument("--drogon-source", type=Path)
     parser.add_argument("--drogon-build", type=Path)
     args = parser.parse_args()
@@ -82,6 +98,8 @@ def main():
     deps = args.deps_dir.resolve()
     build = args.build_dir.resolve()
     build.mkdir(parents=True, exist_ok=True)
+    if args.with_tool_tests:
+        run_tool_tests(engine, build)
     boost_include = args.boost_include.resolve()
     boost_version = (boost_include / "boost/version.hpp").read_text()
     if not re.search(r"^#define BOOST_VERSION 108500$", boost_version, re.MULTILINE):
@@ -138,7 +156,20 @@ def main():
         print(f"Prepared {dep_archive}")
         return 0
 
+    modules = (args.modules_dir or engine.parent / "modules").resolve()
+    if modules.exists() and not modules.is_dir():
+        raise RuntimeError(f"Module path is not a directory: {modules}")
+    if build == modules or modules in build.parents:
+        raise RuntimeError("Build directory must not be inside the module directory")
+    modules.mkdir(parents=True, exist_ok=True)
+    generated_registry = build / "generated/engine_discovered_modules.cpp"
+    checked([
+        sys.executable, str(engine / "tools/generate_modules.py"),
+        "--modules-dir", str(modules), "--output", str(generated_registry),
+    ])
+
     engine_flags = dep_flags + [
+        "-I" + str(modules),
         "-I" + str(engine / "include"), "-I" + str(engine / "src"),
         "-include", str(engine / "include/ModulePrelude.h"),
     ]
@@ -146,6 +177,12 @@ def main():
     # with --gc-sections. File loading, YAML and HTTP integration are excluded.
     excluded = {"main.cpp", "parquet_reader.cpp", "config_loader.cpp"}
     sources = sorted(path for path in (engine / "src").rglob("*.cpp") if path.name not in excluded)
+    sources.append(generated_registry)
+    sources += sorted(
+        path for path in modules.rglob("*")
+        if path.is_file() and path.suffix in {".cpp", ".cc", ".cxx"}
+        and all(not part.startswith(".") for part in path.relative_to(modules).parts)
+    )
     sources += sorted(path for path in (engine / "tests").glob("test_*.cpp") if path.name != "test_http_contract.cpp")
     print(f"Building {len(sources)} engine/test translation units...", flush=True)
     objects = build_objects(sources, build / "engine_objects", engine_flags, args.jobs)

@@ -474,3 +474,30 @@ TEST(XmlCompiler, EventWithoutSignalRejectedAfterDataRestart) {
         dp,
         {"event", "'signal' attribute required after data chain restart"});
 }
+
+
+TEST(ModuleRegistry, DuplicateTagDoesNotReplaceExistingFactory) {
+    ModuleRegistry registry;
+    int original_calls = 0;
+    int replacement_calls = 0;
+    registry.register_module("custom", [&](const auto&, const auto*) -> std::unique_ptr<Module> {
+        ++original_calls;
+        return {};
+    });
+    EXPECT_THROW(registry.register_module("custom", [&](const auto&, const auto*) -> std::unique_ptr<Module> {
+        ++replacement_calls;
+        return {};
+    }), CompileError);
+
+    (void)registry.create("custom", {}, nullptr);
+    EXPECT_EQ(original_calls, 1);
+    EXPECT_EQ(replacement_calls, 0);
+}
+
+TEST(ModuleRegistry, BuiltinTagCannotBeOverridden) {
+    auto& registry = ModuleRegistry::default_registry();
+    EXPECT_THROW(registry.register_module("rank", [](const auto&, const auto*) -> std::unique_ptr<Module> {
+        return {};
+    }), CompileError);
+    EXPECT_NE(registry.create("rank", {}, nullptr), nullptr);
+}
