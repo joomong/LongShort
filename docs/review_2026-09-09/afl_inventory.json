@@ -1,0 +1,200 @@
+{
+  "observed_at_utc": "2026-09-09T05:43:29.048728+00:00",
+  "root": "/home/base/cache/cache_v1_cash_1d",
+  "start": "2010-01-01",
+  "end": "2026-09-08",
+  "directories": {
+    "AflData": {
+      "parquet_files": 602,
+      "numeric_factor_files": 600,
+      "nonfactor_files": [
+        "activeFlag.parquet",
+        "tradingItemId.parquet"
+      ],
+      "disk_bytes": 25047992381
+    },
+    "AflData_M": {
+      "parquet_files": 602,
+      "numeric_factor_files": 600,
+      "nonfactor_files": [
+        "activeFlag.parquet",
+        "tradingItemId.parquet"
+      ],
+      "disk_bytes": 25093105433
+    }
+  },
+  "universes": {
+    "Top500": {
+      "T": 4195,
+      "N_union": 1020,
+      "first": "2010-01-04 00:00:00",
+      "last": "2026-09-08 00:00:00",
+      "average_mask_members": 457.5513706793802,
+      "one_field_f32_bytes": 17115600,
+      "base_8_fields_f32_bytes": 136924800,
+      "afl_10_daily_fields_f32_bytes": 171156000,
+      "afl_50_daily_fields_f32_bytes": 855780000,
+      "afl_600_daily_fields_f32_bytes": 10269360000,
+      "afl_600_daily_fields_f64_bytes": 20538720000
+    },
+    "Top1000": {
+      "T": 4195,
+      "N_union": 2249,
+      "first": "2010-01-04 00:00:00",
+      "last": "2026-09-08 00:00:00",
+      "average_mask_members": 926.4092967818832,
+      "one_field_f32_bytes": 37738220,
+      "base_8_fields_f32_bytes": 301905760,
+      "afl_10_daily_fields_f32_bytes": 377382200,
+      "afl_50_daily_fields_f32_bytes": 1886911000,
+      "afl_600_daily_fields_f32_bytes": 22642932000,
+      "afl_600_daily_fields_f64_bytes": 45285864000
+    }
+  },
+  "samples": [
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData/100.parquet",
+      "rows": 507,
+      "symbol_columns": 49318,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1987-01-31 00:00:00",
+      "last": "2025-03-11 00:00:00",
+      "unique_dates": 507,
+      "dates_monotonic": true,
+      "rows_in_period": 231,
+      "footer_bytes": 22460354,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 565488000,
+        "Top1000": 1246845600
+      },
+      "missing_union_symbols": {
+        "Top500": 5,
+        "Top1000": 18
+      },
+      "full_source_f32_600_factors_bytes": 60010142400
+    },
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData/464.parquet",
+      "rows": 507,
+      "symbol_columns": 49318,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1987-01-31 00:00:00",
+      "last": "2025-03-11 00:00:00",
+      "unique_dates": 507,
+      "dates_monotonic": true,
+      "rows_in_period": 231,
+      "footer_bytes": 21727922,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 565488000,
+        "Top1000": 1246845600
+      },
+      "missing_union_symbols": {
+        "Top500": 5,
+        "Top1000": 18
+      },
+      "full_source_f32_600_factors_bytes": 60010142400
+    },
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData/1005.parquet",
+      "rows": 396,
+      "symbol_columns": 48473,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1996-04-30 00:00:00",
+      "last": "2025-03-11 00:00:00",
+      "unique_dates": 396,
+      "dates_monotonic": true,
+      "rows_in_period": 231,
+      "footer_bytes": 20868068,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 565488000,
+        "Top1000": 1246845600
+      },
+      "missing_union_symbols": {
+        "Top500": 5,
+        "Top1000": 18
+      },
+      "full_source_f32_600_factors_bytes": 46068739200
+    },
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData_M/100.parquet",
+      "rows": 476,
+      "symbol_columns": 50148,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1987-01-31 00:00:00",
+      "last": "2026-08-29 00:00:00",
+      "unique_dates": 476,
+      "dates_monotonic": true,
+      "rows_in_period": 200,
+      "footer_bytes": 22855032,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 489600000,
+        "Top1000": 1079520000
+      },
+      "missing_union_symbols": {
+        "Top500": 0,
+        "Top1000": 0
+      },
+      "full_source_f32_600_factors_bytes": 57289075200
+    },
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData_M/464.parquet",
+      "rows": 476,
+      "symbol_columns": 50148,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1987-01-31 00:00:00",
+      "last": "2026-08-28 00:00:00",
+      "unique_dates": 476,
+      "dates_monotonic": true,
+      "rows_in_period": 200,
+      "footer_bytes": 22122721,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 489600000,
+        "Top1000": 1079520000
+      },
+      "missing_union_symbols": {
+        "Top500": 0,
+        "Top1000": 0
+      },
+      "full_source_f32_600_factors_bytes": 57289075200
+    },
+    {
+      "path": "/home/base/cache/cache_v1_cash_1d/AflData_M/1005.parquet",
+      "rows": 365,
+      "symbol_columns": 49303,
+      "row_groups": 1,
+      "value_type": "double",
+      "index_type": "timestamp[ns]",
+      "first": "1996-04-30 00:00:00",
+      "last": "2026-08-28 00:00:00",
+      "unique_dates": 365,
+      "dates_monotonic": true,
+      "rows_in_period": 200,
+      "footer_bytes": 21237199,
+      "median_calendar_gap_days": 31.0,
+      "period_dense_f32_600_factors_by_universe_bytes": {
+        "Top500": 489600000,
+        "Top1000": 1079520000
+      },
+      "missing_union_symbols": {
+        "Top500": 0,
+        "Top1000": 0
+      },
+      "full_source_f32_600_factors_bytes": 43189428000
+    }
+  ]
+}
