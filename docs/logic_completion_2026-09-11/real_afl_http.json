@@ -1,0 +1,125 @@
+{
+  "passed": true,
+  "sourceConfig": "/tmp/longshort_stock_oracle_20260911/config.json",
+  "runConfig": "/tmp/longshort_real_afl_http_20260911_run/config.json",
+  "binary": "/tmp/longshort_module_server/build/longshort-server",
+  "serverPid": 721273,
+  "port": 40939,
+  "source": "existing shared wide Parquet",
+  "catalogFactors": 600,
+  "catalogNames": 1192,
+  "aliases": [
+    "afl_100",
+    "HL52W"
+  ],
+  "factorFile": "/home/base/cache/cache_v1_cash_1d/AflData_M/100.parquet",
+  "symbols": [
+    "100306421",
+    "100667466",
+    "10090310",
+    "10286451",
+    "10458226",
+    "104594732"
+  ],
+  "backtest": {
+    "start_date": "2025-01-02",
+    "end_date": "2025-03-31",
+    "warmup_bars": 5,
+    "bars_per_year": 252,
+    "transaction_fee": 1.5
+  },
+  "responses": [
+    {
+      "field": "afl_100",
+      "status": 200,
+      "elapsedSeconds": 0.2744744271039963,
+      "responseFile": "/tmp/longshort_real_afl_http_20260911_run/afl_100_response.json"
+    },
+    {
+      "field": "HL52W",
+      "status": 200,
+      "elapsedSeconds": 0.0008137393742799759,
+      "responseFile": "/tmp/longshort_real_afl_http_20260911_run/HL52W_response.json"
+    }
+  ],
+  "loadedFields": [
+    2,
+    3,
+    3
+  ],
+  "loadedDataBytes": [
+    3120,
+    4680,
+    4680
+  ],
+  "registeredFields": 1194,
+  "loadedT": 65,
+  "N": 6,
+  "tradingRows": 60,
+  "firstTradingDate": "2025-01-02",
+  "lastTradingDate": "2025-03-31",
+  "rawSignalShape": [
+    60,
+    6
+  ],
+  "rawSignalFiniteCount": 360,
+  "signalPlotSha256": "7506754de747aee49271e4697b606700f24b6749df9f34510c2ae0f442ad0c0f",
+  "summarySha256": "4bfb2654e8f20429f61ed8cfe122e3ca840037f96de6fbd3f50e8daaf8328525",
+  "timeseriesSha256": "dd5c450336a0a3810b0a26dd000e52a5fdb3f8f4c90c93dc049da81a4c69b5f7",
+  "summary": {
+    "is": {
+      "avgMaxBet": 49.999999080910385,
+      "longRatio": 0.49999999080910384,
+      "margin": 0.008944658323837383,
+      "maxWeight": 49.99999926636632,
+      "mdd": -3.281623241352405,
+      "minBet": 6.0,
+      "minBetMin": 6.0,
+      "minsoc": 100.0,
+      "nonzeroPosition": 39,
+      "pnl": 0.9763726169998467,
+      "quality": 0.2700239693472862,
+      "return": 6.30886921753747,
+      "sharpe": 0.5400479366856238,
+      "sharpe400": 0.5400479366856238,
+      "sharpe80": 0.5400479366856238,
+      "shortRatio": 0.5000000091908962,
+      "turnover": 2.7988990076988722,
+      "winRate": 56.41025641025641
+    },
+    "os": {
+      "avgMaxBet": 50.0,
+      "longRatio": 0.5,
+      "margin": -0.19085123170987756,
+      "maxWeight": 50.0,
+      "mdd": -8.139535769882684,
+      "minBet": 6.0,
+      "minBetMin": 6.0,
+      "minsoc": 100.0,
+      "nonzeroPosition": 21,
+      "pnl": -2.2456283173312546,
+      "quality": -0.6860965415733857,
+      "return": -26.94753980797505,
+      "sharpe": -1.3721930831467715,
+      "sharpe400": -1.3721930831467715,
+      "sharpe80": -1.3721930831467715,
+      "shortRatio": 0.5,
+      "turnover": 0.5603038597159822,
+      "winRate": 52.38095238095239
+    }
+  },
+  "exactEqualKeys": [
+    "timeseries",
+    "yearly",
+    "isStartIndex",
+    "osStartIndex",
+    "signalPlot",
+    "signalRange",
+    "distribution",
+    "mode",
+    "combinedMode"
+  ],
+  "notes": "Original config and source data unchanged; 6-symbol Top500 membership subset; 5 warmup bars, 60 trading bars; fees and asof alignment unchanged.",
+  "serverExitCode": 0,
+  "serverStopped": true
+}

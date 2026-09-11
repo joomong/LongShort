@@ -1,8 +1,3 @@
 # AGENT.md
 
-이 저장소에서 작업하는 에이전트는 아래 문서를 반드시 먼저 읽고 지침을 따라야 한다.
-
-1. `/home/jgo/qv-project/LongShort/CLAUDE.md` (프로젝트 전용 지침)
-2. `/home/jgo/qv-project/CLAUDE.md` (qv-project 공통 지침)
-
-지침이 충돌하면 프로젝트 전용 문서인 `LongShort/CLAUDE.md`를 우선 적용한다.
+이 저장소에서 작업할 때는 같은 디렉터리의 [CLAUDE.md](CLAUDE.md)를 먼저 읽는다. 실행 안내는 [README.md](README.md), 현재 데이터·손익 계약과 검증 근거는 [통합 기록](docs/logic_completion_2026-09-11.md)을 확인한다.

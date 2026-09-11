@@ -1,0 +1,11 @@
+{
+  "commit": "2cd5b67",
+  "clone": "/tmp/longshort_clean_clone_20260911_qumkt2kn",
+  "commands": [
+    "git clone --no-hardlinks /home/jgo/longshort_platform <clone>",
+    "cd <clone>/frontend && npm ci --no-audit --no-fund && npm run build"
+  ],
+  "exit_code": 0,
+  "uses_original_node_modules": false,
+  "production_build": "passed"
+}

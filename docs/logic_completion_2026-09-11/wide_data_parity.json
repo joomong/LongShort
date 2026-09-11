@@ -1,0 +1,24 @@
+{
+  "N": 6,
+  "T": 65,
+  "eagerLoadMs": 573.632528,
+  "eagerLoadedBytes": 3120,
+  "eagerLoadedFields": 2,
+  "loadedBytes": 4680,
+  "loadedFields": 3,
+  "peakRssBytes": 492539904,
+  "registeredFields": 1194,
+  "symbols": [
+    "100306421",
+    "100667466",
+    "10090310",
+    "10286451",
+    "10458226",
+    "104594732"
+  ],
+  "totalLoadMs": 813.798048,
+  "tradeStartIndex": 5,
+  "checks": "exact float32 price/volume/AFL + timestamps + PIT mask + aliases",
+  "catalogFactors": 600,
+  "passed": true
+}

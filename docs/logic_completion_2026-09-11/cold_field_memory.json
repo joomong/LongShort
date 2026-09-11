@@ -1,0 +1,12 @@
+{
+  "peakBeforeBytes": 630636544,
+  "peakAfterBytes": 579383296,
+  "peakReductionBytes": 51253248,
+  "peakReductionPct": 8.12722454599777,
+  "coldBeforeMs": 320.48530178144574,
+  "coldAfterMs": 587.0588519610465,
+  "warmBeforeMs": 1.104565802961588,
+  "warmAfterMs": 1.3242359273135662,
+  "identicalConfigAndHttpResponse": true,
+  "fieldDataBytes": 6240
+}

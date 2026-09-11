@@ -1,5 +1,7 @@
 # 우리 데이터(cache_v1_cash_1d) → LongShort 엔진 연결 설계
 
+> 2026-09-11 갱신: 이 문서는 9/8 당시 검토 기록이다. C++ 전체 빌드 환경이 확보되어 wide Parquet 직접 읽기로 전환했다. 1단계의 `close` NaN 덮어쓰기 방식은 폐기하고 가격과 유니버스 마스크를 분리했다. 현재 구현·검증·사용법은 [후속 통합 기록](logic_completion_2026-09-11.md)과 [데이터 예제](../cpp-engine/examples/datasets/README.md)를 따른다.
+
 확인 기준일: 2026-09-08 (main@6a70f37). 저장소·캐시·팀 sim 소스(/home/base/git/sim)를 직접 대조한 정적 분석. 수치는 실측, 추정은 [추정] 표기.
 근거 상세(파일:줄 전수)는 [review_2026-09-08/design_agent.md](review_2026-09-08/design_agent.md), 손익 산식 리뷰는 [review_2026-09-08.md](review_2026-09-08.md) 참조.
 
