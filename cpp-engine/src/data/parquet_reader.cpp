@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <numeric>
 #include <set>
 #include <stdexcept>
@@ -217,6 +218,10 @@ struct Source {
     FieldAlignment alignment;
 };
 std::vector<float> read_field(const Source& source, const Coordinates& coordinates) {
+    // Serialize file reads so decoding wide metadata does not overlap across fields.
+    // Cached field access and signal computation do not acquire this mutex.
+    static std::mutex cold_read_mutex;
+    const std::lock_guard<std::mutex> cold_read_lock(cold_read_mutex);
     const size_t T = coordinates.timestamps.size(), N = coordinates.symbols.size();
     std::vector<float> output(cell_count(T, N), missing_value);
     ParquetFile file(source.path, source.time_col, source.symbol_col, source.format == DatasetFormat::Wide);
