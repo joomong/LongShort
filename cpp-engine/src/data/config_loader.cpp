@@ -148,10 +148,12 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const auto bt = root["backtest"];
     if (!bt || !bt.IsMap()) throw std::runtime_error("config.yaml: missing backtest mapping");
     cfg.start_date = bt["start_date"] ? bt["start_date"].as<std::string>() : "";
-    cfg.end_date = bt["end_date"] ? bt["end_date"].as<std::string>() : "";
+    cfg.end_date = bt["end_date"] && !bt["end_date"].IsNull()
+        ? bt["end_date"].as<std::string>() : "latest";
+    if (cfg.end_date.empty()) cfg.end_date = "latest";
     if (!cfg.start_date.empty()) config_date_ms(cfg.start_date);
-    if (!cfg.end_date.empty()) config_date_ms(cfg.end_date);
-    if (!cfg.start_date.empty() && !cfg.end_date.empty() && cfg.start_date > cfg.end_date)
+    if (cfg.end_date != "latest") config_date_ms(cfg.end_date);
+    if (!cfg.start_date.empty() && cfg.end_date != "latest" && cfg.start_date > cfg.end_date)
         throw std::runtime_error("backtest.start_date must not be after end_date");
     cfg.initial_capital = bt["initial_capital"] ? bt["initial_capital"].as<double>() : cfg.initial_capital;
     const double fee_bps = bt["transaction_fee"] ? bt["transaction_fee"].as<double>() : 5.0;

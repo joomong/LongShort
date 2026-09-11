@@ -334,7 +334,8 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     auto master = std::make_unique<ParquetFile>(close_source.path, close_source.time_col, close_source.symbol_col,
                                                 close_source.format == DatasetFormat::Wide);
     const auto start = config.start_date.empty() ? std::numeric_limits<int64_t>::min() : config_date_ms(config.start_date);
-    const auto end = config.end_date.empty() ? std::numeric_limits<int64_t>::max() : config_date_ms(config.end_date) + 86399999;
+    const bool latest_end = config.end_date.empty() || config.end_date == "latest";
+    const auto end = latest_end ? std::numeric_limits<int64_t>::max() : config_date_ms(config.end_date) + 86399999;
     auto first = std::lower_bound(master->calendar.begin(), master->calendar.end(), start);
     auto last = std::upper_bound(master->calendar.begin(), master->calendar.end(), end);
     if (first == master->calendar.end() || first >= last) throw std::runtime_error("No close observations in the configured period");
@@ -366,15 +367,35 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     }
     // Only coordinates survive into value loaders; release the wide master footer/schema first.
     master.reset();
+    auto close_values = read_field(close_source, Coordinates{panel.timestamps, panel.symbols});
+    if (latest_end) {
+        // Only trim an entirely missing tail. Keep interior gaps, partial rows,
+        // invalid non-null quotes, and all explicitly requested date ranges.
+        size_t rows = panel.T;
+        while (rows > panel.trade_start_index) {
+            const auto begin = close_values.begin() + (rows - 1) * panel.N;
+            if (!std::all_of(begin, begin + panel.N, [](float value) { return std::isnan(value); }))
+                break;
+            --rows;
+        }
+        if (rows <= panel.trade_start_index)
+            throw std::runtime_error("No close prices in the configured trading period");
+        panel.T = static_cast<unsigned>(rows);
+        panel.timestamps.resize(rows);
+        close_values.resize(cell_count(rows, panel.N));
+        if (!panel.universe_mask.empty()) panel.universe_mask.resize(cell_count(rows, panel.N));
+    }
+    panel.arrays.emplace("close", std::move(close_values));
     const auto coordinates = std::make_shared<const Coordinates>(Coordinates{panel.timestamps, panel.symbols});
     std::map<std::string, std::shared_ptr<LazyColumn>> shared_sources;
     for (const auto& field : sources) {
+        if (field.first == "close") continue; // Already loaded to resolve the latest end date.
         const bool requested = selected_fields.empty() || selected.count(field.first);
         if (!requested) continue;
         const Source source = field.second.first;
         const std::string key = source.path + "\n" + source.time_col + "\n" + source.symbol_col + "\n" +
             (source.format == DatasetFormat::Long ? source.column : "") + "\n" + std::to_string(static_cast<int>(source.alignment));
-        if (field.first == "close" || !field.second.second) {
+        if (!field.second.second) {
             panel.arrays.emplace(field.first, read_field(source, *coordinates));
         } else {
             auto& column = shared_sources[key];

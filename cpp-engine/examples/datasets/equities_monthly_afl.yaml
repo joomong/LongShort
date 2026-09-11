@@ -25,7 +25,7 @@ universe:
 
 backtest:
   start_date: '2010-01-01'
-  end_date: '2026-09-08'
+  end_date: latest
   warmup_bars: 252
   initial_capital: 1000000
   transaction_fee: 5  # one-way bps; existing fee default retained

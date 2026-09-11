@@ -100,3 +100,18 @@ TEST(ConfigLoader, ExecutionModeAcceptsOnlyD0AndD1) {
             "datasets: [{path: p, use_col: [close]}]\nbacktest: {mode: " + mode + "}")), std::exception);
     }
 }
+
+TEST(ConfigLoader, LatestEndDateIsDefaultAndExplicitDatesRemainFixed) {
+    ConfigFiles files;
+    for (const std::string option : {"{}", "{end_date: latest}", "{end_date: ''}", "{end_date: null}"}) {
+        const auto config = BacktestConfig::from_yaml(files.file("latest.yaml",
+            "datasets: [{path: p, use_col: [close]}]\nbacktest: " + option));
+        EXPECT_EQ(config.end_date, "latest");
+    }
+    const auto fixed = BacktestConfig::from_yaml(files.file("fixed.yaml", legacy));
+    EXPECT_EQ(fixed.end_date, "2020-12-31");
+    EXPECT_THROW(BacktestConfig::from_yaml(files.file("bad.yaml",
+        "datasets: [{path: p, use_col: [close]}]\nbacktest: {end_date: '2020-02-30'}")), std::exception);
+    EXPECT_THROW(BacktestConfig::from_yaml(files.file("reversed.yaml",
+        "datasets: [{path: p, use_col: [close]}]\nbacktest: {start_date: '2021-01-01', end_date: '2020-12-31'}")), std::exception);
+}

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <unistd.h>
 
@@ -173,4 +174,82 @@ TEST(ParquetLoader, ConvertsTimestampUnitsExactlyAndRejectsSubmillisecondLoss) {
     ASSERT_TRUE(submillis.Append(1).ok());
     files.write("close.parquet", {"A", "__index_level_0__"}, {numeric({1}), submillis.Finish().ValueOrDie()});
     EXPECT_THROW(DataPanel::load(base(files)), std::runtime_error);
+}
+
+TEST(ParquetLoader, LatestTrimsOnlyMissingTailAndAlignsEagerLazyAndUniverseData) {
+    DataFiles files;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    files.write("close.parquet", {"A", "B", "__index_level_0__"},
+        {numeric({10,nan,11,nan}), numeric({20,nan,nan,nan}), dates({0,day,2*day,3*day})});
+    files.write("factor.parquet", {"A", "B", "__index_level_0__"},
+        {numeric({1,2,3,4}), numeric({5,6,7,8}), dates({0,day,2*day,3*day})});
+    files.write("universe.parquet", {"A", "B", "__index_level_0__"},
+        {numeric({1,1,1,1}), numeric({1,0,1,1}), dates({0,day,2*day,3*day})});
+    auto config = base(files);
+    config.start_date = "1970-01-02"; config.end_date = "latest"; config.warmup_bars = 1;
+    config.universe.path = "universe.parquet";
+    config.datasets[0].fields["eager_factor"] = "factor.parquet";
+    config.datasets.push_back(wide("afl", {{"lazy_factor", "factor.parquet"}}, true));
+    auto panel = DataPanel::load(config);
+    EXPECT_EQ(panel.timestamps, (std::vector<int64_t>{0,day,2*day}));
+    EXPECT_EQ(panel.T, 3u);
+    EXPECT_EQ(panel.trade_start_index, 1u);
+    EXPECT_EQ(panel.universe_mask, (std::vector<uint8_t>{1,1,1,0,1,1}));
+    EXPECT_TRUE(std::isnan(panel.at("close",1,0))); // An interior market-wide gap remains.
+    EXPECT_TRUE(std::isnan(panel.at("close",1,1)));
+    EXPECT_TRUE(std::isnan(panel.at("close",2,1))); // A partially missing last row remains.
+    EXPECT_FLOAT_EQ(panel.at("eager_factor",2,0),3);
+    EXPECT_FLOAT_EQ(panel.at("lazy_factor",2,1),7); // Lazy coordinates use the final T.
+    EXPECT_EQ(panel.loaded_bytes(),3u*2u*3u*sizeof(float));
+
+    config.end_date = "1970-01-04";
+    auto fixed = DataPanel::load(config);
+    EXPECT_EQ(fixed.T,4u);
+    EXPECT_EQ(fixed.timestamps.back(),3*day);
+    EXPECT_TRUE(std::isnan(fixed.at("close",3,0)));
+    EXPECT_FLOAT_EQ(fixed.at("lazy_factor",3,0),4);
+}
+
+TEST(ParquetLoader, LatestReloadSeesAppendedPricesWhileExistingPanelStaysUnchanged) {
+    DataFiles files;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    files.write("close.parquet", {"A","__index_level_0__"},
+        {numeric({10,11,nan}),dates({0,day,2*day})});
+    auto config = base(files); config.end_date = "latest";
+    const auto first = DataPanel::load(config);
+    ASSERT_EQ(first.T,2u);
+    files.write("close.parquet", {"A","__index_level_0__"},
+        {numeric({10,11,12,13,nan}),dates({0,day,2*day,3*day,4*day})});
+    const auto restarted = DataPanel::load(config);
+    EXPECT_EQ(first.T,2u);
+    EXPECT_FLOAT_EQ(first.at("close",1,0),11);
+    EXPECT_EQ(restarted.T,4u);
+    EXPECT_EQ(restarted.timestamps.back(),3*day);
+    EXPECT_FLOAT_EQ(restarted.at("close",3,0),13);
+}
+
+TEST(ParquetLoader, LatestUsesSelectedSymbolsAndRejectsACompletelyMissingTradingPeriod) {
+    DataFiles files;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    files.write("close.parquet", {"A","B","__index_level_0__"},
+        {numeric({10,nan,nan}),numeric({20,21,22}),dates({0,day,2*day})});
+    auto config = base(files); config.end_date = "latest";
+    config.universe.symbols = {"A"};
+    EXPECT_EQ(DataPanel::load(config).timestamps,(std::vector<int64_t>{0}));
+    config.start_date = "1970-01-02"; config.warmup_bars = 1;
+    EXPECT_THROW(DataPanel::load(config),std::runtime_error); // Warmup alone is not a trading span.
+    files.write("close.parquet", {"A","__index_level_0__"},
+        {numeric({nan,nan}),dates({0,day})});
+    config.start_date.clear();
+    EXPECT_THROW(DataPanel::load(config),std::runtime_error);
+}
+
+TEST(ParquetLoader, LatestDoesNotHideInvalidNonmissingPrices) {
+    DataFiles files;
+    for (double bad : {0.0,-1.0,std::numeric_limits<double>::infinity()}) {
+        files.write("close.parquet", {"A","__index_level_0__"},
+            {numeric({10,bad}),dates({0,day})});
+        auto config = base(files); config.end_date = "latest";
+        EXPECT_EQ(DataPanel::load(config).T,2u);
+    }
 }

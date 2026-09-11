@@ -10,6 +10,8 @@ C++ 컴파일러와 Arrow/Parquet·Boost·Drogon 등 의존성을 먼저 준비�
 python3 cpp-engine/tools/run_engine.py --config /path/to/my/config.yaml
 ```
 
+기본 설정의 `backtest.end_date: latest`는 엔진을 시작하거나 재시작할 때 현재 파일에서 종료일을 정한다. 선택한 종목의 종가가 전부 결측인 끝행은 제외한다. 실행 중 자동 갱신은 하지 않으며, 재시작 후 열려 있는 웹 화면을 새로고침하면 새 날짜 범위를 받는다. 기간을 고정하려면 `end_date: '2026-07-31'`처럼 날짜를 지정한다.
+
 별도 터미널에서 화면을 실행한다.
 
 ```bash

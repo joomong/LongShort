@@ -26,7 +26,7 @@ The user may explicitly authorize parallel developer work; coordinate file owner
 - `sim_start_index` separates module/target warmup from trading. No historical holdings or fees arise in warmup; initial execution fees belong to the trading period.
 - `combined_mode=normalized` uses normalized equal-alpha contributions and final portfolio normalization. `raw` preserves the original signal-scale weighting. Both accumulate in a deterministic alpha order.
 - C++ data loading aligns stable symbol IDs and timestamps. Wide fields can be lazy; aliases share one buffer. `returns` is reserved for the existing derived close return. AFL catalog names are metadata, not a request to load every factor.
-- `alignment=asof` uses the most recent row at or before each target timestamp, retaining nulls in that row. Data availability and immutable snapshots remain explicit input contracts.
+- `alignment=asof` uses the most recent row at or before each target timestamp, retaining nulls in that row. Timestamps must represent data availability. The user chose restart-based data refresh without version tracking or automatic reload. `end_date: latest` (also the YAML default) trims only the all-NaN close tail over selected symbols; explicit dates retain their requested range.
 
 ## Commands and validation
 
