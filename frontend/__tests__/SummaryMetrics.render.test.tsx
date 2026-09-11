@@ -20,12 +20,12 @@ describe('SummaryMetrics render formatting', () => {
 
     expect(screen.getByText('Combined Portfolio')).toBeInTheDocument();
     // IS: Return, Sharpe, Turnover
-    expect(screen.getByText('+947.5%')).toBeInTheDocument();
-    expect(screen.getByText('5.06')).toBeInTheDocument();
-    expect(screen.getByText('26.7%')).toBeInTheDocument();
+    expect(screen.getByText('-4.9%')).toBeInTheDocument();
+    expect(screen.getByText('-4.65')).toBeInTheDocument();
+    expect(screen.getByText('9.2%')).toBeInTheDocument();
 
     // OS: Return, Sharpe
-    expect(screen.getByText('-60.3%')).toBeInTheDocument();
-    expect(screen.getByText('-4.50')).toBeInTheDocument();
+    expect(screen.getByText('-28.0%')).toBeInTheDocument();
+    expect(screen.getByText('-11.05')).toBeInTheDocument();
   });
 });

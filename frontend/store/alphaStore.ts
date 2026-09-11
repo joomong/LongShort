@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress, StarConfigResponse } from '@/types';
+import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress, StarConfigResponse, SignalPayload } from '@/types';
 import { getConfig } from '@/lib/api';
+import { selectSignalCell, selectSignalSource } from '@/lib/signalSelection';
 
 interface AlphaState {
   // XML Editor
@@ -24,6 +25,12 @@ interface AlphaState {
   setResult: (result: BacktestRunResponse | null) => void;
   isRunning: boolean;
   setIsRunning: (running: boolean) => void;
+
+  resultRevision: number;
+  signalCacheOrder: number[];
+  selectedSignalAlphaIndex: number | null;
+  selectSignalAlpha: (index: number) => void;
+  cacheAlphaSignals: (index: number, signals: SignalPayload, revision: number) => void;
 
   // Selected Cell (for chart)
   selectedSymbol: string | null;
@@ -66,6 +73,8 @@ interface AlphaState {
   updateSnapshotName: (id: string, name: string) => void;
 }
 
+export const MAX_CACHED_SIGNAL_ALPHAS = 5;
+
 const defaultSettings: BacktestSettings = {
   simStart: '2020-01-01',
   isStart: '2023-01-01',
@@ -75,7 +84,7 @@ const defaultSettings: BacktestSettings = {
   gaPopulation: 50,
 };
 
-const defaultXml = `<data expr="close" delay="1"/>`;
+const defaultXml = `<data expr="close" delay="0"/>`;
 
 /** Ensure isStart < osStart, both clamped to [minDate, maxDate] if provided. */
 export function enforceSettingsDates(
@@ -139,26 +148,50 @@ export const useAlphaStore = create<AlphaState>((set) => ({
     set((state) => {
       const isMulti = (result?.alphas?.length ?? 0) > 1;
       const baseMode = isMulti ? 'multi' : 'single';
-      // During GA streaming, preserve detail view state
-      if (state.gaProgress) {
-        const viewMode = state.viewMode === 'detail' ? 'detail'
-          : state.viewMode === 'multi' ? 'multi'
-          : baseMode;
-        return {
-          result,
-          viewMode,
-          selectedAlphaIndex: state.viewMode === 'detail' ? state.selectedAlphaIndex : null,
-          selectedAlphaIndices: [],
-          selectedAlphaIndexSet: new Set<number>(),
-        };
-      }
+      const preserveDetail = state.gaProgress && state.viewMode === 'detail';
+      const selectedAlphaIndex = preserveDetail && state.selectedAlphaIndex !== null &&
+        (state.selectedAlphaIndex === -1 ? !!result?.combined : !!result?.alphas[state.selectedAlphaIndex])
+        ? state.selectedAlphaIndex : null;
+      const selectedSignalAlphaIndex = selectedAlphaIndex ?? (result?.combined ? -1 : result?.alphas.length ? 0 : null);
       return {
         result,
-        viewMode: baseMode,
-        selectedAlphaIndex: null,
+        resultRevision: state.resultRevision + 1,
+        signalCacheOrder: result?.alphas.flatMap((alpha, index) => alpha.heatmap ? [index] : []) ?? [],
+        viewMode: selectedAlphaIndex !== null ? 'detail' : baseMode,
+        selectedAlphaIndex,
+        selectedSignalAlphaIndex,
+        ...selectSignalCell(selectSignalSource({ result, selectedSignalAlphaIndex })),
         selectedAlphaIndices: [],
+        selectedAlphaIndexSet: new Set<number>(),
       };
     }),
+  resultRevision: 0,
+  signalCacheOrder: [],
+  selectedSignalAlphaIndex: null,
+  selectSignalAlpha: (index) => set((state) => {
+    if (!state.result || (index === -1 ? !state.result.combined : !state.result.alphas[index])) return state;
+    return {
+      selectedSignalAlphaIndex: index,
+      signalCacheOrder: index >= 0 && state.result.alphas[index].heatmap
+        ? [...state.signalCacheOrder.filter(item => item !== index), index] : state.signalCacheOrder,
+      ...selectSignalCell(selectSignalSource({ result: state.result, selectedSignalAlphaIndex: index }), state.selectedSymbol, state.selectedTimestamp),
+    };
+  }),
+  cacheAlphaSignals: (index, signals, revision) => set((state) => {
+    if (!state.result || state.resultRevision !== revision || index < 0 || !state.result.alphas[index]) return state;
+    const alphas = [...state.result.alphas];
+    alphas[index] = { ...alphas[index], ...signals };
+    const signalCacheOrder = [...state.signalCacheOrder.filter(item => item !== index), index];
+    while (signalCacheOrder.length > MAX_CACHED_SIGNAL_ALPHAS) {
+      const evicted = signalCacheOrder.shift()!;
+      alphas[evicted] = { ...alphas[evicted], heatmap: undefined, signalRange: undefined, distribution: undefined };
+    }
+    return {
+      signalCacheOrder,
+      result: { ...state.result, alphas },
+      ...(state.selectedSignalAlphaIndex === index ? selectSignalCell(signals, state.selectedSymbol, state.selectedTimestamp) : {}),
+    };
+  }),
   isRunning: false,
   setIsRunning: (running) => set({ isRunning: running }),
 
@@ -180,7 +213,8 @@ export const useAlphaStore = create<AlphaState>((set) => ({
         const baseMode = (state.result?.alphas?.length ?? 0) > 1 ? 'multi' : 'single';
         return { viewMode: baseMode, selectedAlphaIndex: null };
       }
-      return { viewMode: 'detail', selectedAlphaIndex: index };
+      return { viewMode: 'detail', selectedAlphaIndex: index, selectedSignalAlphaIndex: index,
+        ...selectSignalCell(selectSignalSource({ result: state.result, selectedSignalAlphaIndex: index }), state.selectedSymbol, state.selectedTimestamp) };
     }),
   exitDetailView: () => set((state) => ({
     viewMode: (state.result?.alphas?.length ?? 0) > 1 ? 'multi' : 'single',
@@ -213,6 +247,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
       const config = await getConfig();
       set((state) => {
         let s = { ...state.settings };
+        if (config.mode === 0 || config.mode === 1) s.barInterval = config.mode === 0 ? 'D0' : 'D1';
         const minDate = config.simStart;
         const maxDate = config.simEnd;
         // If current settings are outside data range, compute fresh defaults

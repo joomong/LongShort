@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 import DetailSummaryTable from '@/components/visualization/DetailSummaryTable';
 import { useAlphaStore } from '@/store/alphaStore';
@@ -21,24 +21,11 @@ describe('DetailSummaryTable render output', () => {
     );
 
     expect(screen.getByText('Yearly Table')).toBeInTheDocument();
-    expect(screen.getByText('2024')).toBeInTheDocument();
-
-    // Long SM = 0.62 * 100 = 62.0%
-    expect(screen.getByText('62.0%')).toBeInTheDocument();
-    // Short SM = 0.38 * 100 = 38.0%
-    expect(screen.getByText('38.0%')).toBeInTheDocument();
-    // PnL = +2.2%
-    expect(screen.getByText('+2.2%')).toBeInTheDocument();
-    // Ann.Ret = +268.1%
-    expect(screen.getByText('+268.1%')).toBeInTheDocument();
-    // Sharpe = 6.00
-    expect(screen.getByText('6.00')).toBeInTheDocument();
-    // Max DD = -1.8%
-    expect(screen.getByText('-1.8%')).toBeInTheDocument();
-    // Daily TVR = 0.26 * 100 = 26.0
-    expect(screen.getByText('26.0')).toBeInTheDocument();
-    // Margin = 0.028 -> 0.0280
-    expect(screen.getByText('0.0280')).toBeInTheDocument();
+    const row = screen.getByText('2025').closest('tr')!;
+    // Actual C++ fixture: returns/DD are percentage points, exposure/turnover fractions.
+    expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual([
+      '2025', '50.0%', '50.0%', '-5.1%', '-14.8%', '-7.17', '-5.1%', '8.8', '-0.0067',
+    ]);
   });
 
   it('renders empty state when no yearly data', () => {

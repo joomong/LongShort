@@ -3,7 +3,13 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { runSimulate, runGAStream, adaptSimulateResponse, adaptGACompleteToResponse } from '@/lib/api';
-import type { StarGAEvent } from '@/types';
+import type { StarGAEvent, BacktestSettings } from '@/types';
+
+function executionMode(interval: BacktestSettings['barInterval']): 0 | 1 {
+  if (interval === 'D0') return 0;
+  if (interval === 'D1') return 1;
+  throw new Error('Intraday execution is not available.');
+}
 
 export function useBacktest() {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -25,6 +31,8 @@ export function useBacktest() {
     return () => {
       unsubscribeXml();
       unsubscribeSettings();
+      requestIdRef.current += 1;
+      abortControllerRef.current?.abort();
     };
   }, []);
 
@@ -45,28 +53,26 @@ export function useBacktest() {
     try {
       const requestXml = xmlCodeRef.current;
       const settings = settingsRef.current;
+      const mode = executionMode(settings.barInterval);
       const resp = await runSimulate(
         requestXml,
         settings.simStart,
         settings.isStart,
         settings.osStart,
         abortControllerRef.current.signal,
+        settings.nJobs,
+        mode,
       );
 
       if (requestId !== requestIdRef.current) return;
 
       const adapted = adaptSimulateResponse(resp);
+      adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs };
 
       const s = useAlphaStore.getState();
       if (requestId !== requestIdRef.current) return;
       s.setResult(adapted);
 
-      // Auto-select first heatmap cell if available
-      const firstSymbol = adapted.heatmap?.symbols?.[0] ?? null;
-      const firstTimestamp = adapted.heatmap?.timestamps?.[0] ?? null;
-      if (firstSymbol && firstTimestamp) {
-        s.setSelectedCell(firstSymbol, firstTimestamp);
-      }
     } catch (error) {
       if (requestId !== requestIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
@@ -105,6 +111,7 @@ export function useBacktest() {
 
     try {
       const requestXml = xmlCodeRef.current;
+      const mode = executionMode(settings.barInterval);
       await runGAStream(
         requestXml,
         settings.simStart,
@@ -126,6 +133,7 @@ export function useBacktest() {
             });
           } else if (event.type === 'complete') {
             const adapted = adaptGACompleteToResponse(event);
+            adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs };
             if (adapted.alphas.length > 0) {
               adapted.alphas[0].xml = event.bestXml;
             }
@@ -137,6 +145,7 @@ export function useBacktest() {
           }
         },
         abortControllerRef.current.signal,
+        mode,
       );
     } catch (error) {
       if (requestId !== requestIdRef.current) return;

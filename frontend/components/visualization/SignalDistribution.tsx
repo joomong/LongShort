@@ -1,6 +1,7 @@
 'use client';
 
 import { useAlphaStore } from '@/store/alphaStore';
+import { selectSignalSource } from '@/lib/signalSelection';
 
 function formatSignalValue(v: number): string {
   const abs = Math.abs(v);
@@ -11,8 +12,8 @@ function formatSignalValue(v: number): string {
 }
 
 export default function SignalDistribution() {
-  const signalRange = useAlphaStore(s => s.result?.signalRange);
-  const distribution = useAlphaStore(s => s.result?.distribution);
+  const signalRange = useAlphaStore(s => selectSignalSource(s)?.signalRange);
+  const distribution = useAlphaStore(s => selectSignalSource(s)?.distribution);
 
   const min = signalRange?.min;
   const max = signalRange?.max;
@@ -20,7 +21,7 @@ export default function SignalDistribution() {
   const maxCount = distribution ? distribution.reduce((a, b) => a > b ? a : b, 0) : 0;
 
   return (
-    <div className="px-4 py-2 bg-background-tertiary border-b border-border panel-inset">
+    <div aria-label="Signal distribution" className="px-4 py-2 bg-background-tertiary border-b border-border panel-inset">
       {/* Range Info */}
       <div className="flex justify-end items-center mb-1">
         <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
@@ -38,6 +39,7 @@ export default function SignalDistribution() {
           return (
             <div
               key={i}
+              data-count={count}
               className="flex-1 bg-foreground-muted opacity-60"
               style={{
                 height: `${height}%`,

@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import captured from '../../__tests__/fixtures/capture.json';
+test.beforeEach(async ({ page }) => { await page.route('**/api/config', route => route.fulfill({ json: captured.config })); });
 
 test.describe('Smoke tests', () => {
   test('page loads with correct title', async ({ page }) => {

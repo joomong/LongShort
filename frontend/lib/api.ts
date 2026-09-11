@@ -8,6 +8,8 @@ import type {
   BacktestRunResponse,
   BacktestAlphaResult,
   PeriodMetrics,
+  StarSignalPayload,
+  SignalPayload,
   AlphaListResponse,
   AlphaDetailResponse,
 } from '@/types';
@@ -57,6 +59,14 @@ function adaptStarSummary(s: StarSummary): PeriodMetrics {
     sharpe400: s.sharpe400,
     sharpe80: s.sharpe80,
     minsoc: s.minsoc,
+  };
+}
+
+export function adaptSignalPayload(source: StarSignalPayload): SignalPayload {
+  return {
+    heatmap: source.signalPlot,
+    signalRange: source.signalRange,
+    distribution: source.distribution?.counts,
   };
 }
 
@@ -133,6 +143,11 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     const combinedSeries = buildSplitSeriesFromTimeseries(combinedTs, combinedIsStart, combinedOsStart);
 
     combined = {
+      ...adaptSignalPayload({
+        signalPlot: combinedSource.signalPlot ?? resp.signalPlot,
+        signalRange: combinedSource.signalRange ?? resp.signalRange,
+        distribution: combinedSource.distribution ?? resp.distribution,
+      }),
       name: 'combined',
       rank: 0,
       isMetrics: adaptStarSummary(combinedSource.summary.is),
@@ -152,6 +167,11 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     const series = buildSplitSeriesFromTimeseries(ts, isStart, osStart);
 
     return {
+      ...adaptSignalPayload({
+        signalPlot: batch.signalPlot ?? (single ? resp.signalPlot : undefined),
+        signalRange: batch.signalRange ?? (single ? resp.signalRange : undefined),
+        distribution: batch.distribution ?? (single ? resp.distribution : undefined),
+      }),
       name: `alpha_${batch.index}`,
       rank: i + 1,
       isMetrics: adaptStarSummary(batch.summary.is),
@@ -168,9 +188,10 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     combined,
     alphas,
     yearly: resp.yearly,
-    heatmap: resp.signalPlot ?? null,
-    signalRange: resp.signalRange ?? null,
-    distribution: resp.distribution ? resp.distribution.counts : null,
+    // Reuse the authoritative single/combined payload; JSON contains duplicate wire objects.
+    heatmap: (combined ?? alphas[0])?.heatmap ?? resp.signalPlot ?? null,
+    signalRange: (combined ?? alphas[0])?.signalRange ?? resp.signalRange ?? null,
+    distribution: (combined ?? alphas[0])?.distribution ?? resp.distribution?.counts ?? null,
   };
 }
 
@@ -194,11 +215,13 @@ export async function runSimulate(
   isStart: string,
   osStart: string,
   signal?: AbortSignal,
+  threads?: number,
+  mode: 0 | 1 = 1,
 ): Promise<StarBatchResponse> {
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5 }),
     signal,
   });
 
@@ -228,11 +251,12 @@ export async function runGAStream(
   threads: number,
   onEvent: (event: StarGAEvent) => void,
   signal?: AbortSignal,
+  mode: 0 | 1 = 1,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/ga/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads, mode, collectSignals: true }),
     signal,
   });
 

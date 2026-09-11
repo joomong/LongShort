@@ -10,6 +10,7 @@ export default function SaveAlphaModal() {
   const xmlCode = useAlphaStore(s => s.xmlCode);
   const viewMode = useAlphaStore(s => s.viewMode);
   const result = useAlphaStore(s => s.result);
+  const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
   const selectedAlphaIndices = useAlphaStore(s => s.selectedAlphaIndices);
   const clearAlphaSelection = useAlphaStore(s => s.clearAlphaSelection);
   const [name, setName] = useState('');
@@ -29,6 +30,19 @@ export default function SaveAlphaModal() {
       return;
     }
 
+    if (isMulti && (selectedAlphas.length !== selectedAlphaIndices.length || selectedAlphas.some(alpha => !alpha?.xml?.trim()))) {
+      setError('A selected alpha has no XML to save. Run it again before saving.');
+      return;
+    }
+    const detailAlpha = viewMode === 'detail'
+      ? selectedAlphaIndex === -1 ? result?.combined : selectedAlphaIndex !== null ? result?.alphas[selectedAlphaIndex] : undefined
+      : undefined;
+    const singleXml = viewMode === 'detail' ? detailAlpha?.xml : xmlCode;
+    if (!isMulti && !singleXml?.trim()) {
+      setError('This alpha has no XML to save.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -40,11 +54,11 @@ export default function SaveAlphaModal() {
           const saveName = selectedAlphas.length === 1
             ? name.trim()
             : `${name.trim()}_${alpha.name}`;
-          await saveAlpha(saveName, alpha.name);
+          await saveAlpha(saveName, alpha.xml!);
         }
         clearAlphaSelection();
       } else {
-        await saveAlpha(name.trim(), xmlCode);
+        await saveAlpha(name.trim(), singleXml!);
       }
       setName('');
       setIsSaveModalOpen(false);
@@ -82,8 +96,9 @@ export default function SaveAlphaModal() {
         <div className="px-6 py-4 space-y-4">
           {/* Name Input */}
           <div>
-            <label className="block text-sm text-foreground-secondary mb-2">Alpha Name</label>
+            <label htmlFor="save-alpha-name" className="block text-sm text-foreground-secondary mb-2">Alpha Name</label>
             <input
+              id="save-alpha-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -105,14 +120,9 @@ export default function SaveAlphaModal() {
             </div>
           )}
 
-          {/* Backend note */}
-          <p className="text-xs text-foreground-muted">
-            Note: backend currently saves XML only (no signal/Parquet save).
-          </p>
-
           {/* Error */}
           {error && (
-            <p className="text-sm text-red-400">{error}</p>
+            <p role="alert" className="text-sm text-metric-negative">{error}</p>
           )}
         </div>
 

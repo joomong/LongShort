@@ -1,0 +1,41 @@
+{
+  "config": {
+    "N": 6,
+    "T": 1818,
+    "barsPerYear": 252,
+    "columns": [
+      "close",
+      "high",
+      "low",
+      "open",
+      "volume"
+    ],
+    "combinedMode": "normalized",
+    "feeRate": 0.0005,
+    "loadedDataBytes": 218160,
+    "loadedFields": 5,
+    "mode": 1,
+    "simEnd": "2025-12-31",
+    "simStart": "2020-01-01",
+    "symbols": [
+      "AAA",
+      "BBB",
+      "CCC",
+      "DDD",
+      "EEE",
+      "FFF"
+    ]
+  },
+  "settings": {
+    "simStart": "2025-09-03",
+    "isStart": "2025-09-03",
+    "osStart": "2025-11-01",
+    "mode": 1,
+    "threads": 1,
+    "collectSignals": true,
+    "collectSignalsTopK": 5,
+    "signalPlotMaxCells": 60
+  },
+  "singleXml": "<data expr=\"close\" delay=\"0\"/><zscore/>",
+  "multiXml": "<data expr=\"close\" delay=\"0\"/><tsmean days=\"2|3\"/><zscore/>"
+}

@@ -6,10 +6,11 @@ import { useThemeStore } from '@/store/themeStore';
 interface ControlButtonsProps {
   onRun: () => void;
   onStop: () => void;
+  onRunGA: () => void;
   vertical?: boolean;
 }
 
-export default function ControlButtons({ onRun, onStop, vertical = false }: ControlButtonsProps) {
+export default function ControlButtons({ onRun, onStop, onRunGA, vertical = false }: ControlButtonsProps) {
   const isRunning = useAlphaStore(s => s.isRunning);
   const gaProgress = useAlphaStore(s => s.gaProgress);
   const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
@@ -47,6 +48,11 @@ export default function ControlButtons({ onRun, onStop, vertical = false }: Cont
         <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
           <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
         </svg>
+      </button>
+
+      <button onClick={onRunGA} disabled={isRunning} aria-label="Run GA" title="Run GA"
+        className="flex items-center justify-center w-9 h-9 bg-background-elevated hover:bg-border-hover text-foreground font-mono text-xs disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-accent">
+        GA
       </button>
 
       {/* Stop Button */}

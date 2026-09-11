@@ -58,7 +58,13 @@ export interface StarDistribution {
   max: number;
 }
 
-export interface StarBatchEntry {
+export interface StarSignalPayload {
+  signalPlot?: HeatmapData;
+  signalRange?: SignalRange;
+  distribution?: StarDistribution;
+}
+
+export interface StarBatchEntry extends StarSignalPayload {
   index: number;
   xml?: string;
   summary: { is: StarSummary; os: StarSummary };
@@ -68,16 +74,14 @@ export interface StarBatchEntry {
   osStartIndex?: number;
 }
 
-export interface StarBatchResponse {
+export interface StarBatchResponse extends StarSignalPayload {
+  mode?: 0 | 1;
   batches: StarBatchEntry[];
   yearly: StarYearly[];
   timeseries: StarTimeseries;
   isStartIndex: number;
   osStartIndex: number;
   combined?: StarBatchEntry;
-  signalPlot?: HeatmapData;
-  signalRange?: SignalRange;
-  distribution?: StarDistribution;
 }
 
 export interface StarConfigResponse {
@@ -86,9 +90,12 @@ export interface StarConfigResponse {
   simEnd: string;
   feeRate: number;
   barsPerYear: number;
+  mode?: 0 | 1;
   T: number;
   N: number;
   columns: string[];
+  loadedFields?: number;
+  loadedDataBytes?: number;
 }
 
 export interface StarGAGenerationEvent {
@@ -99,7 +106,8 @@ export interface StarGAGenerationEvent {
   bestXml: string;
 }
 
-export interface StarGACompleteEvent {
+export interface StarGACompleteEvent extends StarSignalPayload {
+  mode?: 0 | 1;
   type: 'complete';
   bestXml: string;
   batches: StarBatchEntry[];
@@ -124,6 +132,11 @@ export interface HeatmapData {
   timestamps: string[];
   symbols: string[];
   values: (number | null)[][]; // [time][symbol]
+  rowStride?: number;
+  symbolStride?: number;
+  originalRows?: number;
+  originalSymbols?: number;
+  sampled?: boolean;
 }
 
 export interface SignalRange {
@@ -159,7 +172,13 @@ export interface PeriodMetrics {
 export type ISMetrics = PeriodMetrics;
 export type OSMetrics = PeriodMetrics;
 
-export interface BacktestAlphaResult {
+export interface SignalPayload {
+  heatmap?: HeatmapData | null;
+  signalRange?: SignalRange | null;
+  distribution?: number[] | null;
+}
+
+export interface BacktestAlphaResult extends SignalPayload {
   name: string;
   rank: number;
   isMetrics: ISMetrics;
@@ -183,15 +202,13 @@ export interface BacktestAlphaResult {
   shortRatio?: number;
 }
 
-export interface BacktestRunResponse {
+export interface BacktestRunResponse extends SignalPayload {
+  runSettings?: Pick<BacktestSettings, 'simStart' | 'isStart' | 'osStart'> & { mode: 0 | 1; threads: number };
   combined: BacktestAlphaResult | null;
   alphas: BacktestAlphaResult[];
   yearly?: StarYearly[];
   initialCapital?: number;
   sortedBy?: string;
-  heatmap?: HeatmapData | null;
-  signalRange?: SignalRange | null;
-  distribution?: number[] | null;
 }
 
 export interface BacktestSettings {

@@ -95,7 +95,7 @@ export default function SettingsBar() {
           min={1}
           max={32}
           value={settings.nJobs}
-          onChange={(e) => setSettings({ nJobs: Math.max(1, parseInt(e.target.value) || 1) })}
+          onChange={(e) => setSettings({ nJobs: Math.min(32, Math.max(1, parseInt(e.target.value) || 1)) })}
           aria-label="Number of jobs"
           autoComplete="off"
           className="w-14 px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"

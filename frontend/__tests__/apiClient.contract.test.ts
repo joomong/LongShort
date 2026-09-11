@@ -45,12 +45,12 @@ describe('api client contract', () => {
       json: async () => payload,
     } as unknown as Response);
 
-    const result = await runSimulate('<data expr="close" delay="1"/>', '2020-01-01', '2021-01-01', '2024-01-01');
+    const result = await runSimulate('<data expr="close" delay="1"/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 3);
     expect(result).toEqual(payload);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     const [, init] = vi.mocked(globalThis.fetch).mock.calls[0] ?? [];
     const body = init && typeof init === 'object' ? (init as RequestInit).body as string : '';
-    expect(body).not.toContain('includeBatchDetails');
+    expect(JSON.parse(body)).toMatchObject({ collectSignals: true, collectSignalsTopK: 5, threads: 3, mode: 1 });
   });
 
   it('runSimulate forwards abort signal', async () => {

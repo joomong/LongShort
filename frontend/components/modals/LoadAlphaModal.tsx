@@ -41,6 +41,8 @@ export default function LoadAlphaModal() {
     try {
       const { xml } = await getAlpha(name);
       setXmlCode(xml);
+      useAlphaStore.getState().setAlphaName(name);
+      useAlphaStore.getState().exitDetailView();
       setIsLoadModalOpen(false);
     } catch {
       setError(`Failed to load ${name}`);

@@ -99,6 +99,7 @@ const BatchRow = React.memo(function BatchRow() {
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startTransition(() => useAlphaStore.getState().enterDetailView(-1)); } }}
       role="button"
+      aria-label="View combined alpha"
     >
       <td className="px-1 py-1"></td>
       <td className="text-xs text-foreground-muted font-mono tabular-nums px-3 py-1.5 font-semibold">batch 0</td>
@@ -131,6 +132,7 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startTransition(() => useAlphaStore.getState().enterDetailView(index)); } }}
       role="button"
+      aria-label={`View ${item.name}`}
     >
       {/* Selection checkbox */}
       <td className="px-1 py-1 text-center">

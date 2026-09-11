@@ -26,6 +26,7 @@ describe('fetchConfig', () => {
       simEnd: '2025-01-28',
       feeRate: 0.001,
       barsPerYear: 365,
+      mode: 0 as const,
       T: 1000,
       N: 2,
       columns: ['open', 'high', 'low', 'close', 'volume'],
@@ -35,6 +36,7 @@ describe('fetchConfig', () => {
     await useAlphaStore.getState().fetchConfig();
 
     expect(useAlphaStore.getState().config).toEqual(mockConfig);
+    expect(useAlphaStore.getState().settings.barInterval).toBe('D0');
   });
 
   it('should update settings isStart and osStart when out of range', async () => {
@@ -103,10 +105,11 @@ describe('selectedAlphaIndices', () => {
   });
 
   it('setResult should clear selectedAlphaIndices', () => {
-    useAlphaStore.setState({ selectedAlphaIndices: [0, 1, 2] });
+    useAlphaStore.setState({ selectedAlphaIndices: [0, 1, 2], selectedAlphaIndexSet: new Set([0, 1, 2]) });
 
     useAlphaStore.getState().setResult(null);
 
     expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([]);
+    expect(useAlphaStore.getState().selectedAlphaIndexSet.size).toBe(0);
   });
 });

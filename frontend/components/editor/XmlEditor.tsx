@@ -24,7 +24,7 @@ export default function XmlEditor() {
   const selectedAlphaXml = useMemo(() => {
     if (viewMode !== 'detail') return null;
     if (selectedAlphaIndex === null) return null;
-    const alpha = result?.alphas?.[selectedAlphaIndex];
+    const alpha = selectedAlphaIndex === -1 ? result?.combined : result?.alphas?.[selectedAlphaIndex];
     return alpha?.xml ?? null;
   }, [viewMode, selectedAlphaIndex, result]);
 

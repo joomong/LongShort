@@ -4,6 +4,7 @@ import React, { useMemo, useCallback, useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useAlphaStore } from '@/store/alphaStore';
+import { selectSignalSource } from '@/lib/signalSelection';
 import { useShallow } from 'zustand/react/shallow';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
@@ -65,7 +66,7 @@ const SignalDataTable = React.memo(function SignalDataTable({
         </span>
       </div>
       <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
-        <table className="w-full text-[11px] border-collapse font-mono">
+        <table aria-label="Signal data" className="w-full text-[11px] border-collapse font-mono">
           <thead className="sticky top-0 bg-background-secondary">
             <tr className="border-b border-border-strong">
               <th className="text-left px-2 py-0.5 text-foreground-secondary font-medium">dates</th>
@@ -94,7 +95,7 @@ const SignalDataTable = React.memo(function SignalDataTable({
 
 export default function SignalChart() {
   // Granular selectors
-  const heatmap = useAlphaStore(s => s.result?.heatmap ?? null);
+  const heatmap = useAlphaStore(s => selectSignalSource(s)?.heatmap ?? null);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const pinnedSnapshots = useAlphaStore(useShallow(s => s.pinnedSnapshots));
   const addSnapshot = useAlphaStore(s => s.addSnapshot);

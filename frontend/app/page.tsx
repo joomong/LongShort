@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import MainLayout from '@/components/layout/MainLayout';
 import ControlButtons from '@/components/editor/ControlButtons';
 import SettingsBar from '@/components/visualization/SettingsBar';
+import SignalPanelSelector from '@/components/visualization/SignalPanelSelector';
 import { useBacktest } from '@/hooks/useBacktest';
 import { useAlphaStore } from '@/store/alphaStore';
 
@@ -85,7 +86,7 @@ function XmlPanel() {
 function AlphaXmlPanel() {
   const xml = useAlphaStore(s => {
     const idx = s.selectedAlphaIndex;
-    return idx !== null ? s.result?.alphas?.[idx]?.xml ?? '' : '';
+    return idx === -1 ? s.result?.combined?.xml ?? '' : idx !== null ? s.result?.alphas?.[idx]?.xml ?? '' : '';
   });
 
   return (
@@ -115,6 +116,7 @@ function ChartArea() {
       </div>
       {/* Charts view — hidden via display:none when detail is active */}
       <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col'} style={GRID_BG}>
+        <SignalPanelSelector />
         <SignalDistribution />
         <SignalHeatmap />
         <SignalChart />
@@ -156,12 +158,12 @@ function MainContent() {
 }
 
 // Right panel: main content + vertical button sidebar on the FAR RIGHT of the screen
-function MainPanel({ onRun, onStop }: { onRun: () => void; onStop: () => void }) {
+function MainPanel({ onRun, onStop, onRunGA }: { onRun: () => void; onStop: () => void; onRunGA: () => void }) {
   return (
     <div className="flex flex-row h-full">
       <MainContent />
       {/* Vertical button strip — positioned at the screen's far right edge */}
-      <ControlButtons onRun={onRun} onStop={onStop} vertical />
+      <ControlButtons onRun={onRun} onStop={onStop} onRunGA={onRunGA} vertical />
     </div>
   );
 }
@@ -170,7 +172,7 @@ function MainPanel({ onRun, onStop }: { onRun: () => void; onStop: () => void })
 let configFetched = false;
 
 export default function Home() {
-  const { run, stop } = useBacktest();
+  const { run, runGA, stop } = useBacktest();
 
   useEffect(() => {
     if (!configFetched) {
@@ -195,7 +197,7 @@ export default function Home() {
     <>
       <MainLayout
         leftPanel={<XmlPanel />}
-        rightPanel={<MainPanel onRun={run} onStop={stop} />}
+        rightPanel={<MainPanel onRun={run} onStop={stop} onRunGA={runGA} />}
         minLeftWidth={15}
       />
       <Modals />

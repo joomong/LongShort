@@ -17,7 +17,8 @@ vi.mock('@/lib/api', () => ({
   deleteAlpha: vi.fn(),
 }));
 
-import { runSimulate, adaptSimulateResponse } from '@/lib/api';
+import { runSimulate, runGAStream, adaptSimulateResponse } from '@/lib/api';
+import type { StarGAEvent } from '@/types';
 
 const initialState = useAlphaStore.getState();
 
@@ -92,6 +93,8 @@ describe('useBacktest pipeline behavior', () => {
     const singleRunArgs = vi.mocked(runSimulate).mock.calls[0];
     expect(singleRunArgs?.[0]).toBe('<data expr="foo"/>');
     expect(singleRunArgs?.[4]).toBeInstanceOf(AbortSignal);
+    expect(singleRunArgs?.[5]).toBe(useAlphaStore.getState().settings.nJobs);
+    expect(singleRunArgs?.[6]).toBe(1);
     expect(adaptSimulateResponse).toHaveBeenCalledWith(starResponse);
 
     const state = useAlphaStore.getState();
@@ -215,4 +218,46 @@ describe('useBacktest pipeline behavior', () => {
     const state = useAlphaStore.getState();
     expect(state.result?.alphas?.[0]?.name).toBe('alpha_new');
   });
+
+  it('forwards D0 and the selected workers and remembers them with the result', async () => {
+    useAlphaStore.getState().setSettings({ barInterval: 'D0', nJobs: 3 });
+    vi.mocked(runSimulate).mockResolvedValue({ batches: [], yearly: [], timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] }, isStartIndex: 0, osStartIndex: 0 });
+    vi.mocked(adaptSimulateResponse).mockReturnValue({ combined: null, alphas: [] });
+    const hook = renderHookHarness();
+    await act(async () => { await hook.run(); });
+    expect(vi.mocked(runSimulate).mock.calls[0][5]).toBe(3);
+    expect(vi.mocked(runSimulate).mock.calls[0][6]).toBe(0);
+    expect(useAlphaStore.getState().result?.runSettings).toMatchObject({ mode: 0, threads: 3 });
+  });
+
+  it('Stop aborts GA transport and ignores late completion and error events', async () => {
+    let observer!: (event: StarGAEvent) => void;
+    const completion = deferred<void>();
+    vi.mocked(runGAStream).mockImplementation(async (...args) => {
+      observer = args[7];
+      await completion.promise;
+    });
+    const originalXml = '<data expr="close" delay="2"/>';
+    useAlphaStore.getState().setXmlCode(originalXml);
+    useAlphaStore.getState().setSettings({ barInterval: 'D0', nJobs: 3 });
+    const hook = renderHookHarness();
+    let running!: Promise<void>;
+    act(() => { running = hook.runGA(); });
+    const abort = vi.mocked(runGAStream).mock.calls[0][8];
+    expect(vi.mocked(runGAStream).mock.calls[0][9]).toBe(0);
+    expect(vi.mocked(runGAStream).mock.calls[0][6]).toBe(3);
+    act(() => { hook.stop(); });
+    expect(abort?.aborted).toBe(true);
+    await act(async () => {
+      observer({ type: 'complete', bestXml: '<late/>', batches: [], yearly: [], timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] }, isStartIndex: 0, osStartIndex: 0 });
+      observer({ type: 'error', error: 'late error' });
+      completion.resolve();
+      await running;
+    });
+    expect(useAlphaStore.getState().result).toBeNull();
+    expect(useAlphaStore.getState().xmlCode).toBe(originalXml);
+    expect(useAlphaStore.getState().gaProgress).toBeNull();
+    expect(useAlphaStore.getState().backtestError).toBeNull();
+  });
+
 });

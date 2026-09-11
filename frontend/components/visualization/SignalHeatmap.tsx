@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState, useMemo, memo } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
+import { selectSignalSource } from '@/lib/signalSelection';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
 import { signalToColor } from '@/lib/colorScale';
@@ -30,7 +31,7 @@ function SignalHeatmap() {
   // Cache canvas bounding rect — updated in drawBase (on resize/data change), avoids getBoundingClientRect() on every mousemove (js-cache-property)
   const canvasRectRef = useRef<DOMRect | null>(null);
   // Granular selectors — avoid subscribing to the full result object for selection state
-  const heatmap = useAlphaStore(s => s.result?.heatmap);
+  const heatmap = useAlphaStore(s => selectSignalSource(s)?.heatmap);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const selectedTimestamp = useAlphaStore(s => s.selectedTimestamp);
   const setSelectedCell = useAlphaStore(s => s.setSelectedCell);
@@ -86,8 +87,7 @@ function SignalHeatmap() {
 
    // Overlay only: restore cached pixels then draw highlight. O(1) per click.
    // Declared before drawBase so drawBase can call it directly.
-   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
      const currentSelectedSymbol = selectedSymbolRef.current;
      const currentSelectedTimestamp = selectedTimestampRef.current;
      const currentSymbolMap = symbolMapRef.current;
@@ -121,8 +121,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
      const ctx = canvas.getContext('2d');
      if (!ctx) return;
 
-     void currentTheme; // Trigger redraw on theme change (getThemeColors reads CSS variables)
-     const colors = getThemeColors();
+     const colors = getThemeColors(currentTheme);
      themeColorsRef.current = colors; // Cache for drawSelectionOverlay (avoids getComputedStyle per click)
      const { timestamps, symbols, values } = currentHeatmap;
      const numTimestamps = timestamps.length;
@@ -149,60 +148,15 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
      ctx.fillStyle = colors.chartBackground;
      ctx.fillRect(0, 0, width, height);
 
-     // Precompute rank-based color palettes per unique sortedLen (js-cache-function-results)
-     // signalToColor() constructs rgb() strings — cache to avoid ~6k calls per draw
-     const NAN_COLOR = signalToColor(NaN, -1, 1);
-     const ZERO_COLOR = signalToColor(0, -1, 1);
-     const colorPalettes = new Map<number, string[]>();
-
-     // Per-timestamp rank-based normalization
-     const colSorted: number[][] = new Array(numTimestamps);
-     for (let t = 0; t < numTimestamps; t++) {
-       const col = values[t];
-       const finite: number[] = [];
-       if (col) {
-         for (let s = 0; s < numSymbols; s++) {
-           const v = col[s];
-           if (typeof v === 'number' && isFinite(v)) finite.push(v);
-         }
-       }
-       colSorted[t] = finite.toSorted((a, b) => a - b);
-
-       // Build palette for this sortedLen if not already cached
-       const sortedLen = colSorted[t].length;
-       if (sortedLen > 1 && !colorPalettes.has(sortedLen)) {
-         const palette = new Array<string>(sortedLen);
-         for (let r = 0; r < sortedLen; r++) {
-           palette[r] = signalToColor((r / (sortedLen - 1)) * 2 - 1, -1, 1);
-         }
-         colorPalettes.set(sortedLen, palette);
-       }
-     }
-
+     // Normalize magnitude per timestamp while preserving each raw signal's sign.
      for (let timeIdx = 0; timeIdx < numTimestamps; timeIdx++) {
-       const col = values[timeIdx]; // js-cache-property: cache per-timestamp column
+       const col = values[timeIdx];
+       let extent = 0;
+       for (const value of col ?? []) {
+         if (typeof value === 'number' && Number.isFinite(value)) extent = Math.max(extent, Math.abs(value));
+       }
        for (let symbolIdx = 0; symbolIdx < numSymbols; symbolIdx++) {
-         const value = col?.[symbolIdx];
-         let color: string;
-         if (typeof value !== 'number' || !isFinite(value)) {
-           color = NAN_COLOR;
-         } else {
-           const sorted = colSorted[timeIdx];
-           const sortedLen = sorted.length;
-           if (sortedLen <= 1) {
-             color = ZERO_COLOR;
-           } else {
-             let lo = 0, hi = sortedLen;
-             while (lo < hi) {
-               const mid = (lo + hi) >> 1;
-               if (sorted[mid] < value) lo = mid + 1;
-               else hi = mid;
-             }
-             color = colorPalettes.get(sortedLen)![lo];
-           }
-         }
-
-         ctx.fillStyle = color;
+         ctx.fillStyle = signalToColor(col?.[symbolIdx], -extent, extent, colors);
          ctx.fillRect(Math.floor(timeIdx * cellW), Math.floor(symbolIdx * cellH), Math.ceil(cellW), Math.ceil(cellH));
        }
      }
@@ -211,16 +165,16 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
      baseImageDataRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
      // Draw initial selection if any
-     drawSelectionOverlay(ctx, canvas);
-  }, []); // Stable identity: reads latest values from refs, not closures
+     drawSelectionOverlay(ctx);
+  }, [drawSelectionOverlay]); // Stable identity: reads latest values from refs, not closures
 
   const drawSelection = useCallback(() => {
      const canvas = canvasRef.current;
      if (!canvas) return;
      const ctx = canvas.getContext('2d');
      if (!ctx) return;
-     drawSelectionOverlay(ctx, canvas);
-  }, []); // Stable identity: reads latest values from refs, not closures
+     drawSelectionOverlay(ctx);
+  }, [drawSelectionOverlay]); // Stable identity: reads latest values from refs, not closures
 
    // Full redraw only when heatmap data or theme changes
    useEffect(() => {
@@ -239,7 +193,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
     const observer = new ResizeObserver(() => drawBase());
     observer.observe(container);
     return () => observer.disconnect();
-  }, [drawBase]);
+  }, [drawBase, heatmap]);
 
   const getCell = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -284,8 +238,8 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
       children[2].textContent = value === null ? 'N/A' : value.toFixed(4);
       children[2].className = `font-mono ${
         value === null ? 'text-foreground-muted' :
-        value > 0 ? 'text-metric-negative' :
-        value < 0 ? 'text-accent' : 'text-foreground-muted'
+        value > 0 ? 'text-metric-positive' :
+        value < 0 ? 'text-metric-negative' : 'text-foreground-muted'
       }`;
       el.style.left = `${e.clientX + 10}px`;
       el.style.top = `${e.clientY + 10}px`;
@@ -294,7 +248,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
         ? 'translateX(calc(-100% - 20px))' : '';
       el.style.display = 'block';
     }
-  }, []); // Stable identity: reads latest heatmap via ref, not closure
+  }, [getCell]); // Stable identity: reads latest heatmap via ref, not closure
 
   const handleMouseLeave = useCallback(() => {
     const el = tooltipElemRef.current;
@@ -340,7 +294,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
         setSelectedCell(symbol, timestamp);
       }
     }
-  }, [setSelectedCell]); // Stable identity: reads latest heatmap via ref, not closure
+  }, [getCell, setSelectedCell]); // Stable identity: reads latest heatmap via ref, not closure
 
   if (!heatmap) {
     return EMPTY_HEATMAP;
@@ -375,6 +329,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
       </div>
 
       <canvas
+        aria-label="Signal heatmap"
         ref={canvasRef}
         onClick={handleClick}
         onMouseMove={handleMouseMove}
@@ -382,7 +337,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D, canvas:
         className="cursor-pointer block"
       />
       {/* Persistent tooltip — content/position updated imperatively in handleMouseMove (rerender-use-ref-transient-values) */}
-      {/* Signal context: positive = short bias (bearish) → red; negative = long bias (bullish) → blue */}
+      {/* Signal context: positive = long → positive color; negative = short → negative color */}
       <div
         ref={tooltipElemRef}
         className="fixed z-50 px-3 py-2 text-xs bg-background-elevated border border-border-strong shadow-elevated pointer-events-none"
