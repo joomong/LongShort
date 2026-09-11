@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
+#include <atomic>
+#include <future>
+#include <thread>
+#include "api/combined_signals.h"
 #include "data/data_panel.h"
 #include "engine/simulator.h"
 #include "metrics/metrics_engine.h"
@@ -210,4 +214,98 @@ TEST(CombinedAlpha, CombinedMetricsAreFinite) {
     EXPECT_TRUE(std::isfinite(metrics.os_summary.pnl));
     EXPECT_FALSE(metrics.yearly.empty());
     EXPECT_FALSE(metrics.timeseries.timestamps.empty());
+}
+
+
+TEST(CombinedAlpha, NormalizedModeGivesEqualWeightDespiteRawSignalScale) {
+    auto panel = make_test_panel(1, 4);
+    const float alpha_a[] = {1, -1, 0, 0};
+    const float alpha_b[] = {0, 0, 100, -100};
+    std::vector<double> scratch, weights;
+    OrderedSignalAccumulator normalized(panel, "normalized");
+    normalized.add(0, 0, alpha_a, 4, scratch);
+    normalized.add(1, 0, alpha_b, 4, scratch);
+    const auto equal_signals = normalized.take_signals();
+    normalize_signal_row(panel, 0, equal_signals[0].data(), weights);
+    EXPECT_DOUBLE_EQ(weights[0], 0.25);
+    EXPECT_DOUBLE_EQ(weights[1], -0.25);
+    EXPECT_DOUBLE_EQ(weights[2], 0.25);
+    EXPECT_DOUBLE_EQ(weights[3], -0.25);
+
+    OrderedSignalAccumulator legacy(panel, "raw");
+    legacy.add(0, 0, alpha_a, 4, scratch);
+    legacy.add(1, 0, alpha_b, 4, scratch);
+    const auto raw_signals = legacy.take_signals();
+    normalize_signal_row(panel, 0, raw_signals[0].data(), weights);
+    EXPECT_DOUBLE_EQ(weights[0], 1.0 / 202.0);
+    EXPECT_DOUBLE_EQ(weights[2], 100.0 / 202.0);
+}
+
+TEST(CombinedAlpha, OrderedAccumulationIsExactAcrossWorkerCounts) {
+    auto panel = make_test_panel(9, 4);
+    const std::vector<float> scales = {1e20f, 3.0f, -1e20f, 7.0f, 0.125f, -0.25f, 1e-8f};
+    auto run = [&](unsigned threads, const std::string& mode) {
+        OrderedSignalAccumulator accumulator(panel, mode);
+        std::atomic<std::size_t> next{0};
+        std::vector<std::thread> workers;
+        for (unsigned worker = 0; worker < threads; ++worker) {
+            workers.emplace_back([&] {
+                std::vector<double> scratch;
+                while (true) {
+                    const auto alpha = next.fetch_add(1);
+                    if (alpha >= scales.size()) return;
+                    for (unsigned di = 0; di < panel.T; ++di) {
+                        std::this_thread::yield();
+                        const float row[] = {scales[alpha], -scales[alpha], 1.0f, -2.0f};
+                        accumulator.add(alpha, di, row, 4, scratch);
+                    }
+                }
+            });
+        }
+        for (auto& worker : workers) worker.join();
+        return accumulator.take_signals();
+    };
+    for (const std::string mode : {"raw", "normalized"}) {
+        const auto expected = run(1, mode);
+        EXPECT_EQ(run(2, mode), expected);
+        EXPECT_EQ(run(4, mode), expected);
+    }
+}
+
+TEST(CombinedAlpha, FailedEvaluationWakesWaitingLaterAlpha) {
+    auto panel = make_test_panel(1, 1);
+    OrderedSignalAccumulator accumulator(panel, "raw");
+    auto later = std::async(std::launch::async, [&] {
+        std::vector<double> scratch;
+        const float row[] = {1};
+        accumulator.add(1, 0, row, 1, scratch);
+    });
+    accumulator.cancel();
+    EXPECT_THROW(later.get(), std::runtime_error);
+}
+
+TEST(CombinedAlpha, NormalizedContributionsUseTheSignalDateUniverse) {
+    auto panel = make_test_panel(1, 3);
+    panel.universe_mask = {1, 0, 1};
+    OrderedSignalAccumulator accumulator(panel, "normalized");
+    const float row[] = {1, 100, -1};
+    std::vector<double> scratch;
+    accumulator.add(0, 0, row, 3, scratch);
+    const auto signals = accumulator.take_signals();
+    EXPECT_EQ(signals[0], (std::vector<float>{0.5f, 0.0f, -0.5f}));
+}
+
+
+TEST(CombinedAlpha, RawOverflowFailsInsteadOfDiscardingTheEarlierSum) {
+    auto panel = make_test_panel(1, 1);
+    OrderedSignalAccumulator accumulator(panel, "raw");
+    std::vector<double> scratch;
+    const float large[] = {std::numeric_limits<float>::max()};
+    const float small[] = {-1.0f};
+    accumulator.add(0, 0, large, 1, scratch);
+    EXPECT_THROW(accumulator.add(1, 0, large, 1, scratch), std::overflow_error);
+    // The worker error path cancels the request; later alphas cannot turn an
+    // overflow into an apparently finite answer by resetting the accumulator.
+    accumulator.cancel();
+    EXPECT_THROW(accumulator.add(2, 0, small, 1, scratch), std::runtime_error);
 }

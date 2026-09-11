@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 struct YearlyMetrics {
     int year;
@@ -21,5 +22,6 @@ std::vector<YearlyMetrics> compute_yearly(
     const std::vector<double>& turnover,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    unsigned bars_per_year = 365
+    unsigned bars_per_year = 365,
+    std::size_t start_index = 1
 );

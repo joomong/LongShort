@@ -164,6 +164,9 @@ set_target_properties(longshort-server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}>")
 
 # One-off benchmark utility for large multi-alpha request breakdown
+add_executable(data_load_probe tools/data_load_probe.cpp)
+target_link_libraries(data_load_probe PRIVATE engine)
+
 add_executable(bench_2000_breakdown tools/bench_2000_breakdown.cpp)
 target_link_libraries(bench_2000_breakdown PRIVATE engine)
 
@@ -177,9 +180,14 @@ function(add_engine_test name source)
     add_executable(${name} ${source})
     target_link_libraries(${name} PRIVATE engine GTest::gtest_main)
     add_test(NAME ${name} COMMAND ${name})
+    if(NOT name STREQUAL "test_http_contract")
+        set_tests_properties(${name} PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
 endfunction()
 
 add_engine_test(test_data_loader      tests/test_data_loader.cpp)
+add_engine_test(test_config_loader    tests/test_config_loader.cpp)
+add_engine_test(test_parquet_loader   tests/test_parquet_loader.cpp)
 add_engine_test(test_modules          tests/test_modules.cpp)
 add_engine_test(test_simulator        tests/test_simulator.cpp)
 add_engine_test(test_summary_metrics  tests/test_summary_metrics.cpp)
@@ -199,7 +207,7 @@ add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
-foreach(tool_test test_generate_modules test_run_engine test_module_build)
+foreach(tool_test test_generate_modules test_run_engine test_module_build test_afl_catalog)
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
 endforeach()

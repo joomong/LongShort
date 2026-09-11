@@ -1,0 +1,5403 @@
+{
+  "schema_version": 1,
+  "fields": {
+    "AIR_1YGrRPC": "902.parquet",
+    "AIR_1YGrRPM": "903.parquet",
+    "AIR_AvgAgeofAircraft": "908.parquet",
+    "AIR_FuelConstoASM": "907.parquet",
+    "AIR_OpExptoASM": "906.parquet",
+    "AIR_PassengerLF": "904.parquet",
+    "AIR_TotProfittoASM": "905.parquet",
+    "AccrualRatioBS": "212.parquet",
+    "AccrualRatioCF": "213.parquet",
+    "Adj50DVolSig": "457.parquet",
+    "AdjAccruals": "219.parquet",
+    "AdjAstAdjChg1YFCF": "461.parquet",
+    "AdjAstAdjChg3YFCF": "464.parquet",
+    "AdjChgEPS": "465.parquet",
+    "AdjChgEPStoSales": "493.parquet",
+    "AdjEBITDAEV": "468.parquet",
+    "AdjEBITP": "1229.parquet",
+    "AdjEPSNumRevFY1C": "960.parquet",
+    "AdjEPSNumRevFY2C": "967.parquet",
+    "AdjFCFP": "466.parquet",
+    "AdjFwdEPC": "964.parquet",
+    "AdjFwdFCFPC": "979.parquet",
+    "AdjGFP": "469.parquet",
+    "AdjIntCov": "507.parquet",
+    "AdjInvPEGC": "991.parquet",
+    "AdjRev3MFY1C": "965.parquet",
+    "AdjRevMagC": "968.parquet",
+    "AdjSTO_6M": "1230.parquet",
+    "Alpha12M6MPChg": "115.parquet",
+    "Alpha18M6MPChg": "116.parquet",
+    "Alpha36M6MPChg": "117.parquet",
+    "Alpha60M": "114.parquet",
+    "Altman_ZScore": "1250.parquet",
+    "Amihud": "1232.parquet",
+    "AnnVol12M": "39.parquet",
+    "AnnVol1M": "40.parquet",
+    "AssetTurn": "31.parquet",
+    "AssetTurn_2": "1263.parquet",
+    "AstAdjChg1YCF": "59.parquet",
+    "AstAdjChg1YEPS": "60.parquet",
+    "AstAdjChg1YFCF": "61.parquet",
+    "AstAdjChg1YOCF": "62.parquet",
+    "AstAdjChg3YCF": "73.parquet",
+    "AstAdjChg3YEPS": "74.parquet",
+    "AstAdjChg3YFCF": "75.parquet",
+    "AstAdjChg3YOCF": "76.parquet",
+    "AstGrwth": "1200.parquet",
+    "AstP": "141.parquet",
+    "BNK_CoreDepMixS": "1220.parquet",
+    "BNK_CostEffS": "1223.parquet",
+    "BNK_DemandDepMixS": "1224.parquet",
+    "BNK_DepCostS": "1219.parquet",
+    "BNK_F_Chg1YModTexasRatioS": "1269.parquet",
+    "BNK_F_Chg1YNonAccLnToAstS": "1270.parquet",
+    "BNK_F_Chg3YOpIncTier1EqtS": "1271.parquet",
+    "BNK_F_Chg3YTotExpAvgAstS": "1272.parquet",
+    "BNK_F_CoreEPSS": "1267.parquet",
+    "BNK_F_PreProvNetRevPrcS": "1268.parquet",
+    "BNK_F_ProbLnsTotEqtResvS": "1274.parquet",
+    "BNK_F_RRWAS": "1275.parquet",
+    "BNK_F_SMMDATotDepS": "1273.parquet",
+    "BNK_F_Tier1CapS": "1276.parquet",
+    "BNK_LnDiverseS": "1217.parquet",
+    "BNK_LoanFundS": "1210.parquet",
+    "BNK_LoanLossIndS": "1209.parquet",
+    "BNK_LossAbsorpPowerS": "1208.parquet",
+    "BNK_NonPerAstEAS": "1214.parquet",
+    "BNK_OpIncAstS": "1218.parquet",
+    "BNK_PPPAS": "1227.parquet",
+    "BNK_PPPEAS": "1226.parquet",
+    "BNK_PPPPS": "1222.parquet",
+    "BNK_ProbLoansS": "1212.parquet",
+    "BNK_ProvRateS": "1221.parquet",
+    "BNK_ROTCES": "1228.parquet",
+    "BNK_TBVPS": "1213.parquet",
+    "BNK_TexasRatioS": "1215.parquet",
+    "BNK_Tier1CapS": "1216.parquet",
+    "BNK_TimeDepMixS": "1225.parquet",
+    "BNK_YoYChg30DLTLS": "1211.parquet",
+    "BP": "29.parquet",
+    "BVEV": "502.parquet",
+    "BVEV_2": "1280.parquet",
+    "Beta60M": "94.parquet",
+    "BookLev": "455.parquet",
+    "BuyBackChg": "21.parquet",
+    "BuyToSellRecLess3MEMA": "1234.parquet",
+    "BuyToSellRecLess3MSMA": "1235.parquet",
+    "CACL": "160.parquet",
+    "CFAst": "495.parquet",
+    "CFEV": "51.parquet",
+    "CFEqt": "485.parquet",
+    "CFIC": "486.parquet",
+    "CFP": "52.parquet",
+    "CFROIC": "11.parquet",
+    "CQDOHtoSales": "623.parquet",
+    "CQDRItoSales": "624.parquet",
+    "CQPTTMCFtoSales": "625.parquet",
+    "CVVolPrc20D": "521.parquet",
+    "CVVolPrc30D": "533.parquet",
+    "CVVolPrc60D": "522.parquet",
+    "CapAcqRatio": "14.parquet",
+    "CapExToAst": "126.parquet",
+    "CapExToSales": "127.parquet",
+    "CashAdjEV": "487.parquet",
+    "CashAst": "30.parquet",
+    "CashBurn": "471.parquet",
+    "CashCycle": "22.parquet",
+    "CashEV": "142.parquet",
+    "CashP": "143.parquet",
+    "CashRatio": "162.parquet",
+    "CashToSales": "128.parquet",
+    "Chg1YAmihud": "1233.parquet",
+    "Chg1YAstTo": "63.parquet",
+    "Chg1YCACL": "1246.parquet",
+    "Chg1YCF": "64.parquet",
+    "Chg1YEPS": "65.parquet",
+    "Chg1YFCF": "66.parquet",
+    "Chg1YGPMargin": "1247.parquet",
+    "Chg1YLTDA": "1245.parquet",
+    "Chg1YOCF": "67.parquet",
+    "Chg1YOPM": "68.parquet",
+    "Chg1YROA": "1244.parquet",
+    "Chg1YTurnover": "1231.parquet",
+    "Chg3YAstTo": "77.parquet",
+    "Chg3YCF": "78.parquet",
+    "Chg3YEPS": "79.parquet",
+    "Chg3YFCF": "80.parquet",
+    "Chg3YOCF": "81.parquet",
+    "Chg3YOPM": "82.parquet",
+    "Chg4QSalesTrend": "607.parquet",
+    "ChgATO": "498.parquet",
+    "ChgATO_2": "1262.parquet",
+    "ChgChgOfftoGL": "491.parquet",
+    "ChgDeprCapex": "26.parquet",
+    "ChgNonPerAsttoAst": "490.parquet",
+    "ChgNonPerAsttoResLnLos": "492.parquet",
+    "ChgNonPerfLnGL": "473.parquet",
+    "ChgSalesMargin": "28.parquet",
+    "ChgSalestoChgEPS": "496.parquet",
+    "ConsQPosChgTTMEPS": "617.parquet",
+    "ConsQPosChginTTMCF": "616.parquet",
+    "CurLiaP": "506.parquet",
+    "DA": "12.parquet",
+    "DIVIDENDGROWTH": "942.parquet",
+    "DebtChg1Y": "214.parquet",
+    "DepToCapex": "182.parquet",
+    "DivP": "145.parquet",
+    "DivToCF": "129.parquet",
+    "DivperShareGrowth": "1025.parquet",
+    "EBITDAEV": "49.parquet",
+    "EBITDAMargin": "505.parquet",
+    "EBITDAP": "53.parquet",
+    "EBITEstDisp": "1240.parquet",
+    "EBITMargin": "164.parquet",
+    "EBITP": "645.parquet",
+    "EP": "50.parquet",
+    "EPSEstDispFY1C": "958.parquet",
+    "EPSEstDispFY2C": "962.parquet",
+    "EPSNumRevFY1C": "963.parquet",
+    "EPSStab": "459.parquet",
+    "EPSSurpC": "957.parquet",
+    "EPSToOCFChg": "130.parquet",
+    "EPSToSalesChg1Y": "218.parquet",
+    "ETO": "131.parquet",
+    "EbitToAst": "1199.parquet",
+    "EbitToAst_2": "1266.parquet",
+    "EbitdaToAst": "1198.parquet",
+    "EstDiffC": "953.parquet",
+    "FCFEV": "45.parquet",
+    "FCFEqt": "48.parquet",
+    "FCFP": "44.parquet",
+    "FCFP_BK": "501.parquet",
+    "FCFSales": "458.parquet",
+    "FCFStab": "484.parquet",
+    "FL": "168.parquet",
+    "FY2OverFY1Growth": "610.parquet",
+    "FinLev": "518.parquet",
+    "FwdEPC": "980.parquet",
+    "FwdFCFPC": "981.parquet",
+    "GFP": "144.parquet",
+    "GM_MineLife": "868.parquet",
+    "GM_PPRestoMktCap": "865.parquet",
+    "GM_ProdtoMktCap": "866.parquet",
+    "GM_ProductionGrowth": "867.parquet",
+    "GM_ReserveAcqYield": "864.parquet",
+    "GM_ReserveGrowth": "863.parquet",
+    "GPMargin": "165.parquet",
+    "GrPftToAst": "1197.parquet",
+    "HB_1YGTotHRevConstinProg": "895.parquet",
+    "HB_1YGrHouseSalesRev": "899.parquet",
+    "HB_1YGrNetNewOrders": "900.parquet",
+    "HB_1YrGrTotHomeRevtoInv": "897.parquet",
+    "HB_BacklogHomesValueGr": "901.parquet",
+    "HB_DelivHomeValGrtoMktCap": "896.parquet",
+    "HB_HomeGM": "898.parquet",
+    "HF_1YChgAdmissions": "918.parquet",
+    "HF_1YGrAvgLengthofStay": "920.parquet",
+    "HF_FacilitiesGr": "921.parquet",
+    "HF_LicensedBedsGr": "924.parquet",
+    "HF_PatientDaysGr": "919.parquet",
+    "HF_SurgeriesGr": "923.parquet",
+    "HF_TotRevperFacility": "922.parquet",
+    "HG_1YChgNumProperties": "880.parquet",
+    "HG_1YChgNumRooms": "879.parquet",
+    "HG_1YChgRevperRoom": "878.parquet",
+    "HG_HotelCasinoRevtoOpExp": "884.parquet",
+    "HG_ProfitperRoom": "881.parquet",
+    "HG_RevperRoom": "883.parquet",
+    "HG_RoomMargin": "882.parquet",
+    "HL1M": "41.parquet",
+    "HL52W": "100.parquet",
+    "INS_1YGrwNPE": "887.parquet",
+    "INS_1YGrwTotInvestments": "888.parquet",
+    "INS_1YGrwUwProfit": "886.parquet",
+    "INS_ClaimsRatio": "892.parquet",
+    "INS_CombinedRatio": "894.parquet",
+    "INS_ExpenseRatio": "893.parquet",
+    "INS_NPWtoNetAssets": "891.parquet",
+    "INS_NPWtoStatSurp": "890.parquet",
+    "INS_RetentionRatio": "889.parquet",
+    "INS_UwMargin": "885.parquet",
+    "IO_BreadthStabBY": "1182.parquet",
+    "IO_BreadthStabHD": "1192.parquet",
+    "IO_ChgofIO_AM": "1185.parquet",
+    "IO_ChgofIO_HF": "1186.parquet",
+    "IO_ChgofNumBY": "1191.parquet",
+    "IO_ChgofNumHD": "1190.parquet",
+    "IO_Concentration": "1181.parquet",
+    "IO_Foreign": "1184.parquet",
+    "IO_InvDuration": "1188.parquet",
+    "IO_Level": "1183.parquet",
+    "IO_Level_AM": "1189.parquet",
+    "IO_NAT": "1201.parquet",
+    "IO_StabofChgHD": "1187.parquet",
+    "IO_TO": "1180.parquet",
+    "IndRelEBITP": "503.parquet",
+    "IndRelRtn4W": "520.parquet",
+    "IndRel_50DVolSig": "556.parquet",
+    "IndRel_AccrualRatioBS": "547.parquet",
+    "IndRel_AccrualRatioCF": "548.parquet",
+    "IndRel_AdjAccruals": "554.parquet",
+    "IndRel_AssetTurn": "279.parquet",
+    "IndRel_AstP": "426.parquet",
+    "IndRel_BP": "275.parquet",
+    "IndRel_BuyBackChg": "259.parquet",
+    "IndRel_CACL": "534.parquet",
+    "IndRel_CFEV": "308.parquet",
+    "IndRel_CFP": "310.parquet",
+    "IndRel_CFROIC": "242.parquet",
+    "IndRel_CapAcqRatio": "248.parquet",
+    "IndRel_CapExToAst": "398.parquet",
+    "IndRel_CashAst": "277.parquet",
+    "IndRel_CashCycle": "261.parquet",
+    "IndRel_CashEV": "428.parquet",
+    "IndRel_CashP": "430.parquet",
+    "IndRel_CashRatio": "536.parquet",
+    "IndRel_Chg1YEPS": "332.parquet",
+    "IndRel_Chg1YFCF": "334.parquet",
+    "IndRel_Chg1YOCF": "336.parquet",
+    "IndRel_Chg1YOPM": "338.parquet",
+    "IndRel_ChgDeprCapex": "269.parquet",
+    "IndRel_ChgSalesMargin": "273.parquet",
+    "IndRel_DA": "244.parquet",
+    "IndRel_DebtChg1Y": "549.parquet",
+    "IndRel_DepToCapex": "545.parquet",
+    "IndRel_DivP": "649.parquet",
+    "IndRel_EBITDAEV": "304.parquet",
+    "IndRel_EBITDAP": "312.parquet",
+    "IndRel_EBITMargin": "538.parquet",
+    "IndRel_EP": "306.parquet",
+    "IndRel_EPSEstDispFY1C": "1007.parquet",
+    "IndRel_EPSSurpC": "1008.parquet",
+    "IndRel_EPSToSalesChg1Y": "553.parquet",
+    "IndRel_FCFEV": "296.parquet",
+    "IndRel_FCFEqt": "302.parquet",
+    "IndRel_FCFP": "294.parquet",
+    "IndRel_FwdEPC": "1010.parquet",
+    "IndRel_FwdFCFPC": "1011.parquet",
+    "IndRel_GFP": "432.parquet",
+    "IndRel_GPMargin": "539.parquet",
+    "IndRel_IndiDivP": "434.parquet",
+    "IndRel_IntCovRatio": "250.parquet",
+    "IndRel_InvPEGC": "1009.parquet",
+    "IndRel_InvPEGYC": "1012.parquet",
+    "IndRel_InvToAsset": "271.parquet",
+    "IndRel_InvToAst": "546.parquet",
+    "IndRel_InvToAstChg1Y": "552.parquet",
+    "IndRel_InvTurn": "281.parquet",
+    "IndRel_LTDA": "557.parquet",
+    "IndRel_LTDE": "246.parquet",
+    "IndRel_LTGC": "1005.parquet",
+    "IndRel_MaxRetPayoff": "555.parquet",
+    "IndRel_NCAP": "436.parquet",
+    "IndRel_NetProfitMargin": "263.parquet",
+    "IndRel_OCFEV": "298.parquet",
+    "IndRel_OCFP": "449.parquet",
+    "IndRel_OEA": "541.parquet",
+    "IndRel_OEP": "300.parquet",
+    "IndRel_OPM": "408.parquet",
+    "IndRel_PAdjChg1YCF": "340.parquet",
+    "IndRel_PAdjChg1YEPS": "342.parquet",
+    "IndRel_PAdjChg1YFCF": "344.parquet",
+    "IndRel_PAdjChg1YSales": "382.parquet",
+    "IndRel_PAdjChg3YSales": "384.parquet",
+    "IndRel_PM12M1M": "285.parquet",
+    "IndRel_PM1M": "286.parquet",
+    "IndRel_PM5D": "650.parquet",
+    "IndRel_PM6M": "550.parquet",
+    "IndRel_PM9M": "372.parquet",
+    "IndRel_PTIP": "318.parquet",
+    "IndRel_PTMargin": "542.parquet",
+    "IndRel_QuickRatio": "535.parquet",
+    "IndRel_ROA": "239.parquet",
+    "IndRel_ROE": "233.parquet",
+    "IndRel_ROIC": "230.parquet",
+    "IndRel_RONA": "560.parquet",
+    "IndRel_RecTurn": "537.parquet",
+    "IndRel_SEV": "438.parquet",
+    "IndRel_SGAToSales": "420.parquet",
+    "IndRel_SGAToSalesChg1Y": "551.parquet",
+    "IndRel_SP": "440.parquet",
+    "IndRel_SUEC": "1006.parquet",
+    "IndRel_ShareChg": "254.parquet",
+    "IndRel_ShortIntRatio": "376.parquet",
+    "IndRel_ShortIntTrdVol": "377.parquet",
+    "IndRel_SolvencyRatio": "559.parquet",
+    "IndRel_SusGrwRate": "380.parquet",
+    "IndRel_TobinQ": "543.parquet",
+    "IndRel_TotalAccruals": "267.parquet",
+    "IndRel_WCA": "540.parquet",
+    "IndRel_WCAccruals": "265.parquet",
+    "IndRel_WCTurn": "544.parquet",
+    "IndRel_WCapToSales": "424.parquet",
+    "IndiDivP": "146.parquet",
+    "IntCovRatio": "15.parquet",
+    "InvPEGC": "961.parquet",
+    "InvPEGYC": "982.parquet",
+    "InvToAsset": "27.parquet",
+    "InvToAst": "184.parquet",
+    "InvToAstChg1Y": "217.parquet",
+    "InvTurn": "32.parquet",
+    "LTDA": "222.parquet",
+    "LTDE": "13.parquet",
+    "LTGC": "952.parquet",
+    "LogAssets": "632.parquet",
+    "LogMktCap": "38.parquet",
+    "LogMktCapCubed": "630.parquet",
+    "LogTTMSales": "43.parquet",
+    "LogUnadjPrice": "859.parquet",
+    "MH_1YGrEnrollment": "928.parquet",
+    "MH_1YGrHealthcarePremiums": "927.parquet",
+    "MH_MedicalLossRatio": "925.parquet",
+    "MVEToTL": "1248.parquet",
+    "MaxRetPayoff": "220.parquet",
+    "NCAP": "153.parquet",
+    "NIStab": "950.parquet",
+    "NetProfitMargin": "23.parquet",
+    "NonPerfAstResLnLs": "516.parquet",
+    "OCFAst": "494.parquet",
+    "OCFAst_2": "1261.parquet",
+    "OCFEV": "46.parquet",
+    "OCFEqt": "504.parquet",
+    "OCFIC": "497.parquet",
+    "OCFP": "47.parquet",
+    "OCFRatio": "508.parquet",
+    "OCFStab": "460.parquet",
+    "OEA": "167.parquet",
+    "OEP": "154.parquet",
+    "OG_ChgDCFMktCap": "822.parquet",
+    "OG_ChgFCFMktCap": "825.parquet",
+    "OG_ChgFCFPerShare": "827.parquet",
+    "OG_ChgFCFTotAst": "826.parquet",
+    "OG_ChgResvExhRate": "828.parquet",
+    "OG_ChgResvExpDevC": "830.parquet",
+    "OG_ChgResvMktCap": "832.parquet",
+    "OG_ChgResvTotCost": "831.parquet",
+    "OG_DCFMktCap": "823.parquet",
+    "OG_FCFMktCap": "824.parquet",
+    "OG_GasMgn": "837.parquet",
+    "OG_OilMgn": "836.parquet",
+    "OG_PrvdResvMktCap": "833.parquet",
+    "OG_ResvExhRate": "829.parquet",
+    "OG_ResvPerShrG": "834.parquet",
+    "OG_ResvRep": "835.parquet",
+    "OPM": "132.parquet",
+    "PA52WL20DLag": "619.parquet",
+    "PAYOUTRATIO": "947.parquet",
+    "PAdjChg1YCF": "69.parquet",
+    "PAdjChg1YEPS": "70.parquet",
+    "PAdjChg1YFCF": "71.parquet",
+    "PAdjChg1YOCF": "72.parquet",
+    "PAdjChg1YSales": "102.parquet",
+    "PAdjChg3YCF": "83.parquet",
+    "PAdjChg3YEPS": "84.parquet",
+    "PAdjChg3YFCF": "85.parquet",
+    "PAdjChg3YOCF": "86.parquet",
+    "PAdjChg3YSales": "103.parquet",
+    "PB_1YGrNumPatentApps": "916.parquet",
+    "PB_1YGrNumPatents": "915.parquet",
+    "PB_1YGrNumProdsinPh3": "917.parquet",
+    "PB_PatentstoMktCap": "914.parquet",
+    "PM12M1M": "34.parquet",
+    "PM1M": "35.parquet",
+    "PM5D": "648.parquet",
+    "PM6M": "215.parquet",
+    "PM9M": "91.parquet",
+    "PRatio15To36W": "92.parquet",
+    "PSlopeSERR_26W": "524.parquet",
+    "PTIP": "58.parquet",
+    "PTIToNOA": "133.parquet",
+    "PTMargin": "169.parquet",
+    "Piotroski_FScore": "1249.parquet",
+    "PrcTo260DL": "125.parquet",
+    "PrcTo52WH": "124.parquet",
+    "ProvChgOffSales": "474.parquet",
+    "QuickRatio": "161.parquet",
+    "RDInt": "134.parquet",
+    "REIT_AFFOY": "1256.parquet",
+    "REIT_ICR": "1257.parquet",
+    "REIT_PayoutRatio": "1254.parquet",
+    "REIT_RFFOY": "1258.parquet",
+    "REIT_SFFO1YG": "1251.parquet",
+    "REIT_SFFOStab": "1255.parquet",
+    "REIT_SFFOY": "1259.parquet",
+    "REIT_SSNOIG": "1252.parquet",
+    "REIT_SSRG": "1253.parquet",
+    "RES_1YChgNumRestaurants": "874.parquet",
+    "RES_1YChgSRSGrowth": "875.parquet",
+    "RES_RestaurantOperMargin": "877.parquet",
+    "RES_RestaurantsCLSMOM": "870.parquet",
+    "RES_RestaurantsOPMOM": "871.parquet",
+    "RES_SameRestSalesGrw": "876.parquet",
+    "RES_TTMRestaurantCLS_Sold": "873.parquet",
+    "RES_TTMRestaurantsOP_Acq": "872.parquet",
+    "RET_1YChgNumStores": "778.parquet",
+    "RET_ChgEPSChgSqFT": "772.parquet",
+    "RET_ChgSSSGrw": "779.parquet",
+    "RET_ChgSalesChgSqFT": "773.parquet",
+    "RET_ChgSalesPerSQFT": "780.parquet",
+    "RET_CompSalesG": "770.parquet",
+    "RET_NetProfitSqFt": "774.parquet",
+    "RET_NetSalesSqFt": "775.parquet",
+    "RET_SSSGrwAcc": "781.parquet",
+    "RET_StoreCLSMOM": "782.parquet",
+    "RET_StoreOPMOM": "783.parquet",
+    "RET_TTMStoresCLS": "777.parquet",
+    "RET_TTMStoresOP": "776.parquet",
+    "RET_YoYGrwSqFt": "771.parquet",
+    "REToAst": "135.parquet",
+    "REToAst_2": "1264.parquet",
+    "ROA": "9.parquet",
+    "ROA60MSlope": "1037.parquet",
+    "ROASTAB": "945.parquet",
+    "ROAStddev20Q": "1035.parquet",
+    "ROA_2": "1260.parquet",
+    "ROE": "4.parquet",
+    "ROEStab": "941.parquet",
+    "ROEStddev20Q": "1036.parquet",
+    "ROIC": "2.parquet",
+    "RONA": "228.parquet",
+    "RSI26W": "93.parquet",
+    "RecTurn": "163.parquet",
+    "RelPrStr_12M": "489.parquet",
+    "Rev3MFY1C": "954.parquet",
+    "Rev3MFY2C": "955.parquet",
+    "RevEstDisp": "1239.parquet",
+    "RevMagFY1C": "956.parquet",
+    "RskAdjRS": "488.parquet",
+    "SEV": "155.parquet",
+    "SGAToSales": "138.parquet",
+    "SGAToSalesChg1Y": "216.parquet",
+    "SP": "156.parquet",
+    "STO": "97.parquet",
+    "STO_6M": "523.parquet",
+    "SUEC": "959.parquet",
+    "SalesAcc": "463.parquet",
+    "SalesToEPSChg": "136.parquet",
+    "SalesToInvCap": "137.parquet",
+    "ShareChg": "18.parquet",
+    "SharpeRatio": "1179.parquet",
+    "ShortIntRatio": "95.parquet",
+    "ShortIntTrdVol": "96.parquet",
+    "SolvencyRatio": "224.parquet",
+    "StdErr180D": "472.parquet",
+    "SusGrwRate": "101.parquet",
+    "TEL_1YrGrBroadbandSubs": "909.parquet",
+    "TEL_1YrGrChurnRate": "913.parquet",
+    "TEL_1YrGrNetSubsAdds": "910.parquet",
+    "TEL_1YrGrWirelessSubs": "933.parquet",
+    "TEL_ChurnRate": "912.parquet",
+    "TEL_WirelessPenetrateRate": "911.parquet",
+    "TTMEPStoTTMSales": "626.parquet",
+    "TTMOverheadtoSales": "633.parquet",
+    "TTMRecInvToSales": "634.parquet",
+    "TobinQ": "177.parquet",
+    "TotalAccruals": "25.parquet",
+    "UT_1YGrAvgRevperKWh": "931.parquet",
+    "UT_1YGrElecGasWaterSales": "930.parquet",
+    "UT_1YGrFuelCostElecGas": "929.parquet",
+    "UT_1YGrOpRevElecGasWater": "932.parquet",
+    "UT_AdjOCFMC": "1279.parquet",
+    "UT_RecEBITDAEV": "1277.parquet",
+    "UT_TBP": "1278.parquet",
+    "UnexpectedInvChg": "42.parquet",
+    "UnexpectedRecChg": "33.parquet",
+    "VolAdjRtn12M": "647.parquet",
+    "WCA": "166.parquet",
+    "WCA_2": "1265.parquet",
+    "WCAccruals": "24.parquet",
+    "WCTurn": "180.parquet",
+    "WCapToAst": "139.parquet",
+    "WCapToSales": "140.parquet",
+    "YoYChgDA": "454.parquet",
+    "afl_100": "100.parquet",
+    "afl_1005": "1005.parquet",
+    "afl_1006": "1006.parquet",
+    "afl_1007": "1007.parquet",
+    "afl_1008": "1008.parquet",
+    "afl_1009": "1009.parquet",
+    "afl_101": "101.parquet",
+    "afl_1010": "1010.parquet",
+    "afl_1011": "1011.parquet",
+    "afl_1012": "1012.parquet",
+    "afl_1013": "1013.parquet",
+    "afl_1014": "1014.parquet",
+    "afl_1015": "1015.parquet",
+    "afl_102": "102.parquet",
+    "afl_1025": "1025.parquet",
+    "afl_103": "103.parquet",
+    "afl_1035": "1035.parquet",
+    "afl_1036": "1036.parquet",
+    "afl_1037": "1037.parquet",
+    "afl_104": "104.parquet",
+    "afl_10DMACD": "104.parquet",
+    "afl_11": "11.parquet",
+    "afl_114": "114.parquet",
+    "afl_115": "115.parquet",
+    "afl_116": "116.parquet",
+    "afl_117": "117.parquet",
+    "afl_1179": "1179.parquet",
+    "afl_118": "118.parquet",
+    "afl_1180": "1180.parquet",
+    "afl_1181": "1181.parquet",
+    "afl_1182": "1182.parquet",
+    "afl_1183": "1183.parquet",
+    "afl_1184": "1184.parquet",
+    "afl_1185": "1185.parquet",
+    "afl_1186": "1186.parquet",
+    "afl_1187": "1187.parquet",
+    "afl_1188": "1188.parquet",
+    "afl_1189": "1189.parquet",
+    "afl_119": "119.parquet",
+    "afl_1190": "1190.parquet",
+    "afl_1191": "1191.parquet",
+    "afl_1192": "1192.parquet",
+    "afl_1197": "1197.parquet",
+    "afl_1198": "1198.parquet",
+    "afl_1199": "1199.parquet",
+    "afl_12": "12.parquet",
+    "afl_120": "120.parquet",
+    "afl_1200": "1200.parquet",
+    "afl_1201": "1201.parquet",
+    "afl_1208": "1208.parquet",
+    "afl_1209": "1209.parquet",
+    "afl_121": "121.parquet",
+    "afl_1210": "1210.parquet",
+    "afl_1211": "1211.parquet",
+    "afl_1212": "1212.parquet",
+    "afl_1213": "1213.parquet",
+    "afl_1214": "1214.parquet",
+    "afl_1215": "1215.parquet",
+    "afl_1216": "1216.parquet",
+    "afl_1217": "1217.parquet",
+    "afl_1218": "1218.parquet",
+    "afl_1219": "1219.parquet",
+    "afl_122": "122.parquet",
+    "afl_1220": "1220.parquet",
+    "afl_1221": "1221.parquet",
+    "afl_1222": "1222.parquet",
+    "afl_1223": "1223.parquet",
+    "afl_1224": "1224.parquet",
+    "afl_1225": "1225.parquet",
+    "afl_1226": "1226.parquet",
+    "afl_1227": "1227.parquet",
+    "afl_1228": "1228.parquet",
+    "afl_1229": "1229.parquet",
+    "afl_123": "123.parquet",
+    "afl_1230": "1230.parquet",
+    "afl_1231": "1231.parquet",
+    "afl_1232": "1232.parquet",
+    "afl_1233": "1233.parquet",
+    "afl_1234": "1234.parquet",
+    "afl_1235": "1235.parquet",
+    "afl_1236": "1236.parquet",
+    "afl_1237": "1237.parquet",
+    "afl_1238": "1238.parquet",
+    "afl_1239": "1239.parquet",
+    "afl_124": "124.parquet",
+    "afl_1240": "1240.parquet",
+    "afl_1244": "1244.parquet",
+    "afl_1245": "1245.parquet",
+    "afl_1246": "1246.parquet",
+    "afl_1247": "1247.parquet",
+    "afl_1248": "1248.parquet",
+    "afl_1249": "1249.parquet",
+    "afl_125": "125.parquet",
+    "afl_1250": "1250.parquet",
+    "afl_1251": "1251.parquet",
+    "afl_1252": "1252.parquet",
+    "afl_1253": "1253.parquet",
+    "afl_1254": "1254.parquet",
+    "afl_1255": "1255.parquet",
+    "afl_1256": "1256.parquet",
+    "afl_1257": "1257.parquet",
+    "afl_1258": "1258.parquet",
+    "afl_1259": "1259.parquet",
+    "afl_126": "126.parquet",
+    "afl_1260": "1260.parquet",
+    "afl_1261": "1261.parquet",
+    "afl_1262": "1262.parquet",
+    "afl_1263": "1263.parquet",
+    "afl_1264": "1264.parquet",
+    "afl_1265": "1265.parquet",
+    "afl_1266": "1266.parquet",
+    "afl_1267": "1267.parquet",
+    "afl_1268": "1268.parquet",
+    "afl_1269": "1269.parquet",
+    "afl_127": "127.parquet",
+    "afl_1270": "1270.parquet",
+    "afl_1271": "1271.parquet",
+    "afl_1272": "1272.parquet",
+    "afl_1273": "1273.parquet",
+    "afl_1274": "1274.parquet",
+    "afl_1275": "1275.parquet",
+    "afl_1276": "1276.parquet",
+    "afl_1277": "1277.parquet",
+    "afl_1278": "1278.parquet",
+    "afl_1279": "1279.parquet",
+    "afl_128": "128.parquet",
+    "afl_1280": "1280.parquet",
+    "afl_129": "129.parquet",
+    "afl_12QTTMCFTrend": "612.parquet",
+    "afl_12QTrendTTMEPS": "613.parquet",
+    "afl_13": "13.parquet",
+    "afl_130": "130.parquet",
+    "afl_130DMinRtn": "456.parquet",
+    "afl_131": "131.parquet",
+    "afl_132": "132.parquet",
+    "afl_133": "133.parquet",
+    "afl_134": "134.parquet",
+    "afl_135": "135.parquet",
+    "afl_136": "136.parquet",
+    "afl_137": "137.parquet",
+    "afl_138": "138.parquet",
+    "afl_139": "139.parquet",
+    "afl_14": "14.parquet",
+    "afl_140": "140.parquet",
+    "afl_141": "141.parquet",
+    "afl_142": "142.parquet",
+    "afl_143": "143.parquet",
+    "afl_144": "144.parquet",
+    "afl_145": "145.parquet",
+    "afl_146": "146.parquet",
+    "afl_14DayRSI": "621.parquet",
+    "afl_15": "15.parquet",
+    "afl_153": "153.parquet",
+    "afl_154": "154.parquet",
+    "afl_155": "155.parquet",
+    "afl_156": "156.parquet",
+    "afl_160": "160.parquet",
+    "afl_161": "161.parquet",
+    "afl_162": "162.parquet",
+    "afl_163": "163.parquet",
+    "afl_164": "164.parquet",
+    "afl_165": "165.parquet",
+    "afl_166": "166.parquet",
+    "afl_167": "167.parquet",
+    "afl_168": "168.parquet",
+    "afl_169": "169.parquet",
+    "afl_177": "177.parquet",
+    "afl_18": "18.parquet",
+    "afl_180": "180.parquet",
+    "afl_182": "182.parquet",
+    "afl_184": "184.parquet",
+    "afl_2": "2.parquet",
+    "afl_20DStochastic": "620.parquet",
+    "afl_21": "21.parquet",
+    "afl_212": "212.parquet",
+    "afl_213": "213.parquet",
+    "afl_214": "214.parquet",
+    "afl_215": "215.parquet",
+    "afl_216": "216.parquet",
+    "afl_217": "217.parquet",
+    "afl_218": "218.parquet",
+    "afl_219": "219.parquet",
+    "afl_22": "22.parquet",
+    "afl_220": "220.parquet",
+    "afl_221": "221.parquet",
+    "afl_222": "222.parquet",
+    "afl_224": "224.parquet",
+    "afl_228": "228.parquet",
+    "afl_23": "23.parquet",
+    "afl_230": "230.parquet",
+    "afl_231": "231.parquet",
+    "afl_233": "233.parquet",
+    "afl_234": "234.parquet",
+    "afl_239": "239.parquet",
+    "afl_24": "24.parquet",
+    "afl_240": "240.parquet",
+    "afl_242": "242.parquet",
+    "afl_244": "244.parquet",
+    "afl_246": "246.parquet",
+    "afl_248": "248.parquet",
+    "afl_24MResRtnVar": "121.parquet",
+    "afl_25": "25.parquet",
+    "afl_250": "250.parquet",
+    "afl_254": "254.parquet",
+    "afl_259": "259.parquet",
+    "afl_26": "26.parquet",
+    "afl_261": "261.parquet",
+    "afl_263": "263.parquet",
+    "afl_264": "264.parquet",
+    "afl_265": "265.parquet",
+    "afl_267": "267.parquet",
+    "afl_269": "269.parquet",
+    "afl_27": "27.parquet",
+    "afl_271": "271.parquet",
+    "afl_273": "273.parquet",
+    "afl_274": "274.parquet",
+    "afl_275": "275.parquet",
+    "afl_276": "276.parquet",
+    "afl_277": "277.parquet",
+    "afl_278": "278.parquet",
+    "afl_279": "279.parquet",
+    "afl_28": "28.parquet",
+    "afl_281": "281.parquet",
+    "afl_285": "285.parquet",
+    "afl_286": "286.parquet",
+    "afl_29": "29.parquet",
+    "afl_294": "294.parquet",
+    "afl_295": "295.parquet",
+    "afl_296": "296.parquet",
+    "afl_297": "297.parquet",
+    "afl_298": "298.parquet",
+    "afl_299": "299.parquet",
+    "afl_30": "30.parquet",
+    "afl_300": "300.parquet",
+    "afl_301": "301.parquet",
+    "afl_302": "302.parquet",
+    "afl_303": "303.parquet",
+    "afl_304": "304.parquet",
+    "afl_305": "305.parquet",
+    "afl_306": "306.parquet",
+    "afl_307": "307.parquet",
+    "afl_308": "308.parquet",
+    "afl_309": "309.parquet",
+    "afl_31": "31.parquet",
+    "afl_310": "310.parquet",
+    "afl_311": "311.parquet",
+    "afl_312": "312.parquet",
+    "afl_313": "313.parquet",
+    "afl_318": "318.parquet",
+    "afl_319": "319.parquet",
+    "afl_32": "32.parquet",
+    "afl_33": "33.parquet",
+    "afl_332": "332.parquet",
+    "afl_333": "333.parquet",
+    "afl_334": "334.parquet",
+    "afl_336": "336.parquet",
+    "afl_338": "338.parquet",
+    "afl_34": "34.parquet",
+    "afl_340": "340.parquet",
+    "afl_342": "342.parquet",
+    "afl_344": "344.parquet",
+    "afl_35": "35.parquet",
+    "afl_372": "372.parquet",
+    "afl_376": "376.parquet",
+    "afl_377": "377.parquet",
+    "afl_38": "38.parquet",
+    "afl_380": "380.parquet",
+    "afl_382": "382.parquet",
+    "afl_384": "384.parquet",
+    "afl_39": "39.parquet",
+    "afl_398": "398.parquet",
+    "afl_39WRtnLag4W": "119.parquet",
+    "afl_3MSalesMom": "605.parquet",
+    "afl_3YAvgAnnEPSGrw": "614.parquet",
+    "afl_3YAvgAnnSalesGrw": "615.parquet",
+    "afl_4": "4.parquet",
+    "afl_40": "40.parquet",
+    "afl_408": "408.parquet",
+    "afl_409": "409.parquet",
+    "afl_41": "41.parquet",
+    "afl_42": "42.parquet",
+    "afl_420": "420.parquet",
+    "afl_424": "424.parquet",
+    "afl_426": "426.parquet",
+    "afl_427": "427.parquet",
+    "afl_428": "428.parquet",
+    "afl_43": "43.parquet",
+    "afl_430": "430.parquet",
+    "afl_432": "432.parquet",
+    "afl_433": "433.parquet",
+    "afl_434": "434.parquet",
+    "afl_435": "435.parquet",
+    "afl_436": "436.parquet",
+    "afl_437": "437.parquet",
+    "afl_438": "438.parquet",
+    "afl_439": "439.parquet",
+    "afl_44": "44.parquet",
+    "afl_440": "440.parquet",
+    "afl_441": "441.parquet",
+    "afl_448": "448.parquet",
+    "afl_449": "449.parquet",
+    "afl_45": "45.parquet",
+    "afl_454": "454.parquet",
+    "afl_455": "455.parquet",
+    "afl_456": "456.parquet",
+    "afl_457": "457.parquet",
+    "afl_458": "458.parquet",
+    "afl_459": "459.parquet",
+    "afl_46": "46.parquet",
+    "afl_460": "460.parquet",
+    "afl_461": "461.parquet",
+    "afl_463": "463.parquet",
+    "afl_464": "464.parquet",
+    "afl_465": "465.parquet",
+    "afl_466": "466.parquet",
+    "afl_468": "468.parquet",
+    "afl_469": "469.parquet",
+    "afl_47": "47.parquet",
+    "afl_471": "471.parquet",
+    "afl_472": "472.parquet",
+    "afl_473": "473.parquet",
+    "afl_474": "474.parquet",
+    "afl_48": "48.parquet",
+    "afl_484": "484.parquet",
+    "afl_485": "485.parquet",
+    "afl_486": "486.parquet",
+    "afl_487": "487.parquet",
+    "afl_488": "488.parquet",
+    "afl_489": "489.parquet",
+    "afl_49": "49.parquet",
+    "afl_490": "490.parquet",
+    "afl_491": "491.parquet",
+    "afl_492": "492.parquet",
+    "afl_493": "493.parquet",
+    "afl_494": "494.parquet",
+    "afl_495": "495.parquet",
+    "afl_496": "496.parquet",
+    "afl_497": "497.parquet",
+    "afl_498": "498.parquet",
+    "afl_4To52WPrcOsc": "118.parquet",
+    "afl_4WChgFwd12MEPS": "608.parquet",
+    "afl_50": "50.parquet",
+    "afl_501": "501.parquet",
+    "afl_502": "502.parquet",
+    "afl_503": "503.parquet",
+    "afl_504": "504.parquet",
+    "afl_505": "505.parquet",
+    "afl_506": "506.parquet",
+    "afl_507": "507.parquet",
+    "afl_508": "508.parquet",
+    "afl_50DVolSig": "221.parquet",
+    "afl_50To200PrcRatio": "123.parquet",
+    "afl_51": "51.parquet",
+    "afl_516": "516.parquet",
+    "afl_518": "518.parquet",
+    "afl_519": "519.parquet",
+    "afl_52": "52.parquet",
+    "afl_520": "520.parquet",
+    "afl_521": "521.parquet",
+    "afl_522": "522.parquet",
+    "afl_523": "523.parquet",
+    "afl_524": "524.parquet",
+    "afl_52WSlope": "120.parquet",
+    "afl_52WVPT20DLag": "618.parquet",
+    "afl_53": "53.parquet",
+    "afl_533": "533.parquet",
+    "afl_534": "534.parquet",
+    "afl_535": "535.parquet",
+    "afl_536": "536.parquet",
+    "afl_537": "537.parquet",
+    "afl_538": "538.parquet",
+    "afl_539": "539.parquet",
+    "afl_540": "540.parquet",
+    "afl_541": "541.parquet",
+    "afl_542": "542.parquet",
+    "afl_543": "543.parquet",
+    "afl_544": "544.parquet",
+    "afl_545": "545.parquet",
+    "afl_546": "546.parquet",
+    "afl_547": "547.parquet",
+    "afl_548": "548.parquet",
+    "afl_549": "549.parquet",
+    "afl_550": "550.parquet",
+    "afl_551": "551.parquet",
+    "afl_552": "552.parquet",
+    "afl_553": "553.parquet",
+    "afl_554": "554.parquet",
+    "afl_555": "555.parquet",
+    "afl_556": "556.parquet",
+    "afl_557": "557.parquet",
+    "afl_559": "559.parquet",
+    "afl_560": "560.parquet",
+    "afl_561": "561.parquet",
+    "afl_562": "562.parquet",
+    "afl_563": "563.parquet",
+    "afl_564": "564.parquet",
+    "afl_565": "565.parquet",
+    "afl_566": "566.parquet",
+    "afl_567": "567.parquet",
+    "afl_568": "568.parquet",
+    "afl_569": "569.parquet",
+    "afl_570": "570.parquet",
+    "afl_571": "571.parquet",
+    "afl_572": "572.parquet",
+    "afl_573": "573.parquet",
+    "afl_574": "574.parquet",
+    "afl_575": "575.parquet",
+    "afl_576": "576.parquet",
+    "afl_577": "577.parquet",
+    "afl_579": "579.parquet",
+    "afl_58": "58.parquet",
+    "afl_580": "580.parquet",
+    "afl_59": "59.parquet",
+    "afl_5DMoneyFlowVol": "622.parquet",
+    "afl_5DVolSig": "519.parquet",
+    "afl_5YRel_AccrualRatioBS": "574.parquet",
+    "afl_5YRel_AccrualRatioCF": "575.parquet",
+    "afl_5YRel_AdjAccruals": "576.parquet",
+    "afl_5YRel_AstP": "427.parquet",
+    "afl_5YRel_BP": "276.parquet",
+    "afl_5YRel_CACL": "561.parquet",
+    "afl_5YRel_CFEV": "309.parquet",
+    "afl_5YRel_CFP": "311.parquet",
+    "afl_5YRel_CashAst": "278.parquet",
+    "afl_5YRel_CashRatio": "563.parquet",
+    "afl_5YRel_Chg1YEPS": "333.parquet",
+    "afl_5YRel_ChgSalesMargin": "274.parquet",
+    "afl_5YRel_DepToCapex": "572.parquet",
+    "afl_5YRel_EBITDAEV": "305.parquet",
+    "afl_5YRel_EBITDAP": "313.parquet",
+    "afl_5YRel_EBITMargin": "565.parquet",
+    "afl_5YRel_EP": "307.parquet",
+    "afl_5YRel_FCFEV": "297.parquet",
+    "afl_5YRel_FCFEqt": "303.parquet",
+    "afl_5YRel_FCFP": "295.parquet",
+    "afl_5YRel_FwdEPC": "1013.parquet",
+    "afl_5YRel_FwdFCFPC": "1014.parquet",
+    "afl_5YRel_GFP": "433.parquet",
+    "afl_5YRel_GPMargin": "566.parquet",
+    "afl_5YRel_IndiDivP": "435.parquet",
+    "afl_5YRel_InvPEGYC": "1015.parquet",
+    "afl_5YRel_InvToAst": "573.parquet",
+    "afl_5YRel_LTDA": "577.parquet",
+    "afl_5YRel_NCAP": "448.parquet",
+    "afl_5YRel_NetProfitMargin": "264.parquet",
+    "afl_5YRel_OCFEV": "299.parquet",
+    "afl_5YRel_OCFP": "301.parquet",
+    "afl_5YRel_OEA": "568.parquet",
+    "afl_5YRel_OEP": "437.parquet",
+    "afl_5YRel_OPM": "409.parquet",
+    "afl_5YRel_PTIP": "319.parquet",
+    "afl_5YRel_PTMargin": "569.parquet",
+    "afl_5YRel_QuickRatio": "562.parquet",
+    "afl_5YRel_ROA": "240.parquet",
+    "afl_5YRel_ROE": "234.parquet",
+    "afl_5YRel_ROIC": "231.parquet",
+    "afl_5YRel_RONA": "580.parquet",
+    "afl_5YRel_RecTurn": "564.parquet",
+    "afl_5YRel_SEV": "439.parquet",
+    "afl_5YRel_SP": "441.parquet",
+    "afl_5YRel_SolvencyRatio": "579.parquet",
+    "afl_5YRel_TobinQ": "570.parquet",
+    "afl_5YRel_WCA": "567.parquet",
+    "afl_5YRel_WCTurn": "571.parquet",
+    "afl_60": "60.parquet",
+    "afl_605": "605.parquet",
+    "afl_606": "606.parquet",
+    "afl_607": "607.parquet",
+    "afl_608": "608.parquet",
+    "afl_609": "609.parquet",
+    "afl_60MAVGTTMEP": "946.parquet",
+    "afl_60MAVGTTMROA": "944.parquet",
+    "afl_60MAVGTTMROE": "943.parquet",
+    "afl_61": "61.parquet",
+    "afl_610": "610.parquet",
+    "afl_612": "612.parquet",
+    "afl_613": "613.parquet",
+    "afl_614": "614.parquet",
+    "afl_615": "615.parquet",
+    "afl_616": "616.parquet",
+    "afl_617": "617.parquet",
+    "afl_618": "618.parquet",
+    "afl_619": "619.parquet",
+    "afl_62": "62.parquet",
+    "afl_620": "620.parquet",
+    "afl_621": "621.parquet",
+    "afl_622": "622.parquet",
+    "afl_623": "623.parquet",
+    "afl_624": "624.parquet",
+    "afl_625": "625.parquet",
+    "afl_626": "626.parquet",
+    "afl_63": "63.parquet",
+    "afl_630": "630.parquet",
+    "afl_632": "632.parquet",
+    "afl_633": "633.parquet",
+    "afl_634": "634.parquet",
+    "afl_64": "64.parquet",
+    "afl_645": "645.parquet",
+    "afl_647": "647.parquet",
+    "afl_648": "648.parquet",
+    "afl_649": "649.parquet",
+    "afl_65": "65.parquet",
+    "afl_650": "650.parquet",
+    "afl_66": "66.parquet",
+    "afl_67": "67.parquet",
+    "afl_68": "68.parquet",
+    "afl_69": "69.parquet",
+    "afl_6MAvgChg1MRecC": "966.parquet",
+    "afl_6MChgTgtPrc": "1237.parquet",
+    "afl_6MChgTgtPrcGap": "1238.parquet",
+    "afl_6MChgTgtPrcGapEMA": "1236.parquet",
+    "afl_6MTTMSalesMom": "606.parquet",
+    "afl_70": "70.parquet",
+    "afl_71": "71.parquet",
+    "afl_72": "72.parquet",
+    "afl_73": "73.parquet",
+    "afl_74": "74.parquet",
+    "afl_75": "75.parquet",
+    "afl_76": "76.parquet",
+    "afl_77": "77.parquet",
+    "afl_770": "770.parquet",
+    "afl_771": "771.parquet",
+    "afl_772": "772.parquet",
+    "afl_773": "773.parquet",
+    "afl_774": "774.parquet",
+    "afl_775": "775.parquet",
+    "afl_776": "776.parquet",
+    "afl_777": "777.parquet",
+    "afl_778": "778.parquet",
+    "afl_779": "779.parquet",
+    "afl_78": "78.parquet",
+    "afl_780": "780.parquet",
+    "afl_781": "781.parquet",
+    "afl_782": "782.parquet",
+    "afl_783": "783.parquet",
+    "afl_79": "79.parquet",
+    "afl_792": "792.parquet",
+    "afl_80": "80.parquet",
+    "afl_81": "81.parquet",
+    "afl_82": "82.parquet",
+    "afl_822": "822.parquet",
+    "afl_823": "823.parquet",
+    "afl_824": "824.parquet",
+    "afl_825": "825.parquet",
+    "afl_826": "826.parquet",
+    "afl_827": "827.parquet",
+    "afl_828": "828.parquet",
+    "afl_829": "829.parquet",
+    "afl_83": "83.parquet",
+    "afl_830": "830.parquet",
+    "afl_831": "831.parquet",
+    "afl_832": "832.parquet",
+    "afl_833": "833.parquet",
+    "afl_834": "834.parquet",
+    "afl_835": "835.parquet",
+    "afl_836": "836.parquet",
+    "afl_837": "837.parquet",
+    "afl_84": "84.parquet",
+    "afl_85": "85.parquet",
+    "afl_859": "859.parquet",
+    "afl_86": "86.parquet",
+    "afl_863": "863.parquet",
+    "afl_864": "864.parquet",
+    "afl_865": "865.parquet",
+    "afl_866": "866.parquet",
+    "afl_867": "867.parquet",
+    "afl_868": "868.parquet",
+    "afl_870": "870.parquet",
+    "afl_871": "871.parquet",
+    "afl_872": "872.parquet",
+    "afl_873": "873.parquet",
+    "afl_874": "874.parquet",
+    "afl_875": "875.parquet",
+    "afl_876": "876.parquet",
+    "afl_877": "877.parquet",
+    "afl_878": "878.parquet",
+    "afl_879": "879.parquet",
+    "afl_880": "880.parquet",
+    "afl_881": "881.parquet",
+    "afl_882": "882.parquet",
+    "afl_883": "883.parquet",
+    "afl_884": "884.parquet",
+    "afl_885": "885.parquet",
+    "afl_886": "886.parquet",
+    "afl_887": "887.parquet",
+    "afl_888": "888.parquet",
+    "afl_889": "889.parquet",
+    "afl_890": "890.parquet",
+    "afl_891": "891.parquet",
+    "afl_892": "892.parquet",
+    "afl_893": "893.parquet",
+    "afl_894": "894.parquet",
+    "afl_895": "895.parquet",
+    "afl_896": "896.parquet",
+    "afl_897": "897.parquet",
+    "afl_898": "898.parquet",
+    "afl_899": "899.parquet",
+    "afl_8WChgFwd12MEPS": "609.parquet",
+    "afl_9": "9.parquet",
+    "afl_900": "900.parquet",
+    "afl_901": "901.parquet",
+    "afl_902": "902.parquet",
+    "afl_903": "903.parquet",
+    "afl_904": "904.parquet",
+    "afl_905": "905.parquet",
+    "afl_906": "906.parquet",
+    "afl_907": "907.parquet",
+    "afl_908": "908.parquet",
+    "afl_909": "909.parquet",
+    "afl_90DCV": "122.parquet",
+    "afl_91": "91.parquet",
+    "afl_910": "910.parquet",
+    "afl_911": "911.parquet",
+    "afl_912": "912.parquet",
+    "afl_913": "913.parquet",
+    "afl_914": "914.parquet",
+    "afl_915": "915.parquet",
+    "afl_916": "916.parquet",
+    "afl_917": "917.parquet",
+    "afl_918": "918.parquet",
+    "afl_919": "919.parquet",
+    "afl_92": "92.parquet",
+    "afl_920": "920.parquet",
+    "afl_921": "921.parquet",
+    "afl_922": "922.parquet",
+    "afl_923": "923.parquet",
+    "afl_924": "924.parquet",
+    "afl_925": "925.parquet",
+    "afl_927": "927.parquet",
+    "afl_928": "928.parquet",
+    "afl_929": "929.parquet",
+    "afl_93": "93.parquet",
+    "afl_930": "930.parquet",
+    "afl_931": "931.parquet",
+    "afl_932": "932.parquet",
+    "afl_933": "933.parquet",
+    "afl_94": "94.parquet",
+    "afl_941": "941.parquet",
+    "afl_942": "942.parquet",
+    "afl_943": "943.parquet",
+    "afl_944": "944.parquet",
+    "afl_945": "945.parquet",
+    "afl_946": "946.parquet",
+    "afl_947": "947.parquet",
+    "afl_95": "95.parquet",
+    "afl_950": "950.parquet",
+    "afl_952": "952.parquet",
+    "afl_953": "953.parquet",
+    "afl_954": "954.parquet",
+    "afl_955": "955.parquet",
+    "afl_956": "956.parquet",
+    "afl_957": "957.parquet",
+    "afl_958": "958.parquet",
+    "afl_959": "959.parquet",
+    "afl_96": "96.parquet",
+    "afl_960": "960.parquet",
+    "afl_961": "961.parquet",
+    "afl_962": "962.parquet",
+    "afl_963": "963.parquet",
+    "afl_964": "964.parquet",
+    "afl_965": "965.parquet",
+    "afl_966": "966.parquet",
+    "afl_967": "967.parquet",
+    "afl_968": "968.parquet",
+    "afl_97": "97.parquet",
+    "afl_971": "971.parquet",
+    "afl_972": "972.parquet",
+    "afl_973": "973.parquet",
+    "afl_974": "974.parquet",
+    "afl_975": "975.parquet",
+    "afl_976": "976.parquet",
+    "afl_977": "977.parquet",
+    "afl_978": "978.parquet",
+    "afl_979": "979.parquet",
+    "afl_980": "980.parquet",
+    "afl_981": "981.parquet",
+    "afl_982": "982.parquet",
+    "afl_991": "991.parquet",
+    "stdRR36M": "792.parquet"
+  },
+  "factors": [
+    {
+      "id": 2,
+      "code": "ROIC",
+      "name": "Return on Invested Capital",
+      "field": "ROIC",
+      "file": "2.parquet"
+    },
+    {
+      "id": 4,
+      "code": "ROE",
+      "name": "Return on Equity",
+      "field": "ROE",
+      "file": "4.parquet"
+    },
+    {
+      "id": 9,
+      "code": "ROA",
+      "name": "Return on Assets",
+      "field": "ROA",
+      "file": "9.parquet"
+    },
+    {
+      "id": 11,
+      "code": "CFROIC",
+      "name": "Cash Flow Return on Invested Capital",
+      "field": "CFROIC",
+      "file": "11.parquet"
+    },
+    {
+      "id": 12,
+      "code": "DA",
+      "name": "Debt to Assets Ratio",
+      "field": "DA",
+      "file": "12.parquet"
+    },
+    {
+      "id": 13,
+      "code": "LTDE",
+      "name": "Long Term Debt to Equity Ratio",
+      "field": "LTDE",
+      "file": "13.parquet"
+    },
+    {
+      "id": 14,
+      "code": "CapAcqRatio",
+      "name": "Capital Acquisition Ratio",
+      "field": "CapAcqRatio",
+      "file": "14.parquet"
+    },
+    {
+      "id": 15,
+      "code": "IntCovRatio",
+      "name": "Interest Coverage Ratio",
+      "field": "IntCovRatio",
+      "file": "15.parquet"
+    },
+    {
+      "id": 18,
+      "code": "ShareChg",
+      "name": "1Y Chg in Shares Outstanding",
+      "field": "ShareChg",
+      "file": "18.parquet"
+    },
+    {
+      "id": 21,
+      "code": "BuyBackChg",
+      "name": "1Y Chg in Stock Buybacks",
+      "field": "BuyBackChg",
+      "file": "21.parquet"
+    },
+    {
+      "id": 22,
+      "code": "CashCycle",
+      "name": "Cash Conversion Cycle",
+      "field": "CashCycle",
+      "file": "22.parquet"
+    },
+    {
+      "id": 23,
+      "code": "NetProfitMargin",
+      "name": "Net Profit Margin",
+      "field": "NetProfitMargin",
+      "file": "23.parquet"
+    },
+    {
+      "id": 24,
+      "code": "WCAccruals",
+      "name": "Working Capital Accruals",
+      "field": "WCAccruals",
+      "file": "24.parquet"
+    },
+    {
+      "id": 25,
+      "code": "TotalAccruals",
+      "name": "Balance Sheet Accruals",
+      "field": "TotalAccruals",
+      "file": "25.parquet"
+    },
+    {
+      "id": 26,
+      "code": "ChgDeprCapex",
+      "name": "Change in TTM Depr. to Capex",
+      "field": "ChgDeprCapex",
+      "file": "26.parquet"
+    },
+    {
+      "id": 27,
+      "code": "InvToAsset",
+      "name": "Asset Adjusted Capital Investments",
+      "field": "InvToAsset",
+      "file": "27.parquet"
+    },
+    {
+      "id": 28,
+      "code": "ChgSalesMargin",
+      "name": "Sales to Gross Profit Margin Growth",
+      "field": "ChgSalesMargin",
+      "file": "28.parquet"
+    },
+    {
+      "id": 29,
+      "code": "BP",
+      "name": "Book to Price",
+      "field": "BP",
+      "file": "29.parquet"
+    },
+    {
+      "id": 30,
+      "code": "CashAst",
+      "name": "Cash to Total Assets",
+      "field": "CashAst",
+      "file": "30.parquet"
+    },
+    {
+      "id": 31,
+      "code": "AssetTurn",
+      "name": "Asset Turnover",
+      "field": "AssetTurn",
+      "file": "31.parquet"
+    },
+    {
+      "id": 32,
+      "code": "InvTurn",
+      "name": "Inventory Turnover",
+      "field": "InvTurn",
+      "file": "32.parquet"
+    },
+    {
+      "id": 33,
+      "code": "UnexpectedRecChg",
+      "name": "Unexpected Receivables Change",
+      "field": "UnexpectedRecChg",
+      "file": "33.parquet"
+    },
+    {
+      "id": 34,
+      "code": "PM12M1M",
+      "name": "12M - 1M Price Momentum",
+      "field": "PM12M1M",
+      "file": "34.parquet"
+    },
+    {
+      "id": 35,
+      "code": "PM1M",
+      "name": "1M Price Reversal",
+      "field": "PM1M",
+      "file": "35.parquet"
+    },
+    {
+      "id": 38,
+      "code": "LogMktCap",
+      "name": "Log Market Cap",
+      "field": "LogMktCap",
+      "file": "38.parquet"
+    },
+    {
+      "id": 39,
+      "code": "AnnVol12M",
+      "name": "12M Realized Price Volatility",
+      "field": "AnnVol12M",
+      "file": "39.parquet"
+    },
+    {
+      "id": 40,
+      "code": "AnnVol1M",
+      "name": "1M Realized Price Volatility",
+      "field": "AnnVol1M",
+      "file": "40.parquet"
+    },
+    {
+      "id": 41,
+      "code": "HL1M",
+      "name": "1M Price High - 1M Price Low",
+      "field": "HL1M",
+      "file": "41.parquet"
+    },
+    {
+      "id": 42,
+      "code": "UnexpectedInvChg",
+      "name": "Unexpected Inventory Change",
+      "field": "UnexpectedInvChg",
+      "file": "42.parquet"
+    },
+    {
+      "id": 43,
+      "code": "LogTTMSales",
+      "name": "Log TTM Sales",
+      "field": "LogTTMSales",
+      "file": "43.parquet"
+    },
+    {
+      "id": 44,
+      "code": "FCFP",
+      "name": "Free Cash Flow to Price",
+      "field": "FCFP",
+      "file": "44.parquet"
+    },
+    {
+      "id": 45,
+      "code": "FCFEV",
+      "name": "Free Cash Flow to Enterprise Value",
+      "field": "FCFEV",
+      "file": "45.parquet"
+    },
+    {
+      "id": 46,
+      "code": "OCFEV",
+      "name": "Operating Cash Flow to Enterprise Value",
+      "field": "OCFEV",
+      "file": "46.parquet"
+    },
+    {
+      "id": 47,
+      "code": "OCFP",
+      "name": "Operating Cash Flow to Price",
+      "field": "OCFP",
+      "file": "47.parquet"
+    },
+    {
+      "id": 48,
+      "code": "FCFEqt",
+      "name": "Free Cash Flow to Common Equity",
+      "field": "FCFEqt",
+      "file": "48.parquet"
+    },
+    {
+      "id": 49,
+      "code": "EBITDAEV",
+      "name": "EBITDA to Enterprise Value",
+      "field": "EBITDAEV",
+      "file": "49.parquet"
+    },
+    {
+      "id": 50,
+      "code": "EP",
+      "name": "Earnings to Price",
+      "field": "EP",
+      "file": "50.parquet"
+    },
+    {
+      "id": 51,
+      "code": "CFEV",
+      "name": "Net Cash Flow to Enterprise Value",
+      "field": "CFEV",
+      "file": "51.parquet"
+    },
+    {
+      "id": 52,
+      "code": "CFP",
+      "name": "Net Cash Flow to Price",
+      "field": "CFP",
+      "file": "52.parquet"
+    },
+    {
+      "id": 53,
+      "code": "EBITDAP",
+      "name": "EBITDA to Price",
+      "field": "EBITDAP",
+      "file": "53.parquet"
+    },
+    {
+      "id": 58,
+      "code": "PTIP",
+      "name": "Pretax Income Per Share to Price",
+      "field": "PTIP",
+      "file": "58.parquet"
+    },
+    {
+      "id": 59,
+      "code": "AstAdjChg1YCF",
+      "name": "1Y Chg in Asset Adjusted Cash Flow",
+      "field": "AstAdjChg1YCF",
+      "file": "59.parquet"
+    },
+    {
+      "id": 60,
+      "code": "AstAdjChg1YEPS",
+      "name": "1Y Chg in Asset Adjusted EPS",
+      "field": "AstAdjChg1YEPS",
+      "file": "60.parquet"
+    },
+    {
+      "id": 61,
+      "code": "AstAdjChg1YFCF",
+      "name": "1Y Chg in Asset Adjusted Free Cash Flow",
+      "field": "AstAdjChg1YFCF",
+      "file": "61.parquet"
+    },
+    {
+      "id": 62,
+      "code": "AstAdjChg1YOCF",
+      "name": "1Y Chg in Asset Adjusted Operating Cash Flow",
+      "field": "AstAdjChg1YOCF",
+      "file": "62.parquet"
+    },
+    {
+      "id": 63,
+      "code": "Chg1YAstTo",
+      "name": "1Y Chg in Sales Turnover",
+      "field": "Chg1YAstTo",
+      "file": "63.parquet"
+    },
+    {
+      "id": 64,
+      "code": "Chg1YCF",
+      "name": "1Y Chg in Cash Flow per Share",
+      "field": "Chg1YCF",
+      "file": "64.parquet"
+    },
+    {
+      "id": 65,
+      "code": "Chg1YEPS",
+      "name": "1Y Chg in Earnings per Share",
+      "field": "Chg1YEPS",
+      "file": "65.parquet"
+    },
+    {
+      "id": 66,
+      "code": "Chg1YFCF",
+      "name": "1Y Chg in Free Cash Flow per Share",
+      "field": "Chg1YFCF",
+      "file": "66.parquet"
+    },
+    {
+      "id": 67,
+      "code": "Chg1YOCF",
+      "name": "1Y Chg in Operating Cash Flow per Share",
+      "field": "Chg1YOCF",
+      "file": "67.parquet"
+    },
+    {
+      "id": 68,
+      "code": "Chg1YOPM",
+      "name": "1Y Chg in Operating Margin",
+      "field": "Chg1YOPM",
+      "file": "68.parquet"
+    },
+    {
+      "id": 69,
+      "code": "PAdjChg1YCF",
+      "name": "1Y Chg in Cash Flow to Price",
+      "field": "PAdjChg1YCF",
+      "file": "69.parquet"
+    },
+    {
+      "id": 70,
+      "code": "PAdjChg1YEPS",
+      "name": "1Y Chg in Earnings to Price",
+      "field": "PAdjChg1YEPS",
+      "file": "70.parquet"
+    },
+    {
+      "id": 71,
+      "code": "PAdjChg1YFCF",
+      "name": "1Y Chg in Free Cash Flow to Price",
+      "field": "PAdjChg1YFCF",
+      "file": "71.parquet"
+    },
+    {
+      "id": 72,
+      "code": "PAdjChg1YOCF",
+      "name": "1Y Chg in Operating Cash Flow to Price",
+      "field": "PAdjChg1YOCF",
+      "file": "72.parquet"
+    },
+    {
+      "id": 73,
+      "code": "AstAdjChg3YCF",
+      "name": "3Y Chg in Asset Adjusted Cash Flow",
+      "field": "AstAdjChg3YCF",
+      "file": "73.parquet"
+    },
+    {
+      "id": 74,
+      "code": "AstAdjChg3YEPS",
+      "name": "3Y Chg in Asset Adjusted EPS",
+      "field": "AstAdjChg3YEPS",
+      "file": "74.parquet"
+    },
+    {
+      "id": 75,
+      "code": "AstAdjChg3YFCF",
+      "name": "3Y Chg in Asset Adjusted Free Cash Flow",
+      "field": "AstAdjChg3YFCF",
+      "file": "75.parquet"
+    },
+    {
+      "id": 76,
+      "code": "AstAdjChg3YOCF",
+      "name": "3Y Chg in Asset Adjusted Operating Cash Flow",
+      "field": "AstAdjChg3YOCF",
+      "file": "76.parquet"
+    },
+    {
+      "id": 77,
+      "code": "Chg3YAstTo",
+      "name": "3Y Chg in Sales Turnover",
+      "field": "Chg3YAstTo",
+      "file": "77.parquet"
+    },
+    {
+      "id": 78,
+      "code": "Chg3YCF",
+      "name": "3Y Chg in Cash Flow per Share",
+      "field": "Chg3YCF",
+      "file": "78.parquet"
+    },
+    {
+      "id": 79,
+      "code": "Chg3YEPS",
+      "name": "3Y Chg in Earnings per Share",
+      "field": "Chg3YEPS",
+      "file": "79.parquet"
+    },
+    {
+      "id": 80,
+      "code": "Chg3YFCF",
+      "name": "3Y Chg in Free Cash Flow per Share",
+      "field": "Chg3YFCF",
+      "file": "80.parquet"
+    },
+    {
+      "id": 81,
+      "code": "Chg3YOCF",
+      "name": "3Y Chg in Operating Cash Flow per Share",
+      "field": "Chg3YOCF",
+      "file": "81.parquet"
+    },
+    {
+      "id": 82,
+      "code": "Chg3YOPM",
+      "name": "3Y Chg in Operating Margin",
+      "field": "Chg3YOPM",
+      "file": "82.parquet"
+    },
+    {
+      "id": 83,
+      "code": "PAdjChg3YCF",
+      "name": "3Y Chg in Cash Flow to Price",
+      "field": "PAdjChg3YCF",
+      "file": "83.parquet"
+    },
+    {
+      "id": 84,
+      "code": "PAdjChg3YEPS",
+      "name": "3Y Chg in Earnings to Price",
+      "field": "PAdjChg3YEPS",
+      "file": "84.parquet"
+    },
+    {
+      "id": 85,
+      "code": "PAdjChg3YFCF",
+      "name": "3Y Chg in Free Cash Flow to Price",
+      "field": "PAdjChg3YFCF",
+      "file": "85.parquet"
+    },
+    {
+      "id": 86,
+      "code": "PAdjChg3YOCF",
+      "name": "3Y Chg in Operating Cash Flow to Price",
+      "field": "PAdjChg3YOCF",
+      "file": "86.parquet"
+    },
+    {
+      "id": 91,
+      "code": "PM9M",
+      "name": "9 Month Price Momentum",
+      "field": "PM9M",
+      "file": "91.parquet"
+    },
+    {
+      "id": 92,
+      "code": "PRatio15To36W",
+      "name": "15/36 Week Price Ratio",
+      "field": "PRatio15To36W",
+      "file": "92.parquet"
+    },
+    {
+      "id": 93,
+      "code": "RSI26W",
+      "name": "26W Relative Price Strength",
+      "field": "RSI26W",
+      "file": "93.parquet"
+    },
+    {
+      "id": 94,
+      "code": "Beta60M",
+      "name": "60M CAPM Beta",
+      "field": "Beta60M",
+      "file": "94.parquet"
+    },
+    {
+      "id": 95,
+      "code": "ShortIntRatio",
+      "name": "Short Interest Ratio",
+      "field": "ShortIntRatio",
+      "file": "95.parquet"
+    },
+    {
+      "id": 96,
+      "code": "ShortIntTrdVol",
+      "name": "Short Interest Trading Volume",
+      "field": "ShortIntTrdVol",
+      "file": "96.parquet"
+    },
+    {
+      "id": 97,
+      "code": "STO",
+      "name": "Share Turnover",
+      "field": "STO",
+      "file": "97.parquet"
+    },
+    {
+      "id": 100,
+      "code": "HL52W",
+      "name": "52W High Low",
+      "field": "HL52W",
+      "file": "100.parquet"
+    },
+    {
+      "id": 101,
+      "code": "SusGrwRate",
+      "name": "Sustainable Growth Rate",
+      "field": "SusGrwRate",
+      "file": "101.parquet"
+    },
+    {
+      "id": 102,
+      "code": "PAdjChg1YSales",
+      "name": "1Y Chg in Sales to Price",
+      "field": "PAdjChg1YSales",
+      "file": "102.parquet"
+    },
+    {
+      "id": 103,
+      "code": "PAdjChg3YSales",
+      "name": "3Y Chg in Sales to Price",
+      "field": "PAdjChg3YSales",
+      "file": "103.parquet"
+    },
+    {
+      "id": 104,
+      "code": "10DMACD",
+      "name": "10 Day MACD Trend",
+      "field": "afl_10DMACD",
+      "file": "104.parquet"
+    },
+    {
+      "id": 114,
+      "code": "Alpha60M",
+      "name": "60M CAPM Alpha",
+      "field": "Alpha60M",
+      "file": "114.parquet"
+    },
+    {
+      "id": 115,
+      "code": "Alpha12M6MPChg",
+      "name": "6M Chg in 12M CAPM Alpha",
+      "field": "Alpha12M6MPChg",
+      "file": "115.parquet"
+    },
+    {
+      "id": 116,
+      "code": "Alpha18M6MPChg",
+      "name": "6M Chg in 18M CAPM Alpha",
+      "field": "Alpha18M6MPChg",
+      "file": "116.parquet"
+    },
+    {
+      "id": 117,
+      "code": "Alpha36M6MPChg",
+      "name": "6M Chg in 36M CAPM Alpha",
+      "field": "Alpha36M6MPChg",
+      "file": "117.parquet"
+    },
+    {
+      "id": 118,
+      "code": "4To52WPrcOsc",
+      "name": "4W to 52W Price Oscillator",
+      "field": "afl_4To52WPrcOsc",
+      "file": "118.parquet"
+    },
+    {
+      "id": 119,
+      "code": "39WRtnLag4W",
+      "name": "39W Lagged Return",
+      "field": "afl_39WRtnLag4W",
+      "file": "119.parquet"
+    },
+    {
+      "id": 120,
+      "code": "52WSlope",
+      "name": "Slope of 52W Price Trend",
+      "field": "afl_52WSlope",
+      "file": "120.parquet"
+    },
+    {
+      "id": 121,
+      "code": "24MResRtnVar",
+      "name": "24M Residual Return Variance",
+      "field": "afl_24MResRtnVar",
+      "file": "121.parquet"
+    },
+    {
+      "id": 122,
+      "code": "90DCV",
+      "name": "90 Day Coefficient of Variation",
+      "field": "afl_90DCV",
+      "file": "122.parquet"
+    },
+    {
+      "id": 123,
+      "code": "50To200PrcRatio",
+      "name": "50 Day to 200 Day Stock Price",
+      "field": "afl_50To200PrcRatio",
+      "file": "123.parquet"
+    },
+    {
+      "id": 124,
+      "code": "PrcTo52WH",
+      "name": "Closing Price to 52 Week High",
+      "field": "PrcTo52WH",
+      "file": "124.parquet"
+    },
+    {
+      "id": 125,
+      "code": "PrcTo260DL",
+      "name": "Closing Price to 260 Day Low",
+      "field": "PrcTo260DL",
+      "file": "125.parquet"
+    },
+    {
+      "id": 126,
+      "code": "CapExToAst",
+      "name": "Capital Expenditure to Total Assets",
+      "field": "CapExToAst",
+      "file": "126.parquet"
+    },
+    {
+      "id": 127,
+      "code": "CapExToSales",
+      "name": "Capital Expenditure to Sales",
+      "field": "CapExToSales",
+      "file": "127.parquet"
+    },
+    {
+      "id": 128,
+      "code": "CashToSales",
+      "name": "Cash to Sales",
+      "field": "CashToSales",
+      "file": "128.parquet"
+    },
+    {
+      "id": 129,
+      "code": "DivToCF",
+      "name": "Dividends to Cash Flow",
+      "field": "DivToCF",
+      "file": "129.parquet"
+    },
+    {
+      "id": 130,
+      "code": "EPSToOCFChg",
+      "name": "1Y Chg in EPS to Operating Cash Flow",
+      "field": "EPSToOCFChg",
+      "file": "130.parquet"
+    },
+    {
+      "id": 131,
+      "code": "ETO",
+      "name": "Equity Turnover",
+      "field": "ETO",
+      "file": "131.parquet"
+    },
+    {
+      "id": 132,
+      "code": "OPM",
+      "name": "Operating Margin",
+      "field": "OPM",
+      "file": "132.parquet"
+    },
+    {
+      "id": 133,
+      "code": "PTIToNOA",
+      "name": "Pretax Income to Net Operating Assets",
+      "field": "PTIToNOA",
+      "file": "133.parquet"
+    },
+    {
+      "id": 134,
+      "code": "RDInt",
+      "name": "Research & Development Intensity",
+      "field": "RDInt",
+      "file": "134.parquet"
+    },
+    {
+      "id": 135,
+      "code": "REToAst",
+      "name": "Retained Earnings to Total Assets",
+      "field": "REToAst",
+      "file": "135.parquet"
+    },
+    {
+      "id": 136,
+      "code": "SalesToEPSChg",
+      "name": "1Y Chg in Sales to Earnings",
+      "field": "SalesToEPSChg",
+      "file": "136.parquet"
+    },
+    {
+      "id": 137,
+      "code": "SalesToInvCap",
+      "name": "Sales to Invested Capital",
+      "field": "SalesToInvCap",
+      "file": "137.parquet"
+    },
+    {
+      "id": 138,
+      "code": "SGAToSales",
+      "name": "SG&A to Sales",
+      "field": "SGAToSales",
+      "file": "138.parquet"
+    },
+    {
+      "id": 139,
+      "code": "WCapToAst",
+      "name": "Working Capital to Total Assets",
+      "field": "WCapToAst",
+      "file": "139.parquet"
+    },
+    {
+      "id": 140,
+      "code": "WCapToSales",
+      "name": "Working Capital to Sales",
+      "field": "WCapToSales",
+      "file": "140.parquet"
+    },
+    {
+      "id": 141,
+      "code": "AstP",
+      "name": "Assets to Price Ratio",
+      "field": "AstP",
+      "file": "141.parquet"
+    },
+    {
+      "id": 142,
+      "code": "CashEV",
+      "name": "Cash to EV Ratio",
+      "field": "CashEV",
+      "file": "142.parquet"
+    },
+    {
+      "id": 143,
+      "code": "CashP",
+      "name": "Cash to Price",
+      "field": "CashP",
+      "file": "143.parquet"
+    },
+    {
+      "id": 144,
+      "code": "GFP",
+      "name": "Growth Flow to Price",
+      "field": "GFP",
+      "file": "144.parquet"
+    },
+    {
+      "id": 145,
+      "code": "DivP",
+      "name": "Dividends to Price Ratio",
+      "field": "DivP",
+      "file": "145.parquet"
+    },
+    {
+      "id": 146,
+      "code": "IndiDivP",
+      "name": "Indicated Annual Dividends to Price Ratio",
+      "field": "IndiDivP",
+      "file": "146.parquet"
+    },
+    {
+      "id": 153,
+      "code": "NCAP",
+      "name": "Net Current Assets to Price Ratio",
+      "field": "NCAP",
+      "file": "153.parquet"
+    },
+    {
+      "id": 154,
+      "code": "OEP",
+      "name": "Operating Earnings to Price Ratio",
+      "field": "OEP",
+      "file": "154.parquet"
+    },
+    {
+      "id": 155,
+      "code": "SEV",
+      "name": "Sales to EV Ratio",
+      "field": "SEV",
+      "file": "155.parquet"
+    },
+    {
+      "id": 156,
+      "code": "SP",
+      "name": "Sales to Price Ratio",
+      "field": "SP",
+      "file": "156.parquet"
+    },
+    {
+      "id": 160,
+      "code": "CACL",
+      "name": "Current Ratio",
+      "field": "CACL",
+      "file": "160.parquet"
+    },
+    {
+      "id": 161,
+      "code": "QuickRatio",
+      "name": "Quick Ratio",
+      "field": "QuickRatio",
+      "file": "161.parquet"
+    },
+    {
+      "id": 162,
+      "code": "CashRatio",
+      "name": "Cash Ratio",
+      "field": "CashRatio",
+      "file": "162.parquet"
+    },
+    {
+      "id": 163,
+      "code": "RecTurn",
+      "name": "Receivables Turnover Ratio",
+      "field": "RecTurn",
+      "file": "163.parquet"
+    },
+    {
+      "id": 164,
+      "code": "EBITMargin",
+      "name": "EBIT Margin",
+      "field": "EBITMargin",
+      "file": "164.parquet"
+    },
+    {
+      "id": 165,
+      "code": "GPMargin",
+      "name": "Gross Profit Margin",
+      "field": "GPMargin",
+      "file": "165.parquet"
+    },
+    {
+      "id": 166,
+      "code": "WCA",
+      "name": "Working Capital to Assets Ratio",
+      "field": "WCA",
+      "file": "166.parquet"
+    },
+    {
+      "id": 167,
+      "code": "OEA",
+      "name": "Operating Earnings to Assets Ratio",
+      "field": "OEA",
+      "file": "167.parquet"
+    },
+    {
+      "id": 168,
+      "code": "FL",
+      "name": "Financial Leverage (Equity Multiplier)",
+      "field": "FL",
+      "file": "168.parquet"
+    },
+    {
+      "id": 169,
+      "code": "PTMargin",
+      "name": "Pretax Profit Margin",
+      "field": "PTMargin",
+      "file": "169.parquet"
+    },
+    {
+      "id": 177,
+      "code": "TobinQ",
+      "name": "Tobin's Q Ratio",
+      "field": "TobinQ",
+      "file": "177.parquet"
+    },
+    {
+      "id": 180,
+      "code": "WCTurn",
+      "name": "Working Capital Turnover Ratio",
+      "field": "WCTurn",
+      "file": "180.parquet"
+    },
+    {
+      "id": 182,
+      "code": "DepToCapex",
+      "name": "Depreciation to Capex Ratio",
+      "field": "DepToCapex",
+      "file": "182.parquet"
+    },
+    {
+      "id": 184,
+      "code": "InvToAst",
+      "name": "Inventory to Assets Ratio",
+      "field": "InvToAst",
+      "file": "184.parquet"
+    },
+    {
+      "id": 212,
+      "code": "AccrualRatioBS",
+      "name": "Accrual Ratio - Balance Sheet",
+      "field": "AccrualRatioBS",
+      "file": "212.parquet"
+    },
+    {
+      "id": 213,
+      "code": "AccrualRatioCF",
+      "name": "Accrual Ratio - Cash Flows",
+      "field": "AccrualRatioCF",
+      "file": "213.parquet"
+    },
+    {
+      "id": 214,
+      "code": "DebtChg1Y",
+      "name": "Year over Year Change of Total Debt",
+      "field": "DebtChg1Y",
+      "file": "214.parquet"
+    },
+    {
+      "id": 215,
+      "code": "PM6M",
+      "name": "6 Months Price Reversal",
+      "field": "PM6M",
+      "file": "215.parquet"
+    },
+    {
+      "id": 216,
+      "code": "SGAToSalesChg1Y",
+      "name": "Year over Year Change in SGA to Sales",
+      "field": "SGAToSalesChg1Y",
+      "file": "216.parquet"
+    },
+    {
+      "id": 217,
+      "code": "InvToAstChg1Y",
+      "name": "Year over Year Change of Inventory to Assets",
+      "field": "InvToAstChg1Y",
+      "file": "217.parquet"
+    },
+    {
+      "id": 218,
+      "code": "EPSToSalesChg1Y",
+      "name": "Year over Year Change of EPS to Sales",
+      "field": "EPSToSalesChg1Y",
+      "file": "218.parquet"
+    },
+    {
+      "id": 219,
+      "code": "AdjAccruals",
+      "name": "Adjusted Accruals",
+      "field": "AdjAccruals",
+      "file": "219.parquet"
+    },
+    {
+      "id": 220,
+      "code": "MaxRetPayoff",
+      "name": "Max Daily Return in the Past 6 Months",
+      "field": "MaxRetPayoff",
+      "file": "220.parquet"
+    },
+    {
+      "id": 221,
+      "code": "50DVolSig",
+      "name": "50 Day Volume Signal",
+      "field": "afl_50DVolSig",
+      "file": "221.parquet"
+    },
+    {
+      "id": 222,
+      "code": "LTDA",
+      "name": "Long Term Debt to Assets Ratio",
+      "field": "LTDA",
+      "file": "222.parquet"
+    },
+    {
+      "id": 224,
+      "code": "SolvencyRatio",
+      "name": "Solvency Ratio",
+      "field": "SolvencyRatio",
+      "file": "224.parquet"
+    },
+    {
+      "id": 228,
+      "code": "RONA",
+      "name": "Return on Net Tangible Assets",
+      "field": "RONA",
+      "file": "228.parquet"
+    },
+    {
+      "id": 230,
+      "code": "IndRel_ROIC",
+      "name": "Ind Grp Rel Return on Invested Capital",
+      "field": "IndRel_ROIC",
+      "file": "230.parquet"
+    },
+    {
+      "id": 231,
+      "code": "5YRel_ROIC",
+      "name": "5 Yr Hist Rel Return on Invested Capital",
+      "field": "afl_5YRel_ROIC",
+      "file": "231.parquet"
+    },
+    {
+      "id": 233,
+      "code": "IndRel_ROE",
+      "name": "Ind Grp Rel Return on Equity",
+      "field": "IndRel_ROE",
+      "file": "233.parquet"
+    },
+    {
+      "id": 234,
+      "code": "5YRel_ROE",
+      "name": "5 Yr Hist Rel Return on Equity",
+      "field": "afl_5YRel_ROE",
+      "file": "234.parquet"
+    },
+    {
+      "id": 239,
+      "code": "IndRel_ROA",
+      "name": "Ind Grp Rel Return on Assets",
+      "field": "IndRel_ROA",
+      "file": "239.parquet"
+    },
+    {
+      "id": 240,
+      "code": "5YRel_ROA",
+      "name": "5 Yr Hist Rel Return on Assets",
+      "field": "afl_5YRel_ROA",
+      "file": "240.parquet"
+    },
+    {
+      "id": 242,
+      "code": "IndRel_CFROIC",
+      "name": "Ind Grp Rel Cash Flow Return on Invested Capital",
+      "field": "IndRel_CFROIC",
+      "file": "242.parquet"
+    },
+    {
+      "id": 244,
+      "code": "IndRel_DA",
+      "name": "Ind Grp Rel Debt to Assets Ratio",
+      "field": "IndRel_DA",
+      "file": "244.parquet"
+    },
+    {
+      "id": 246,
+      "code": "IndRel_LTDE",
+      "name": "Ind Grp Rel Long Term Debt to Equity Ratio",
+      "field": "IndRel_LTDE",
+      "file": "246.parquet"
+    },
+    {
+      "id": 248,
+      "code": "IndRel_CapAcqRatio",
+      "name": "Ind Grp Rel Capital Acquisition Ratio",
+      "field": "IndRel_CapAcqRatio",
+      "file": "248.parquet"
+    },
+    {
+      "id": 250,
+      "code": "IndRel_IntCovRatio",
+      "name": "Ind Grp Rel Interest Coverage Ratio",
+      "field": "IndRel_IntCovRatio",
+      "file": "250.parquet"
+    },
+    {
+      "id": 254,
+      "code": "IndRel_ShareChg",
+      "name": "Ind Grp Rel 1Y Chg in Shares Outstanding",
+      "field": "IndRel_ShareChg",
+      "file": "254.parquet"
+    },
+    {
+      "id": 259,
+      "code": "IndRel_BuyBackChg",
+      "name": "Ind Grp Rel 1Y Chg in Stock Buybacks",
+      "field": "IndRel_BuyBackChg",
+      "file": "259.parquet"
+    },
+    {
+      "id": 261,
+      "code": "IndRel_CashCycle",
+      "name": "Ind Grp Rel Cash Conversion Cycle",
+      "field": "IndRel_CashCycle",
+      "file": "261.parquet"
+    },
+    {
+      "id": 263,
+      "code": "IndRel_NetProfitMargin",
+      "name": "Ind Grp Rel Net Profit Margin",
+      "field": "IndRel_NetProfitMargin",
+      "file": "263.parquet"
+    },
+    {
+      "id": 264,
+      "code": "5YRel_NetProfitMargin",
+      "name": "5 Yr Hist Rel Net Profit Margin",
+      "field": "afl_5YRel_NetProfitMargin",
+      "file": "264.parquet"
+    },
+    {
+      "id": 265,
+      "code": "IndRel_WCAccruals",
+      "name": "Ind Grp Rel Working Capital Accruals",
+      "field": "IndRel_WCAccruals",
+      "file": "265.parquet"
+    },
+    {
+      "id": 267,
+      "code": "IndRel_TotalAccruals",
+      "name": "Ind Grp Rel Balance Sheet Accruals",
+      "field": "IndRel_TotalAccruals",
+      "file": "267.parquet"
+    },
+    {
+      "id": 269,
+      "code": "IndRel_ChgDeprCapex",
+      "name": "Ind Grp Rel Change in TTM Depr. to Capex",
+      "field": "IndRel_ChgDeprCapex",
+      "file": "269.parquet"
+    },
+    {
+      "id": 271,
+      "code": "IndRel_InvToAsset",
+      "name": "Ind Grp Rel Asset Adjusted Capital Investments",
+      "field": "IndRel_InvToAsset",
+      "file": "271.parquet"
+    },
+    {
+      "id": 273,
+      "code": "IndRel_ChgSalesMargin",
+      "name": "Ind Grp Rel Sales to Gross Profit Margin Growth",
+      "field": "IndRel_ChgSalesMargin",
+      "file": "273.parquet"
+    },
+    {
+      "id": 274,
+      "code": "5YRel_ChgSalesMargin",
+      "name": "5 Yr Hist Rel Sales to Gross Profit Margin Growth",
+      "field": "afl_5YRel_ChgSalesMargin",
+      "file": "274.parquet"
+    },
+    {
+      "id": 275,
+      "code": "IndRel_BP",
+      "name": "Ind Grp Rel Book to Price",
+      "field": "IndRel_BP",
+      "file": "275.parquet"
+    },
+    {
+      "id": 276,
+      "code": "5YRel_BP",
+      "name": "5 Yr Hist Rel Book to Price",
+      "field": "afl_5YRel_BP",
+      "file": "276.parquet"
+    },
+    {
+      "id": 277,
+      "code": "IndRel_CashAst",
+      "name": "Ind Grp Rel Cash to Total Assets",
+      "field": "IndRel_CashAst",
+      "file": "277.parquet"
+    },
+    {
+      "id": 278,
+      "code": "5YRel_CashAst",
+      "name": "5 Yr Hist Rel Cash to Total Assets",
+      "field": "afl_5YRel_CashAst",
+      "file": "278.parquet"
+    },
+    {
+      "id": 279,
+      "code": "IndRel_AssetTurn",
+      "name": "Ind Grp Rel Asset Turnover",
+      "field": "IndRel_AssetTurn",
+      "file": "279.parquet"
+    },
+    {
+      "id": 281,
+      "code": "IndRel_InvTurn",
+      "name": "Ind Grp Rel Inventory Turnover",
+      "field": "IndRel_InvTurn",
+      "file": "281.parquet"
+    },
+    {
+      "id": 285,
+      "code": "IndRel_PM12M1M",
+      "name": "Ind Grp Rel 12M - 1M Price Momentum",
+      "field": "IndRel_PM12M1M",
+      "file": "285.parquet"
+    },
+    {
+      "id": 286,
+      "code": "IndRel_PM1M",
+      "name": "Ind Grp Rel 1M Price Reversal",
+      "field": "IndRel_PM1M",
+      "file": "286.parquet"
+    },
+    {
+      "id": 294,
+      "code": "IndRel_FCFP",
+      "name": "Ind Grp Rel Free Cash Flow to Price",
+      "field": "IndRel_FCFP",
+      "file": "294.parquet"
+    },
+    {
+      "id": 295,
+      "code": "5YRel_FCFP",
+      "name": "5 Yr Hist Rel Free Cash Flow to Price",
+      "field": "afl_5YRel_FCFP",
+      "file": "295.parquet"
+    },
+    {
+      "id": 296,
+      "code": "IndRel_FCFEV",
+      "name": "Ind Grp Rel Free Cash Flow to Enterprise Value",
+      "field": "IndRel_FCFEV",
+      "file": "296.parquet"
+    },
+    {
+      "id": 297,
+      "code": "5YRel_FCFEV",
+      "name": "5 Yr Hist Rel Free Cash Flow to Enterprise Value",
+      "field": "afl_5YRel_FCFEV",
+      "file": "297.parquet"
+    },
+    {
+      "id": 298,
+      "code": "IndRel_OCFEV",
+      "name": "Ind Grp Rel Operating Cash Flow to Enterprise Value",
+      "field": "IndRel_OCFEV",
+      "file": "298.parquet"
+    },
+    {
+      "id": 299,
+      "code": "5YRel_OCFEV",
+      "name": "5 Yr Hist Rel Operating Cash Flow to Enterprise Value",
+      "field": "afl_5YRel_OCFEV",
+      "file": "299.parquet"
+    },
+    {
+      "id": 300,
+      "code": "IndRel_OEP",
+      "name": "Ind Grp Rel Operating Earnings to Price Ratio",
+      "field": "IndRel_OEP",
+      "file": "300.parquet"
+    },
+    {
+      "id": 301,
+      "code": "5YRel_OCFP",
+      "name": "5 Yr Hist Rel Operating Cash Flow to Price",
+      "field": "afl_5YRel_OCFP",
+      "file": "301.parquet"
+    },
+    {
+      "id": 302,
+      "code": "IndRel_FCFEqt",
+      "name": "Ind Grp Rel Free Cash Flow to Common Equity",
+      "field": "IndRel_FCFEqt",
+      "file": "302.parquet"
+    },
+    {
+      "id": 303,
+      "code": "5YRel_FCFEqt",
+      "name": "5 Yr Hist Rel Free Cash Flow to Common Equity",
+      "field": "afl_5YRel_FCFEqt",
+      "file": "303.parquet"
+    },
+    {
+      "id": 304,
+      "code": "IndRel_EBITDAEV",
+      "name": "Ind Grp Rel EBITDA to Enterprise Value",
+      "field": "IndRel_EBITDAEV",
+      "file": "304.parquet"
+    },
+    {
+      "id": 305,
+      "code": "5YRel_EBITDAEV",
+      "name": "5 Yr Hist Rel EBITDA to Enterprise Value",
+      "field": "afl_5YRel_EBITDAEV",
+      "file": "305.parquet"
+    },
+    {
+      "id": 306,
+      "code": "IndRel_EP",
+      "name": "Ind Grp Rel Earnings to Price",
+      "field": "IndRel_EP",
+      "file": "306.parquet"
+    },
+    {
+      "id": 307,
+      "code": "5YRel_EP",
+      "name": "5 Yr Hist Rel Earnings to Price",
+      "field": "afl_5YRel_EP",
+      "file": "307.parquet"
+    },
+    {
+      "id": 308,
+      "code": "IndRel_CFEV",
+      "name": "Ind Grp Rel Net Cash Flow to Enterprise Value",
+      "field": "IndRel_CFEV",
+      "file": "308.parquet"
+    },
+    {
+      "id": 309,
+      "code": "5YRel_CFEV",
+      "name": "5 Yr Hist Rel Net Cash Flow to Enterprise Value",
+      "field": "afl_5YRel_CFEV",
+      "file": "309.parquet"
+    },
+    {
+      "id": 310,
+      "code": "IndRel_CFP",
+      "name": "Ind Grp Rel Net Cash Flow to Price",
+      "field": "IndRel_CFP",
+      "file": "310.parquet"
+    },
+    {
+      "id": 311,
+      "code": "5YRel_CFP",
+      "name": "5 Yr Hist Rel Net Cash Flow to Price",
+      "field": "afl_5YRel_CFP",
+      "file": "311.parquet"
+    },
+    {
+      "id": 312,
+      "code": "IndRel_EBITDAP",
+      "name": "Ind Grp Rel EBITDA to Price",
+      "field": "IndRel_EBITDAP",
+      "file": "312.parquet"
+    },
+    {
+      "id": 313,
+      "code": "5YRel_EBITDAP",
+      "name": "5 Yr Hist Rel EBITDA to Price",
+      "field": "afl_5YRel_EBITDAP",
+      "file": "313.parquet"
+    },
+    {
+      "id": 318,
+      "code": "IndRel_PTIP",
+      "name": "Ind Grp Rel Pretax Income Per Share to Price",
+      "field": "IndRel_PTIP",
+      "file": "318.parquet"
+    },
+    {
+      "id": 319,
+      "code": "5YRel_PTIP",
+      "name": "5 Yr Hist Rel Pretax Income Per Share to Price",
+      "field": "afl_5YRel_PTIP",
+      "file": "319.parquet"
+    },
+    {
+      "id": 332,
+      "code": "IndRel_Chg1YEPS",
+      "name": "Ind Grp Rel 1Y Chg in Earnings per Share",
+      "field": "IndRel_Chg1YEPS",
+      "file": "332.parquet"
+    },
+    {
+      "id": 333,
+      "code": "5YRel_Chg1YEPS",
+      "name": "5 Yr Hist Rel 1Y Chg in Earnings per Share",
+      "field": "afl_5YRel_Chg1YEPS",
+      "file": "333.parquet"
+    },
+    {
+      "id": 334,
+      "code": "IndRel_Chg1YFCF",
+      "name": "Ind Grp Rel 1Y Chg in Free Cash Flow per Share",
+      "field": "IndRel_Chg1YFCF",
+      "file": "334.parquet"
+    },
+    {
+      "id": 336,
+      "code": "IndRel_Chg1YOCF",
+      "name": "Ind Grp Rel 1Y Chg in Operating Cash Flow per Share",
+      "field": "IndRel_Chg1YOCF",
+      "file": "336.parquet"
+    },
+    {
+      "id": 338,
+      "code": "IndRel_Chg1YOPM",
+      "name": "Ind Grp Rel 1Y Chg in Operating Margin",
+      "field": "IndRel_Chg1YOPM",
+      "file": "338.parquet"
+    },
+    {
+      "id": 340,
+      "code": "IndRel_PAdjChg1YCF",
+      "name": "Ind Grp Rel 1Y Chg in Cash Flow to Price",
+      "field": "IndRel_PAdjChg1YCF",
+      "file": "340.parquet"
+    },
+    {
+      "id": 342,
+      "code": "IndRel_PAdjChg1YEPS",
+      "name": "Ind Grp Rel 1Y Chg in Earnings to Price",
+      "field": "IndRel_PAdjChg1YEPS",
+      "file": "342.parquet"
+    },
+    {
+      "id": 344,
+      "code": "IndRel_PAdjChg1YFCF",
+      "name": "Ind Grp Rel 1Y Chg in Free Cash Flow to Price",
+      "field": "IndRel_PAdjChg1YFCF",
+      "file": "344.parquet"
+    },
+    {
+      "id": 372,
+      "code": "IndRel_PM9M",
+      "name": "Ind Grp Rel 9M Price Momentum",
+      "field": "IndRel_PM9M",
+      "file": "372.parquet"
+    },
+    {
+      "id": 376,
+      "code": "IndRel_ShortIntRatio",
+      "name": "Ind Grp Rel Short Interest Ratio",
+      "field": "IndRel_ShortIntRatio",
+      "file": "376.parquet"
+    },
+    {
+      "id": 377,
+      "code": "IndRel_ShortIntTrdVol",
+      "name": "Ind Grp Rel Short Interest Trading Volume",
+      "field": "IndRel_ShortIntTrdVol",
+      "file": "377.parquet"
+    },
+    {
+      "id": 380,
+      "code": "IndRel_SusGrwRate",
+      "name": "Ind Grp Rel Sustainable Growth Rate",
+      "field": "IndRel_SusGrwRate",
+      "file": "380.parquet"
+    },
+    {
+      "id": 382,
+      "code": "IndRel_PAdjChg1YSales",
+      "name": "Ind Grp Rel 1Y Chg in Sales to Price",
+      "field": "IndRel_PAdjChg1YSales",
+      "file": "382.parquet"
+    },
+    {
+      "id": 384,
+      "code": "IndRel_PAdjChg3YSales",
+      "name": "Ind Grp Rel 3Y Chg in Sales to Price",
+      "field": "IndRel_PAdjChg3YSales",
+      "file": "384.parquet"
+    },
+    {
+      "id": 398,
+      "code": "IndRel_CapExToAst",
+      "name": "Ind Grp Rel Capital Expenditure to Total Assets",
+      "field": "IndRel_CapExToAst",
+      "file": "398.parquet"
+    },
+    {
+      "id": 408,
+      "code": "IndRel_OPM",
+      "name": "Ind Grp Rel Operating Margin",
+      "field": "IndRel_OPM",
+      "file": "408.parquet"
+    },
+    {
+      "id": 409,
+      "code": "5YRel_OPM",
+      "name": "5 Yr Hist Rel Operating Margin",
+      "field": "afl_5YRel_OPM",
+      "file": "409.parquet"
+    },
+    {
+      "id": 420,
+      "code": "IndRel_SGAToSales",
+      "name": "Ind Grp Rel SG&A to Sales",
+      "field": "IndRel_SGAToSales",
+      "file": "420.parquet"
+    },
+    {
+      "id": 424,
+      "code": "IndRel_WCapToSales",
+      "name": "Ind Grp Rel Working Capital to Sales",
+      "field": "IndRel_WCapToSales",
+      "file": "424.parquet"
+    },
+    {
+      "id": 426,
+      "code": "IndRel_AstP",
+      "name": "Ind Grp Rel Assets to Price Ratio",
+      "field": "IndRel_AstP",
+      "file": "426.parquet"
+    },
+    {
+      "id": 427,
+      "code": "5YRel_AstP",
+      "name": "5 Yr Hist Rel Assets to Price Ratio",
+      "field": "afl_5YRel_AstP",
+      "file": "427.parquet"
+    },
+    {
+      "id": 428,
+      "code": "IndRel_CashEV",
+      "name": "Ind Grp Rel Cash to EV Ratio",
+      "field": "IndRel_CashEV",
+      "file": "428.parquet"
+    },
+    {
+      "id": 430,
+      "code": "IndRel_CashP",
+      "name": "Ind Grp Rel Cash to Price",
+      "field": "IndRel_CashP",
+      "file": "430.parquet"
+    },
+    {
+      "id": 432,
+      "code": "IndRel_GFP",
+      "name": "Ind Grp Rel Growth Flow to Price",
+      "field": "IndRel_GFP",
+      "file": "432.parquet"
+    },
+    {
+      "id": 433,
+      "code": "5YRel_GFP",
+      "name": "5 Yr Hist Rel Growth Flow to Price",
+      "field": "afl_5YRel_GFP",
+      "file": "433.parquet"
+    },
+    {
+      "id": 434,
+      "code": "IndRel_IndiDivP",
+      "name": "Ind Grp Rel Indicated Annual Dividends to Price Ratio",
+      "field": "IndRel_IndiDivP",
+      "file": "434.parquet"
+    },
+    {
+      "id": 435,
+      "code": "5YRel_IndiDivP",
+      "name": "5 Yr Hist Rel Indicated Annual Dividends to Price Ratio",
+      "field": "afl_5YRel_IndiDivP",
+      "file": "435.parquet"
+    },
+    {
+      "id": 436,
+      "code": "IndRel_NCAP",
+      "name": "Ind Grp Rel Net Current Assets to Price Ratio",
+      "field": "IndRel_NCAP",
+      "file": "436.parquet"
+    },
+    {
+      "id": 437,
+      "code": "5YRel_OEP",
+      "name": "5 Yr Hist Rel Operating Earnings to Price Ratio",
+      "field": "afl_5YRel_OEP",
+      "file": "437.parquet"
+    },
+    {
+      "id": 438,
+      "code": "IndRel_SEV",
+      "name": "Ind Grp Rel Sales to EV Ratio",
+      "field": "IndRel_SEV",
+      "file": "438.parquet"
+    },
+    {
+      "id": 439,
+      "code": "5YRel_SEV",
+      "name": "5 Yr Hist Rel Sales to EV Ratio",
+      "field": "afl_5YRel_SEV",
+      "file": "439.parquet"
+    },
+    {
+      "id": 440,
+      "code": "IndRel_SP",
+      "name": "Ind Grp Rel Sales to Price Ratio",
+      "field": "IndRel_SP",
+      "file": "440.parquet"
+    },
+    {
+      "id": 441,
+      "code": "5YRel_SP",
+      "name": "5 Yr Hist Rel Sales to Price Ratio",
+      "field": "afl_5YRel_SP",
+      "file": "441.parquet"
+    },
+    {
+      "id": 448,
+      "code": "5YRel_NCAP",
+      "name": "5 Yr Hist Rel Net Current Assets to Price Ratio",
+      "field": "afl_5YRel_NCAP",
+      "file": "448.parquet"
+    },
+    {
+      "id": 449,
+      "code": "IndRel_OCFP",
+      "name": "Ind Grp Rel Operating Cash Flow to Price",
+      "field": "IndRel_OCFP",
+      "file": "449.parquet"
+    },
+    {
+      "id": 454,
+      "code": "YoYChgDA",
+      "name": "1Y Chg in Debt to Assets",
+      "field": "YoYChgDA",
+      "file": "454.parquet"
+    },
+    {
+      "id": 455,
+      "code": "BookLev",
+      "name": "Book Leverage",
+      "field": "BookLev",
+      "file": "455.parquet"
+    },
+    {
+      "id": 456,
+      "code": "130DMinRtn",
+      "name": "130 Day Minimum Return",
+      "field": "afl_130DMinRtn",
+      "file": "456.parquet"
+    },
+    {
+      "id": 457,
+      "code": "Adj50DVolSig",
+      "name": "Adj 50 Day Volume Signal",
+      "field": "Adj50DVolSig",
+      "file": "457.parquet"
+    },
+    {
+      "id": 458,
+      "code": "FCFSales",
+      "name": "Free Cash Flow to Sales",
+      "field": "FCFSales",
+      "file": "458.parquet"
+    },
+    {
+      "id": 459,
+      "code": "EPSStab",
+      "name": "EPS Stability",
+      "field": "EPSStab",
+      "file": "459.parquet"
+    },
+    {
+      "id": 460,
+      "code": "OCFStab",
+      "name": "Operating Cash Flow Stability",
+      "field": "OCFStab",
+      "file": "460.parquet"
+    },
+    {
+      "id": 461,
+      "code": "AdjAstAdjChg1YFCF",
+      "name": "Adj 1Y Chg in Asset Adjusted FCF",
+      "field": "AdjAstAdjChg1YFCF",
+      "file": "461.parquet"
+    },
+    {
+      "id": 463,
+      "code": "SalesAcc",
+      "name": "Sales Acceleration",
+      "field": "SalesAcc",
+      "file": "463.parquet"
+    },
+    {
+      "id": 464,
+      "code": "AdjAstAdjChg3YFCF",
+      "name": "Adjusted 3Y Chg in Asset Adjusted Free Cash Flow",
+      "field": "AdjAstAdjChg3YFCF",
+      "file": "464.parquet"
+    },
+    {
+      "id": 465,
+      "code": "AdjChgEPS",
+      "name": "Adj 1Y Chg in Earnings per Share",
+      "field": "AdjChgEPS",
+      "file": "465.parquet"
+    },
+    {
+      "id": 466,
+      "code": "AdjFCFP",
+      "name": "Adj Free Cash Flow to Price",
+      "field": "AdjFCFP",
+      "file": "466.parquet"
+    },
+    {
+      "id": 468,
+      "code": "AdjEBITDAEV",
+      "name": "Adj. EBITDA to Enterprise Value",
+      "field": "AdjEBITDAEV",
+      "file": "468.parquet"
+    },
+    {
+      "id": 469,
+      "code": "AdjGFP",
+      "name": "Adj Growth Flow to Price",
+      "field": "AdjGFP",
+      "file": "469.parquet"
+    },
+    {
+      "id": 471,
+      "code": "CashBurn",
+      "name": "Cash Burn Rate",
+      "field": "CashBurn",
+      "file": "471.parquet"
+    },
+    {
+      "id": 472,
+      "code": "StdErr180D",
+      "name": "180D Price TStat",
+      "field": "StdErr180D",
+      "file": "472.parquet"
+    },
+    {
+      "id": 473,
+      "code": "ChgNonPerfLnGL",
+      "name": "Change in Non Performing Loans to Total Gross Loans",
+      "field": "ChgNonPerfLnGL",
+      "file": "473.parquet"
+    },
+    {
+      "id": 474,
+      "code": "ProvChgOffSales",
+      "name": "Provisions and Charge Offs To Sales",
+      "field": "ProvChgOffSales",
+      "file": "474.parquet"
+    },
+    {
+      "id": 484,
+      "code": "FCFStab",
+      "name": "Free Cash Flow Stability",
+      "field": "FCFStab",
+      "file": "484.parquet"
+    },
+    {
+      "id": 485,
+      "code": "CFEqt",
+      "name": "Cash Flow to Equity",
+      "field": "CFEqt",
+      "file": "485.parquet"
+    },
+    {
+      "id": 486,
+      "code": "CFIC",
+      "name": "Cash Flow to Invested Capital",
+      "field": "CFIC",
+      "file": "486.parquet"
+    },
+    {
+      "id": 487,
+      "code": "CashAdjEV",
+      "name": "Cash to Adjusted Enterprise Value",
+      "field": "CashAdjEV",
+      "file": "487.parquet"
+    },
+    {
+      "id": 488,
+      "code": "RskAdjRS",
+      "name": "Risk Adjusted Relative Strength",
+      "field": "RskAdjRS",
+      "file": "488.parquet"
+    },
+    {
+      "id": 489,
+      "code": "RelPrStr_12M",
+      "name": "12 month Relative Price Strength(Ind Grp Rel VolAdjRtn12M)",
+      "field": "RelPrStr_12M",
+      "file": "489.parquet"
+    },
+    {
+      "id": 490,
+      "code": "ChgNonPerAsttoAst",
+      "name": "Change in Non performing Asset to Total Asset",
+      "field": "ChgNonPerAsttoAst",
+      "file": "490.parquet"
+    },
+    {
+      "id": 491,
+      "code": "ChgChgOfftoGL",
+      "name": "Change in Net Charge off to Gross Loan",
+      "field": "ChgChgOfftoGL",
+      "file": "491.parquet"
+    },
+    {
+      "id": 492,
+      "code": "ChgNonPerAsttoResLnLos",
+      "name": "Change in Non performing Asset to Reserve Loan Loss",
+      "field": "ChgNonPerAsttoResLnLos",
+      "file": "492.parquet"
+    },
+    {
+      "id": 493,
+      "code": "AdjChgEPStoSales",
+      "name": "Change EPS to Sales",
+      "field": "AdjChgEPStoSales",
+      "file": "493.parquet"
+    },
+    {
+      "id": 494,
+      "code": "OCFAst",
+      "name": "Operating Cash Flow to Asset",
+      "field": "OCFAst",
+      "file": "494.parquet"
+    },
+    {
+      "id": 495,
+      "code": "CFAst",
+      "name": "Cash Flow to Total Asset",
+      "field": "CFAst",
+      "file": "495.parquet"
+    },
+    {
+      "id": 496,
+      "code": "ChgSalestoChgEPS",
+      "name": "Change of Sales to Change of EPS",
+      "field": "ChgSalestoChgEPS",
+      "file": "496.parquet"
+    },
+    {
+      "id": 497,
+      "code": "OCFIC",
+      "name": "Operating Cash Flow to Invested Capital",
+      "field": "OCFIC",
+      "file": "497.parquet"
+    },
+    {
+      "id": 498,
+      "code": "ChgATO",
+      "name": "Change of Asset Turnover",
+      "field": "ChgATO",
+      "file": "498.parquet"
+    },
+    {
+      "id": 501,
+      "code": "FCFP_BK",
+      "name": "Banking FCF to Price",
+      "field": "FCFP_BK",
+      "file": "501.parquet"
+    },
+    {
+      "id": 502,
+      "code": "BVEV",
+      "name": "Adjusted Book to Enterprise Value",
+      "field": "BVEV",
+      "file": "502.parquet"
+    },
+    {
+      "id": 503,
+      "code": "IndRelEBITP",
+      "name": "Adjusted Industry Relative EBIT to Price",
+      "field": "IndRelEBITP",
+      "file": "503.parquet"
+    },
+    {
+      "id": 504,
+      "code": "OCFEqt",
+      "name": "Operating Cash Flow to Equity",
+      "field": "OCFEqt",
+      "file": "504.parquet"
+    },
+    {
+      "id": 505,
+      "code": "EBITDAMargin",
+      "name": "EBITDA Margin",
+      "field": "EBITDAMargin",
+      "file": "505.parquet"
+    },
+    {
+      "id": 506,
+      "code": "CurLiaP",
+      "name": "Current Liability to Price",
+      "field": "CurLiaP",
+      "file": "506.parquet"
+    },
+    {
+      "id": 507,
+      "code": "AdjIntCov",
+      "name": "Adjusted Interest Coverage Ratio",
+      "field": "AdjIntCov",
+      "file": "507.parquet"
+    },
+    {
+      "id": 508,
+      "code": "OCFRatio",
+      "name": "Operating Cash Flow Ratio",
+      "field": "OCFRatio",
+      "file": "508.parquet"
+    },
+    {
+      "id": 516,
+      "code": "NonPerfAstResLnLs",
+      "name": "Non Performing Asset to Reserve Loan Loss",
+      "field": "NonPerfAstResLnLs",
+      "file": "516.parquet"
+    },
+    {
+      "id": 518,
+      "code": "FinLev",
+      "name": "Degree of Financial Leverage",
+      "field": "FinLev",
+      "file": "518.parquet"
+    },
+    {
+      "id": 519,
+      "code": "5DVolSig",
+      "name": "5 Day Volume Signal",
+      "field": "afl_5DVolSig",
+      "file": "519.parquet"
+    },
+    {
+      "id": 520,
+      "code": "IndRelRtn4W",
+      "name": "4 Week Industry Relative Return",
+      "field": "IndRelRtn4W",
+      "file": "520.parquet"
+    },
+    {
+      "id": 521,
+      "code": "CVVolPrc20D",
+      "name": "20 Day Coefficient of Variation of Volume to Price",
+      "field": "CVVolPrc20D",
+      "file": "521.parquet"
+    },
+    {
+      "id": 522,
+      "code": "CVVolPrc60D",
+      "name": "60 Day Coefficient of Variation of Volume to Price",
+      "field": "CVVolPrc60D",
+      "file": "522.parquet"
+    },
+    {
+      "id": 523,
+      "code": "STO_6M",
+      "name": "6 Month Average Share Turn Over",
+      "field": "STO_6M",
+      "file": "523.parquet"
+    },
+    {
+      "id": 524,
+      "code": "PSlopeSERR_26W",
+      "name": "26W Price Stat",
+      "field": "PSlopeSERR_26W",
+      "file": "524.parquet"
+    },
+    {
+      "id": 533,
+      "code": "CVVolPrc30D",
+      "name": "30 Day Coefficient of Variation of Volume to Price",
+      "field": "CVVolPrc30D",
+      "file": "533.parquet"
+    },
+    {
+      "id": 534,
+      "code": "IndRel_CACL",
+      "name": "Ind Grp Rel Current Ratio",
+      "field": "IndRel_CACL",
+      "file": "534.parquet"
+    },
+    {
+      "id": 535,
+      "code": "IndRel_QuickRatio",
+      "name": "Ind Grp Rel Quick Ratio",
+      "field": "IndRel_QuickRatio",
+      "file": "535.parquet"
+    },
+    {
+      "id": 536,
+      "code": "IndRel_CashRatio",
+      "name": "Ind Grp Rel Cash Ratio",
+      "field": "IndRel_CashRatio",
+      "file": "536.parquet"
+    },
+    {
+      "id": 537,
+      "code": "IndRel_RecTurn",
+      "name": "Ind Grp Rel Receivables Turnover Ratio",
+      "field": "IndRel_RecTurn",
+      "file": "537.parquet"
+    },
+    {
+      "id": 538,
+      "code": "IndRel_EBITMargin",
+      "name": "Ind Grp Rel EBIT Margin",
+      "field": "IndRel_EBITMargin",
+      "file": "538.parquet"
+    },
+    {
+      "id": 539,
+      "code": "IndRel_GPMargin",
+      "name": "Ind Grp Rel Gross Profit Margin",
+      "field": "IndRel_GPMargin",
+      "file": "539.parquet"
+    },
+    {
+      "id": 540,
+      "code": "IndRel_WCA",
+      "name": "Ind Grp Rel Working Capital to Assets Ratio",
+      "field": "IndRel_WCA",
+      "file": "540.parquet"
+    },
+    {
+      "id": 541,
+      "code": "IndRel_OEA",
+      "name": "Ind Grp Rel Operating Earnings to Assets Ratio",
+      "field": "IndRel_OEA",
+      "file": "541.parquet"
+    },
+    {
+      "id": 542,
+      "code": "IndRel_PTMargin",
+      "name": "Ind Grp Rel Pretax Profit Margin",
+      "field": "IndRel_PTMargin",
+      "file": "542.parquet"
+    },
+    {
+      "id": 543,
+      "code": "IndRel_TobinQ",
+      "name": "Ind Grp Rel Tobin's Q Ratio",
+      "field": "IndRel_TobinQ",
+      "file": "543.parquet"
+    },
+    {
+      "id": 544,
+      "code": "IndRel_WCTurn",
+      "name": "Ind Grp Rel Working Capital Turnover Ratio",
+      "field": "IndRel_WCTurn",
+      "file": "544.parquet"
+    },
+    {
+      "id": 545,
+      "code": "IndRel_DepToCapex",
+      "name": "Ind Grp Rel Depreciation to Capex Ratio",
+      "field": "IndRel_DepToCapex",
+      "file": "545.parquet"
+    },
+    {
+      "id": 546,
+      "code": "IndRel_InvToAst",
+      "name": "Ind Grp Rel Inventory to Assets Ratio",
+      "field": "IndRel_InvToAst",
+      "file": "546.parquet"
+    },
+    {
+      "id": 547,
+      "code": "IndRel_AccrualRatioBS",
+      "name": "Ind Grp Rel Accrual Ratio - Balance Sheet",
+      "field": "IndRel_AccrualRatioBS",
+      "file": "547.parquet"
+    },
+    {
+      "id": 548,
+      "code": "IndRel_AccrualRatioCF",
+      "name": "Ind Grp Rel Accrual Ratio - Cash Flows",
+      "field": "IndRel_AccrualRatioCF",
+      "file": "548.parquet"
+    },
+    {
+      "id": 549,
+      "code": "IndRel_DebtChg1Y",
+      "name": "Ind Grp Rel Year over Year Change of Total Debt",
+      "field": "IndRel_DebtChg1Y",
+      "file": "549.parquet"
+    },
+    {
+      "id": 550,
+      "code": "IndRel_PM6M",
+      "name": "Ind Grp Rel Price Momentum - 6 Months",
+      "field": "IndRel_PM6M",
+      "file": "550.parquet"
+    },
+    {
+      "id": 551,
+      "code": "IndRel_SGAToSalesChg1Y",
+      "name": "Ind Grp Rel YoY Change in SGA to Sales",
+      "field": "IndRel_SGAToSalesChg1Y",
+      "file": "551.parquet"
+    },
+    {
+      "id": 552,
+      "code": "IndRel_InvToAstChg1Y",
+      "name": "Ind Grp Rel Year over Year Change of Inventory to Assets",
+      "field": "IndRel_InvToAstChg1Y",
+      "file": "552.parquet"
+    },
+    {
+      "id": 553,
+      "code": "IndRel_EPSToSalesChg1Y",
+      "name": "Ind Grp Rel Year over Year Change of EPS to Sales",
+      "field": "IndRel_EPSToSalesChg1Y",
+      "file": "553.parquet"
+    },
+    {
+      "id": 554,
+      "code": "IndRel_AdjAccruals",
+      "name": "Ind Grp Rel Adjusted Accruals",
+      "field": "IndRel_AdjAccruals",
+      "file": "554.parquet"
+    },
+    {
+      "id": 555,
+      "code": "IndRel_MaxRetPayoff",
+      "name": "Ind Grp Rel Max Daily Return in the Past 6 Months",
+      "field": "IndRel_MaxRetPayoff",
+      "file": "555.parquet"
+    },
+    {
+      "id": 556,
+      "code": "IndRel_50DVolSig",
+      "name": "Ind Grp Rel 50 Day Volume Signal",
+      "field": "IndRel_50DVolSig",
+      "file": "556.parquet"
+    },
+    {
+      "id": 557,
+      "code": "IndRel_LTDA",
+      "name": "Ind Grp Rel Long Term Debt to Assets Ratio",
+      "field": "IndRel_LTDA",
+      "file": "557.parquet"
+    },
+    {
+      "id": 559,
+      "code": "IndRel_SolvencyRatio",
+      "name": "Ind Grp Rel Solvency Ratio",
+      "field": "IndRel_SolvencyRatio",
+      "file": "559.parquet"
+    },
+    {
+      "id": 560,
+      "code": "IndRel_RONA",
+      "name": "Ind Grp Rel Return on Net Tangible Assets",
+      "field": "IndRel_RONA",
+      "file": "560.parquet"
+    },
+    {
+      "id": 561,
+      "code": "5YRel_CACL",
+      "name": "5 Yr Hist Rel Current Ratio",
+      "field": "afl_5YRel_CACL",
+      "file": "561.parquet"
+    },
+    {
+      "id": 562,
+      "code": "5YRel_QuickRatio",
+      "name": "5 Yr Hist Rel Quick Ratio",
+      "field": "afl_5YRel_QuickRatio",
+      "file": "562.parquet"
+    },
+    {
+      "id": 563,
+      "code": "5YRel_CashRatio",
+      "name": "5 Yr Hist Rel Cash Ratio",
+      "field": "afl_5YRel_CashRatio",
+      "file": "563.parquet"
+    },
+    {
+      "id": 564,
+      "code": "5YRel_RecTurn",
+      "name": "5 Yr Hist Rel Receivables Turnover Ratio",
+      "field": "afl_5YRel_RecTurn",
+      "file": "564.parquet"
+    },
+    {
+      "id": 565,
+      "code": "5YRel_EBITMargin",
+      "name": "5 Yr Hist Rel EBIT Margin",
+      "field": "afl_5YRel_EBITMargin",
+      "file": "565.parquet"
+    },
+    {
+      "id": 566,
+      "code": "5YRel_GPMargin",
+      "name": "5 Yr Hist Rel Gross Profit Margin",
+      "field": "afl_5YRel_GPMargin",
+      "file": "566.parquet"
+    },
+    {
+      "id": 567,
+      "code": "5YRel_WCA",
+      "name": "5 Yr Hist Rel Working Capital to Assets Ratio",
+      "field": "afl_5YRel_WCA",
+      "file": "567.parquet"
+    },
+    {
+      "id": 568,
+      "code": "5YRel_OEA",
+      "name": "5 Yr Hist Rel Operating Earnings to Assets Ratio",
+      "field": "afl_5YRel_OEA",
+      "file": "568.parquet"
+    },
+    {
+      "id": 569,
+      "code": "5YRel_PTMargin",
+      "name": "5 Yr Hist Rel Pretax Profit Margin",
+      "field": "afl_5YRel_PTMargin",
+      "file": "569.parquet"
+    },
+    {
+      "id": 570,
+      "code": "5YRel_TobinQ",
+      "name": "5 Yr Hist Rel Tobin's Q Ratio",
+      "field": "afl_5YRel_TobinQ",
+      "file": "570.parquet"
+    },
+    {
+      "id": 571,
+      "code": "5YRel_WCTurn",
+      "name": "5 Yr Hist Rel Working Capital Turnover Ratio",
+      "field": "afl_5YRel_WCTurn",
+      "file": "571.parquet"
+    },
+    {
+      "id": 572,
+      "code": "5YRel_DepToCapex",
+      "name": "5 Yr Hist Rel Depreciation to Capex Ratio",
+      "field": "afl_5YRel_DepToCapex",
+      "file": "572.parquet"
+    },
+    {
+      "id": 573,
+      "code": "5YRel_InvToAst",
+      "name": "5 Yr Hist Rel Inventory to Assets Ratio",
+      "field": "afl_5YRel_InvToAst",
+      "file": "573.parquet"
+    },
+    {
+      "id": 574,
+      "code": "5YRel_AccrualRatioBS",
+      "name": "5 Yr Hist Rel Accrual Ratio - Balance Sheet",
+      "field": "afl_5YRel_AccrualRatioBS",
+      "file": "574.parquet"
+    },
+    {
+      "id": 575,
+      "code": "5YRel_AccrualRatioCF",
+      "name": "5 Yr Hist Rel Accrual Ratio - Cash Flows",
+      "field": "afl_5YRel_AccrualRatioCF",
+      "file": "575.parquet"
+    },
+    {
+      "id": 576,
+      "code": "5YRel_AdjAccruals",
+      "name": "5 Yr Hist Rel Adjusted Accruals",
+      "field": "afl_5YRel_AdjAccruals",
+      "file": "576.parquet"
+    },
+    {
+      "id": 577,
+      "code": "5YRel_LTDA",
+      "name": "5 Yr Hist Rel Long Term Debt to Assets Ratio",
+      "field": "afl_5YRel_LTDA",
+      "file": "577.parquet"
+    },
+    {
+      "id": 579,
+      "code": "5YRel_SolvencyRatio",
+      "name": "5 Yr Hist Rel Solvency Ratio",
+      "field": "afl_5YRel_SolvencyRatio",
+      "file": "579.parquet"
+    },
+    {
+      "id": 580,
+      "code": "5YRel_RONA",
+      "name": "5 Yr Hist Rel Return on Net Tangible Assets",
+      "field": "afl_5YRel_RONA",
+      "file": "580.parquet"
+    },
+    {
+      "id": 605,
+      "code": "3MSalesMom",
+      "name": "3M Momentum in Trailing 12M Sales",
+      "field": "afl_3MSalesMom",
+      "file": "605.parquet"
+    },
+    {
+      "id": 606,
+      "code": "6MTTMSalesMom",
+      "name": "6M Momentum in Trailing 12M Sales",
+      "field": "afl_6MTTMSalesMom",
+      "file": "606.parquet"
+    },
+    {
+      "id": 607,
+      "code": "Chg4QSalesTrend",
+      "name": "Change in Slope of 4-Quarter Trendline through Quarterly Sales",
+      "field": "Chg4QSalesTrend",
+      "file": "607.parquet"
+    },
+    {
+      "id": 608,
+      "code": "4WChgFwd12MEPS",
+      "name": "4-Week Change in 12-Month Forward Earnings Consensus Estimate/Price",
+      "field": "afl_4WChgFwd12MEPS",
+      "file": "608.parquet"
+    },
+    {
+      "id": 609,
+      "code": "8WChgFwd12MEPS",
+      "name": "8-Week Change in 12-Month Forward Earnings Consensus Estimate/Price",
+      "field": "afl_8WChgFwd12MEPS",
+      "file": "609.parquet"
+    },
+    {
+      "id": 610,
+      "code": "FY2OverFY1Growth",
+      "name": "Expected Earnings Growth: Fiscal Year 2/Fiscal Year 1",
+      "field": "FY2OverFY1Growth",
+      "file": "610.parquet"
+    },
+    {
+      "id": 612,
+      "code": "12QTTMCFTrend",
+      "name": "12-Quarter Trendline in Trailing 12-Month Cash Flows",
+      "field": "afl_12QTTMCFTrend",
+      "file": "612.parquet"
+    },
+    {
+      "id": 613,
+      "code": "12QTrendTTMEPS",
+      "name": "12-Quarter Trendline in Trailing 12-Month Earnings",
+      "field": "afl_12QTrendTTMEPS",
+      "file": "613.parquet"
+    },
+    {
+      "id": 614,
+      "code": "3YAvgAnnEPSGrw",
+      "name": "3Y Average Annual Earnings Growth",
+      "field": "afl_3YAvgAnnEPSGrw",
+      "file": "614.parquet"
+    },
+    {
+      "id": 615,
+      "code": "3YAvgAnnSalesGrw",
+      "name": "3Y Average Annual Sales Growth",
+      "field": "afl_3YAvgAnnSalesGrw",
+      "file": "615.parquet"
+    },
+    {
+      "id": 616,
+      "code": "ConsQPosChginTTMCF",
+      "name": "Number of Consecutive Qtrs of Pos. Changes in TTM Cash Flows",
+      "field": "ConsQPosChginTTMCF",
+      "file": "616.parquet"
+    },
+    {
+      "id": 617,
+      "code": "ConsQPosChgTTMEPS",
+      "name": "Number of Consecutive Qtrs of Positive Changes in TTM Quarterly Earnings",
+      "field": "ConsQPosChgTTMEPS",
+      "file": "617.parquet"
+    },
+    {
+      "id": 618,
+      "code": "52WVPT20DLag",
+      "name": "52-Week Volume Price Trend with 20-Day Lag",
+      "field": "afl_52WVPT20DLag",
+      "file": "618.parquet"
+    },
+    {
+      "id": 619,
+      "code": "PA52WL20DLag",
+      "name": "Percent Above 260-Day Low",
+      "field": "PA52WL20DLag",
+      "file": "619.parquet"
+    },
+    {
+      "id": 620,
+      "code": "20DStochastic",
+      "name": "20-Day Lane's Stochastic Indicator",
+      "field": "afl_20DStochastic",
+      "file": "620.parquet"
+    },
+    {
+      "id": 621,
+      "code": "14DayRSI",
+      "name": "14-Day Relative Strength Index",
+      "field": "afl_14DayRSI",
+      "file": "621.parquet"
+    },
+    {
+      "id": 622,
+      "code": "5DMoneyFlowVol",
+      "name": "5-Day Money Flow/Volume",
+      "field": "afl_5DMoneyFlowVol",
+      "file": "622.parquet"
+    },
+    {
+      "id": 623,
+      "code": "CQDOHtoSales",
+      "name": "Consecutive Quarters of Declines in TTM Overhead/Sales",
+      "field": "CQDOHtoSales",
+      "file": "623.parquet"
+    },
+    {
+      "id": 624,
+      "code": "CQDRItoSales",
+      "name": "Num of Quarters of Declines in Receivables and Inventories/TTM Sales",
+      "field": "CQDRItoSales",
+      "file": "624.parquet"
+    },
+    {
+      "id": 625,
+      "code": "CQPTTMCFtoSales",
+      "name": "Num of Qtrs of Pos Chgs in TTM Cash Flows/TTM Sales",
+      "field": "CQPTTMCFtoSales",
+      "file": "625.parquet"
+    },
+    {
+      "id": 626,
+      "code": "TTMEPStoTTMSales",
+      "name": "Trailing 12-Month Earnings/Trailing 12-Month Sales",
+      "field": "TTMEPStoTTMSales",
+      "file": "626.parquet"
+    },
+    {
+      "id": 630,
+      "code": "LogMktCapCubed",
+      "name": "Log of Market Capitalization Cubed",
+      "field": "LogMktCapCubed",
+      "file": "630.parquet"
+    },
+    {
+      "id": 632,
+      "code": "LogAssets",
+      "name": "Log of Total Last Quarter Assets",
+      "field": "LogAssets",
+      "file": "632.parquet"
+    },
+    {
+      "id": 633,
+      "code": "TTMOverheadtoSales",
+      "name": "Trailing 12-Month Overhead/Trailing 12-Month Sales",
+      "field": "TTMOverheadtoSales",
+      "file": "633.parquet"
+    },
+    {
+      "id": 634,
+      "code": "TTMRecInvToSales",
+      "name": "Trailing 12-Month Receivables and Inventories/Trailing 12-Month Sales",
+      "field": "TTMRecInvToSales",
+      "file": "634.parquet"
+    },
+    {
+      "id": 645,
+      "code": "EBITP",
+      "name": "EBIT to Price",
+      "field": "EBITP",
+      "file": "645.parquet"
+    },
+    {
+      "id": 647,
+      "code": "VolAdjRtn12M",
+      "name": "Volatility adjusted 12M return",
+      "field": "VolAdjRtn12M",
+      "file": "647.parquet"
+    },
+    {
+      "id": 648,
+      "code": "PM5D",
+      "name": "5 Day Price Reversal",
+      "field": "PM5D",
+      "file": "648.parquet"
+    },
+    {
+      "id": 649,
+      "code": "IndRel_DivP",
+      "name": "Ind Grp Rel Dividends to Price Ratio",
+      "field": "IndRel_DivP",
+      "file": "649.parquet"
+    },
+    {
+      "id": 650,
+      "code": "IndRel_PM5D",
+      "name": "Ind Grp Rel 5 Day Price Momentum",
+      "field": "IndRel_PM5D",
+      "file": "650.parquet"
+    },
+    {
+      "id": 770,
+      "code": "RET_CompSalesG",
+      "name": "1Yr SameStoreSales Growth",
+      "field": "RET_CompSalesG",
+      "file": "770.parquet"
+    },
+    {
+      "id": 771,
+      "code": "RET_YoYGrwSqFt",
+      "name": "1 Yr Retail SqFt Growth",
+      "field": "RET_YoYGrwSqFt",
+      "file": "771.parquet"
+    },
+    {
+      "id": 772,
+      "code": "RET_ChgEPSChgSqFT",
+      "name": "1Y Chg EPS minus 1Y Chg SqFt",
+      "field": "RET_ChgEPSChgSqFT",
+      "file": "772.parquet"
+    },
+    {
+      "id": 773,
+      "code": "RET_ChgSalesChgSqFT",
+      "name": "1YChg Sales to 1YChg SqFt",
+      "field": "RET_ChgSalesChgSqFT",
+      "file": "773.parquet"
+    },
+    {
+      "id": 774,
+      "code": "RET_NetProfitSqFt",
+      "name": "Net Profit to Retail SqFt",
+      "field": "RET_NetProfitSqFt",
+      "file": "774.parquet"
+    },
+    {
+      "id": 775,
+      "code": "RET_NetSalesSqFt",
+      "name": "Sales to Retail SqFt",
+      "field": "RET_NetSalesSqFt",
+      "file": "775.parquet"
+    },
+    {
+      "id": 776,
+      "code": "RET_TTMStoresOP",
+      "name": "TTMStoreOpen to TotStore",
+      "field": "RET_TTMStoresOP",
+      "file": "776.parquet"
+    },
+    {
+      "id": 777,
+      "code": "RET_TTMStoresCLS",
+      "name": "TTMStoreClose to TotStore",
+      "field": "RET_TTMStoresCLS",
+      "file": "777.parquet"
+    },
+    {
+      "id": 778,
+      "code": "RET_1YChgNumStores",
+      "name": "1Y Chg Number of Stores",
+      "field": "RET_1YChgNumStores",
+      "file": "778.parquet"
+    },
+    {
+      "id": 779,
+      "code": "RET_ChgSSSGrw",
+      "name": "1YChg SameStoreSalesGrwth",
+      "field": "RET_ChgSSSGrw",
+      "file": "779.parquet"
+    },
+    {
+      "id": 780,
+      "code": "RET_ChgSalesPerSQFT",
+      "name": "1YChg Net Sales per SqFt",
+      "field": "RET_ChgSalesPerSQFT",
+      "file": "780.parquet"
+    },
+    {
+      "id": 781,
+      "code": "RET_SSSGrwAcc",
+      "name": "SameStoreSalesGrwthAccel",
+      "field": "RET_SSSGrwAcc",
+      "file": "781.parquet"
+    },
+    {
+      "id": 782,
+      "code": "RET_StoreCLSMOM",
+      "name": "Stores Closed Momentum",
+      "field": "RET_StoreCLSMOM",
+      "file": "782.parquet"
+    },
+    {
+      "id": 783,
+      "code": "RET_StoreOPMOM",
+      "name": "Stores Opened Momentum",
+      "field": "RET_StoreOPMOM",
+      "file": "783.parquet"
+    },
+    {
+      "id": 792,
+      "code": "stdRR36M",
+      "name": "Standardized 36M Residual",
+      "field": "stdRR36M",
+      "file": "792.parquet"
+    },
+    {
+      "id": 822,
+      "code": "OG_ChgDCFMktCap",
+      "name": "1Y Chg in Discounted Future Cash Flows to Market Cap",
+      "field": "OG_ChgDCFMktCap",
+      "file": "822.parquet"
+    },
+    {
+      "id": 823,
+      "code": "OG_DCFMktCap",
+      "name": "Discounted Future Cash Flows to Market Cap",
+      "field": "OG_DCFMktCap",
+      "file": "823.parquet"
+    },
+    {
+      "id": 824,
+      "code": "OG_FCFMktCap",
+      "name": "Future Cashflow Yield",
+      "field": "OG_FCFMktCap",
+      "file": "824.parquet"
+    },
+    {
+      "id": 825,
+      "code": "OG_ChgFCFMktCap",
+      "name": "1Y Chg in Future Cashflow Yield",
+      "field": "OG_ChgFCFMktCap",
+      "file": "825.parquet"
+    },
+    {
+      "id": 826,
+      "code": "OG_ChgFCFTotAst",
+      "name": "1Y Chg in Future Cash Flows to Total Assets",
+      "field": "OG_ChgFCFTotAst",
+      "file": "826.parquet"
+    },
+    {
+      "id": 827,
+      "code": "OG_ChgFCFPerShare",
+      "name": "1Y Chg in Future Cash Flows per Share",
+      "field": "OG_ChgFCFPerShare",
+      "file": "827.parquet"
+    },
+    {
+      "id": 828,
+      "code": "OG_ChgResvExhRate",
+      "name": "1Y Chg in Reserve Exhaustion Rate",
+      "field": "OG_ChgResvExhRate",
+      "file": "828.parquet"
+    },
+    {
+      "id": 829,
+      "code": "OG_ResvExhRate",
+      "name": "Reserve Exhaustion Rate",
+      "field": "OG_ResvExhRate",
+      "file": "829.parquet"
+    },
+    {
+      "id": 830,
+      "code": "OG_ChgResvExpDevC",
+      "name": "Reserve Acquisition Cost",
+      "field": "OG_ChgResvExpDevC",
+      "file": "830.parquet"
+    },
+    {
+      "id": 831,
+      "code": "OG_ChgResvTotCost",
+      "name": "1Y Chg in Reserve Acquired to Total Costs",
+      "field": "OG_ChgResvTotCost",
+      "file": "831.parquet"
+    },
+    {
+      "id": 832,
+      "code": "OG_ChgResvMktCap",
+      "name": "1Y Chg in Proved Reserves to Market Cap",
+      "field": "OG_ChgResvMktCap",
+      "file": "832.parquet"
+    },
+    {
+      "id": 833,
+      "code": "OG_PrvdResvMktCap",
+      "name": "Proved Reserves to Market Cap",
+      "field": "OG_PrvdResvMktCap",
+      "file": "833.parquet"
+    },
+    {
+      "id": 834,
+      "code": "OG_ResvPerShrG",
+      "name": "Developed Reserves per Share Growth",
+      "field": "OG_ResvPerShrG",
+      "file": "834.parquet"
+    },
+    {
+      "id": 835,
+      "code": "OG_ResvRep",
+      "name": "Reserve Replacement Ratio",
+      "field": "OG_ResvRep",
+      "file": "835.parquet"
+    },
+    {
+      "id": 836,
+      "code": "OG_OilMgn",
+      "name": "Oil Margin",
+      "field": "OG_OilMgn",
+      "file": "836.parquet"
+    },
+    {
+      "id": 837,
+      "code": "OG_GasMgn",
+      "name": "Gas Margin",
+      "field": "OG_GasMgn",
+      "file": "837.parquet"
+    },
+    {
+      "id": 859,
+      "code": "LogUnadjPrice",
+      "name": "Log of Unadjusted Stock Price",
+      "field": "LogUnadjPrice",
+      "file": "859.parquet"
+    },
+    {
+      "id": 863,
+      "code": "GM_ReserveGrowth",
+      "name": "Reserve Growth",
+      "field": "GM_ReserveGrowth",
+      "file": "863.parquet"
+    },
+    {
+      "id": 864,
+      "code": "GM_ReserveAcqYield",
+      "name": "Reserve Acquisition Yield",
+      "field": "GM_ReserveAcqYield",
+      "file": "864.parquet"
+    },
+    {
+      "id": 865,
+      "code": "GM_PPRestoMktCap",
+      "name": "Proved & Prob Reserves to Market Cap",
+      "field": "GM_PPRestoMktCap",
+      "file": "865.parquet"
+    },
+    {
+      "id": 866,
+      "code": "GM_ProdtoMktCap",
+      "name": "Actual Production to Market Cap",
+      "field": "GM_ProdtoMktCap",
+      "file": "866.parquet"
+    },
+    {
+      "id": 867,
+      "code": "GM_ProductionGrowth",
+      "name": "Production Growth",
+      "field": "GM_ProductionGrowth",
+      "file": "867.parquet"
+    },
+    {
+      "id": 868,
+      "code": "GM_MineLife",
+      "name": "Mine Life - Gold Mining",
+      "field": "GM_MineLife",
+      "file": "868.parquet"
+    },
+    {
+      "id": 870,
+      "code": "RES_RestaurantsCLSMOM",
+      "name": "Restaurants Closing Momentum",
+      "field": "RES_RestaurantsCLSMOM",
+      "file": "870.parquet"
+    },
+    {
+      "id": 871,
+      "code": "RES_RestaurantsOPMOM",
+      "name": "Restaurants Opening Momentum",
+      "field": "RES_RestaurantsOPMOM",
+      "file": "871.parquet"
+    },
+    {
+      "id": 872,
+      "code": "RES_TTMRestaurantsOP_Acq",
+      "name": "TTM Rest Open & Acquire to Total Rest",
+      "field": "RES_TTMRestaurantsOP_Acq",
+      "file": "872.parquet"
+    },
+    {
+      "id": 873,
+      "code": "RES_TTMRestaurantCLS_Sold",
+      "name": "TTM Rest Closed & Sold to Total Rest",
+      "field": "RES_TTMRestaurantCLS_Sold",
+      "file": "873.parquet"
+    },
+    {
+      "id": 874,
+      "code": "RES_1YChgNumRestaurants",
+      "name": "1 Yr Chg in Number of Restuarants",
+      "field": "RES_1YChgNumRestaurants",
+      "file": "874.parquet"
+    },
+    {
+      "id": 875,
+      "code": "RES_1YChgSRSGrowth",
+      "name": "1 Yr Same Rest Sales Acceleration",
+      "field": "RES_1YChgSRSGrowth",
+      "file": "875.parquet"
+    },
+    {
+      "id": 876,
+      "code": "RES_SameRestSalesGrw",
+      "name": "Same Restaurant Sales Growth",
+      "field": "RES_SameRestSalesGrw",
+      "file": "876.parquet"
+    },
+    {
+      "id": 877,
+      "code": "RES_RestaurantOperMargin",
+      "name": "Restaurant Operating Margin",
+      "field": "RES_RestaurantOperMargin",
+      "file": "877.parquet"
+    },
+    {
+      "id": 878,
+      "code": "HG_1YChgRevperRoom",
+      "name": "1 Yr Chg in Revenue per Room",
+      "field": "HG_1YChgRevperRoom",
+      "file": "878.parquet"
+    },
+    {
+      "id": 879,
+      "code": "HG_1YChgNumRooms",
+      "name": "1 Yr Chg in Number of Rooms",
+      "field": "HG_1YChgNumRooms",
+      "file": "879.parquet"
+    },
+    {
+      "id": 880,
+      "code": "HG_1YChgNumProperties",
+      "name": "1 Yr Chg in Number of Properties",
+      "field": "HG_1YChgNumProperties",
+      "file": "880.parquet"
+    },
+    {
+      "id": 881,
+      "code": "HG_ProfitperRoom",
+      "name": "Profit per Room",
+      "field": "HG_ProfitperRoom",
+      "file": "881.parquet"
+    },
+    {
+      "id": 882,
+      "code": "HG_RoomMargin",
+      "name": "Room Margin",
+      "field": "HG_RoomMargin",
+      "file": "882.parquet"
+    },
+    {
+      "id": 883,
+      "code": "HG_RevperRoom",
+      "name": "Revenue per Room",
+      "field": "HG_RevperRoom",
+      "file": "883.parquet"
+    },
+    {
+      "id": 884,
+      "code": "HG_HotelCasinoRevtoOpExp",
+      "name": "Hotel & Casino Rev to Oper Exp",
+      "field": "HG_HotelCasinoRevtoOpExp",
+      "file": "884.parquet"
+    },
+    {
+      "id": 885,
+      "code": "INS_UwMargin",
+      "name": "Underwriting Margin",
+      "field": "INS_UwMargin",
+      "file": "885.parquet"
+    },
+    {
+      "id": 886,
+      "code": "INS_1YGrwUwProfit",
+      "name": "1 Yr Grw in Underwriting Profit",
+      "field": "INS_1YGrwUwProfit",
+      "file": "886.parquet"
+    },
+    {
+      "id": 887,
+      "code": "INS_1YGrwNPE",
+      "name": "1 Yr Grw in Net Premiums Earned",
+      "field": "INS_1YGrwNPE",
+      "file": "887.parquet"
+    },
+    {
+      "id": 888,
+      "code": "INS_1YGrwTotInvestments",
+      "name": "1 Yr Grw in Total Investments",
+      "field": "INS_1YGrwTotInvestments",
+      "file": "888.parquet"
+    },
+    {
+      "id": 889,
+      "code": "INS_RetentionRatio",
+      "name": "Retention Ratio",
+      "field": "INS_RetentionRatio",
+      "file": "889.parquet"
+    },
+    {
+      "id": 890,
+      "code": "INS_NPWtoStatSurp",
+      "name": "Net Prem Written to Stat Surplus",
+      "field": "INS_NPWtoStatSurp",
+      "file": "890.parquet"
+    },
+    {
+      "id": 891,
+      "code": "INS_NPWtoNetAssets",
+      "name": "Insurance: Net Premium Written to Net Assets",
+      "field": "INS_NPWtoNetAssets",
+      "file": "891.parquet"
+    },
+    {
+      "id": 892,
+      "code": "INS_ClaimsRatio",
+      "name": "Claims Ratio",
+      "field": "INS_ClaimsRatio",
+      "file": "892.parquet"
+    },
+    {
+      "id": 893,
+      "code": "INS_ExpenseRatio",
+      "name": "Expense Ratio",
+      "field": "INS_ExpenseRatio",
+      "file": "893.parquet"
+    },
+    {
+      "id": 894,
+      "code": "INS_CombinedRatio",
+      "name": "Combined Ratio",
+      "field": "INS_CombinedRatio",
+      "file": "894.parquet"
+    },
+    {
+      "id": 895,
+      "code": "HB_1YGTotHRevConstinProg",
+      "name": "1 Yr Grw Tot Home Rev to Const in Prog",
+      "field": "HB_1YGTotHRevConstinProg",
+      "file": "895.parquet"
+    },
+    {
+      "id": 896,
+      "code": "HB_DelivHomeValGrtoMktCap",
+      "name": "Deliv Homes Value Grw to Mkt Cap",
+      "field": "HB_DelivHomeValGrtoMktCap",
+      "file": "896.parquet"
+    },
+    {
+      "id": 897,
+      "code": "HB_1YrGrTotHomeRevtoInv",
+      "name": "1 Yr Grw Tot Home Rev to Inventory",
+      "field": "HB_1YrGrTotHomeRevtoInv",
+      "file": "897.parquet"
+    },
+    {
+      "id": 898,
+      "code": "HB_HomeGM",
+      "name": "Home Gross Margin",
+      "field": "HB_HomeGM",
+      "file": "898.parquet"
+    },
+    {
+      "id": 899,
+      "code": "HB_1YGrHouseSalesRev",
+      "name": "1 Yr Grw House Sales Revenue",
+      "field": "HB_1YGrHouseSalesRev",
+      "file": "899.parquet"
+    },
+    {
+      "id": 900,
+      "code": "HB_1YGrNetNewOrders",
+      "name": "1 Yr Grw Net New Orders",
+      "field": "HB_1YGrNetNewOrders",
+      "file": "900.parquet"
+    },
+    {
+      "id": 901,
+      "code": "HB_BacklogHomesValueGr",
+      "name": "Backlog Homes Value Grw",
+      "field": "HB_BacklogHomesValueGr",
+      "file": "901.parquet"
+    },
+    {
+      "id": 902,
+      "code": "AIR_1YGrRPC",
+      "name": "1 Yr Grw Revenue Passengers Carried",
+      "field": "AIR_1YGrRPC",
+      "file": "902.parquet"
+    },
+    {
+      "id": 903,
+      "code": "AIR_1YGrRPM",
+      "name": "1 Yr Grw Revenue Passenger Miles",
+      "field": "AIR_1YGrRPM",
+      "file": "903.parquet"
+    },
+    {
+      "id": 904,
+      "code": "AIR_PassengerLF",
+      "name": "Passenger Load Factor",
+      "field": "AIR_PassengerLF",
+      "file": "904.parquet"
+    },
+    {
+      "id": 905,
+      "code": "AIR_TotProfittoASM",
+      "name": "Total Profit per Available Seat Mile",
+      "field": "AIR_TotProfittoASM",
+      "file": "905.parquet"
+    },
+    {
+      "id": 906,
+      "code": "AIR_OpExptoASM",
+      "name": "Operating Exp per Available Seat Miles",
+      "field": "AIR_OpExptoASM",
+      "file": "906.parquet"
+    },
+    {
+      "id": 907,
+      "code": "AIR_FuelConstoASM",
+      "name": "Fuel Consumed per Available Seat Mile",
+      "field": "AIR_FuelConstoASM",
+      "file": "907.parquet"
+    },
+    {
+      "id": 908,
+      "code": "AIR_AvgAgeofAircraft",
+      "name": "Average Age of Aircraft",
+      "field": "AIR_AvgAgeofAircraft",
+      "file": "908.parquet"
+    },
+    {
+      "id": 909,
+      "code": "TEL_1YrGrBroadbandSubs",
+      "name": "1 Yr Grw Broadband Subscribers",
+      "field": "TEL_1YrGrBroadbandSubs",
+      "file": "909.parquet"
+    },
+    {
+      "id": 910,
+      "code": "TEL_1YrGrNetSubsAdds",
+      "name": "1 Yr Grw Net Wireless Subs Additions",
+      "field": "TEL_1YrGrNetSubsAdds",
+      "file": "910.parquet"
+    },
+    {
+      "id": 911,
+      "code": "TEL_WirelessPenetrateRate",
+      "name": "Wireless Penetration Rate",
+      "field": "TEL_WirelessPenetrateRate",
+      "file": "911.parquet"
+    },
+    {
+      "id": 912,
+      "code": "TEL_ChurnRate",
+      "name": "Churn Rate",
+      "field": "TEL_ChurnRate",
+      "file": "912.parquet"
+    },
+    {
+      "id": 913,
+      "code": "TEL_1YrGrChurnRate",
+      "name": "1 Yr Grw Churn Rate",
+      "field": "TEL_1YrGrChurnRate",
+      "file": "913.parquet"
+    },
+    {
+      "id": 914,
+      "code": "PB_PatentstoMktCap",
+      "name": "Number of Patents to Mkt Cap",
+      "field": "PB_PatentstoMktCap",
+      "file": "914.parquet"
+    },
+    {
+      "id": 915,
+      "code": "PB_1YGrNumPatents",
+      "name": "1 Yr Grw Number of Patents",
+      "field": "PB_1YGrNumPatents",
+      "file": "915.parquet"
+    },
+    {
+      "id": 916,
+      "code": "PB_1YGrNumPatentApps",
+      "name": "1 Yr Grw Num of Patent Applications",
+      "field": "PB_1YGrNumPatentApps",
+      "file": "916.parquet"
+    },
+    {
+      "id": 917,
+      "code": "PB_1YGrNumProdsinPh3",
+      "name": "1 Yr Grw Num of Products in Phase 3",
+      "field": "PB_1YGrNumProdsinPh3",
+      "file": "917.parquet"
+    },
+    {
+      "id": 918,
+      "code": "HF_1YChgAdmissions",
+      "name": "1 Yr Chg in Admissions",
+      "field": "HF_1YChgAdmissions",
+      "file": "918.parquet"
+    },
+    {
+      "id": 919,
+      "code": "HF_PatientDaysGr",
+      "name": "Patient Days Growth",
+      "field": "HF_PatientDaysGr",
+      "file": "919.parquet"
+    },
+    {
+      "id": 920,
+      "code": "HF_1YGrAvgLengthofStay",
+      "name": "1 Yr Grw Avg Length of Stay",
+      "field": "HF_1YGrAvgLengthofStay",
+      "file": "920.parquet"
+    },
+    {
+      "id": 921,
+      "code": "HF_FacilitiesGr",
+      "name": "Hospitals and Facilities Growth",
+      "field": "HF_FacilitiesGr",
+      "file": "921.parquet"
+    },
+    {
+      "id": 922,
+      "code": "HF_TotRevperFacility",
+      "name": "Total Revenue per Facility",
+      "field": "HF_TotRevperFacility",
+      "file": "922.parquet"
+    },
+    {
+      "id": 923,
+      "code": "HF_SurgeriesGr",
+      "name": "Surgeries Growth",
+      "field": "HF_SurgeriesGr",
+      "file": "923.parquet"
+    },
+    {
+      "id": 924,
+      "code": "HF_LicensedBedsGr",
+      "name": "Licensed Beds Growth",
+      "field": "HF_LicensedBedsGr",
+      "file": "924.parquet"
+    },
+    {
+      "id": 925,
+      "code": "MH_MedicalLossRatio",
+      "name": "Medical Loss Ratio",
+      "field": "MH_MedicalLossRatio",
+      "file": "925.parquet"
+    },
+    {
+      "id": 927,
+      "code": "MH_1YGrHealthcarePremiums",
+      "name": "1 Yr Grw Healthcare Premiums",
+      "field": "MH_1YGrHealthcarePremiums",
+      "file": "927.parquet"
+    },
+    {
+      "id": 928,
+      "code": "MH_1YGrEnrollment",
+      "name": "1 Yr Grw Total Enrollments",
+      "field": "MH_1YGrEnrollment",
+      "file": "928.parquet"
+    },
+    {
+      "id": 929,
+      "code": "UT_1YGrFuelCostElecGas",
+      "name": "1 Yr Grw Fuel Cost - Electric,Gas",
+      "field": "UT_1YGrFuelCostElecGas",
+      "file": "929.parquet"
+    },
+    {
+      "id": 930,
+      "code": "UT_1YGrElecGasWaterSales",
+      "name": "1 Yr Grw Electric,Gas,Water Sales",
+      "field": "UT_1YGrElecGasWaterSales",
+      "file": "930.parquet"
+    },
+    {
+      "id": 931,
+      "code": "UT_1YGrAvgRevperKWh",
+      "name": "1 Yr Grw Avg Revenue per KWh",
+      "field": "UT_1YGrAvgRevperKWh",
+      "file": "931.parquet"
+    },
+    {
+      "id": 932,
+      "code": "UT_1YGrOpRevElecGasWater",
+      "name": "1 Yr Grw Oper Revenue - Elec,Gas,Water",
+      "field": "UT_1YGrOpRevElecGasWater",
+      "file": "932.parquet"
+    },
+    {
+      "id": 933,
+      "code": "TEL_1YrGrWirelessSubs",
+      "name": "1 Yr Grw Wireless Subscribers",
+      "field": "TEL_1YrGrWirelessSubs",
+      "file": "933.parquet"
+    },
+    {
+      "id": 941,
+      "code": "ROEStab",
+      "name": "Return on Equity Stability",
+      "field": "ROEStab",
+      "file": "941.parquet"
+    },
+    {
+      "id": 942,
+      "code": "DIVIDENDGROWTH",
+      "name": "Dividend Growth",
+      "field": "DIVIDENDGROWTH",
+      "file": "942.parquet"
+    },
+    {
+      "id": 943,
+      "code": "60MAVGTTMROE",
+      "name": "Normalized ROE",
+      "field": "afl_60MAVGTTMROE",
+      "file": "943.parquet"
+    },
+    {
+      "id": 944,
+      "code": "60MAVGTTMROA",
+      "name": "Normalized ROA",
+      "field": "afl_60MAVGTTMROA",
+      "file": "944.parquet"
+    },
+    {
+      "id": 945,
+      "code": "ROASTAB",
+      "name": "Return on Assets Stability",
+      "field": "ROASTAB",
+      "file": "945.parquet"
+    },
+    {
+      "id": 946,
+      "code": "60MAVGTTMEP",
+      "name": "Normalized EP",
+      "field": "afl_60MAVGTTMEP",
+      "file": "946.parquet"
+    },
+    {
+      "id": 947,
+      "code": "PAYOUTRATIO",
+      "name": "Payout Ratio",
+      "field": "PAYOUTRATIO",
+      "file": "947.parquet"
+    },
+    {
+      "id": 950,
+      "code": "NIStab",
+      "name": "Net Income Stability",
+      "field": "NIStab",
+      "file": "950.parquet"
+    },
+    {
+      "id": 952,
+      "code": "LTGC",
+      "name": "Expected LTG",
+      "field": "LTGC",
+      "file": "952.parquet"
+    },
+    {
+      "id": 953,
+      "code": "EstDiffC",
+      "name": "Analyst Earnings Estimate Diffusion",
+      "field": "EstDiffC",
+      "file": "953.parquet"
+    },
+    {
+      "id": 954,
+      "code": "Rev3MFY1C",
+      "name": "3M Revision in FY1 EPS Estimate",
+      "field": "Rev3MFY1C",
+      "file": "954.parquet"
+    },
+    {
+      "id": 955,
+      "code": "Rev3MFY2C",
+      "name": "3M Revision in FY2 EPS Estimate",
+      "field": "Rev3MFY2C",
+      "file": "955.parquet"
+    },
+    {
+      "id": 956,
+      "code": "RevMagFY1C",
+      "name": "Street Revision Magnitude",
+      "field": "RevMagFY1C",
+      "file": "956.parquet"
+    },
+    {
+      "id": 957,
+      "code": "EPSSurpC",
+      "name": "Earnings Surprise",
+      "field": "EPSSurpC",
+      "file": "957.parquet"
+    },
+    {
+      "id": 958,
+      "code": "EPSEstDispFY1C",
+      "name": "Analyst Dispersion for FY1 EPS",
+      "field": "EPSEstDispFY1C",
+      "file": "958.parquet"
+    },
+    {
+      "id": 959,
+      "code": "SUEC",
+      "name": "Standardized Unexpected Earnings",
+      "field": "SUEC",
+      "file": "959.parquet"
+    },
+    {
+      "id": 960,
+      "code": "AdjEPSNumRevFY1C",
+      "name": "Adjusted Number of EPS FY1 Revisions",
+      "field": "AdjEPSNumRevFY1C",
+      "file": "960.parquet"
+    },
+    {
+      "id": 961,
+      "code": "InvPEGC",
+      "name": "Inverse PEG",
+      "field": "InvPEGC",
+      "file": "961.parquet"
+    },
+    {
+      "id": 962,
+      "code": "EPSEstDispFY2C",
+      "name": "Analyst Dispersion for FY2 EPS",
+      "field": "EPSEstDispFY2C",
+      "file": "962.parquet"
+    },
+    {
+      "id": 963,
+      "code": "EPSNumRevFY1C",
+      "name": "Number of EPS FY1 Revisions",
+      "field": "EPSNumRevFY1C",
+      "file": "963.parquet"
+    },
+    {
+      "id": 964,
+      "code": "AdjFwdEPC",
+      "name": "Adjusted Forward Earnings to Price",
+      "field": "AdjFwdEPC",
+      "file": "964.parquet"
+    },
+    {
+      "id": 965,
+      "code": "AdjRev3MFY1C",
+      "name": "Adjusted 3M Revision in FY1 EPS Estimate",
+      "field": "AdjRev3MFY1C",
+      "file": "965.parquet"
+    },
+    {
+      "id": 966,
+      "code": "6MAvgChg1MRecC",
+      "name": "6M Avg Chg 1M Recommendation",
+      "field": "afl_6MAvgChg1MRecC",
+      "file": "966.parquet"
+    },
+    {
+      "id": 967,
+      "code": "AdjEPSNumRevFY2C",
+      "name": "Adj Number of EPS FY2 Revisions",
+      "field": "AdjEPSNumRevFY2C",
+      "file": "967.parquet"
+    },
+    {
+      "id": 968,
+      "code": "AdjRevMagC",
+      "name": "Adjusted Revision Magnitude",
+      "field": "AdjRevMagC",
+      "file": "968.parquet"
+    },
+    {
+      "id": 971,
+      "code": "PM-style",
+      "name": "Price Momentum",
+      "field": "afl_971",
+      "file": "971.parquet"
+    },
+    {
+      "id": 972,
+      "code": "HG-style",
+      "name": "Historical Growth",
+      "field": "afl_972",
+      "file": "972.parquet"
+    },
+    {
+      "id": 973,
+      "code": "CE-style",
+      "name": "Capital Efficiency",
+      "field": "afl_973",
+      "file": "973.parquet"
+    },
+    {
+      "id": 974,
+      "code": "Val-style",
+      "name": "Valuation",
+      "field": "afl_974",
+      "file": "974.parquet"
+    },
+    {
+      "id": 975,
+      "code": "EQ-style",
+      "name": "Earnings Quality",
+      "field": "afl_975",
+      "file": "975.parquet"
+    },
+    {
+      "id": 976,
+      "code": "Sz-style",
+      "name": "Size",
+      "field": "afl_976",
+      "file": "976.parquet"
+    },
+    {
+      "id": 977,
+      "code": "Vol-style",
+      "name": "Volatility",
+      "field": "afl_977",
+      "file": "977.parquet"
+    },
+    {
+      "id": 978,
+      "code": "AE-style",
+      "name": "Analyst Expectations",
+      "field": "afl_978",
+      "file": "978.parquet"
+    },
+    {
+      "id": 979,
+      "code": "AdjFwdFCFPC",
+      "name": "Adj Forward Free Cash Flow to Price Ratio",
+      "field": "AdjFwdFCFPC",
+      "file": "979.parquet"
+    },
+    {
+      "id": 980,
+      "code": "FwdEPC",
+      "name": "Forward Earnings to Price",
+      "field": "FwdEPC",
+      "file": "980.parquet"
+    },
+    {
+      "id": 981,
+      "code": "FwdFCFPC",
+      "name": "Forward Free Cash Flow to Price Ratio",
+      "field": "FwdFCFPC",
+      "file": "981.parquet"
+    },
+    {
+      "id": 982,
+      "code": "InvPEGYC",
+      "name": "Inverse P/E Ratio Adj for Growth and Yield",
+      "field": "InvPEGYC",
+      "file": "982.parquet"
+    },
+    {
+      "id": 991,
+      "code": "AdjInvPEGC",
+      "name": "Adjusted Inverse PEG",
+      "field": "AdjInvPEGC",
+      "file": "991.parquet"
+    },
+    {
+      "id": 1005,
+      "code": "IndRel_LTGC",
+      "name": "Ind Grp Rel Expected LTG",
+      "field": "IndRel_LTGC",
+      "file": "1005.parquet"
+    },
+    {
+      "id": 1006,
+      "code": "IndRel_SUEC",
+      "name": "Ind Grp Rel Standardized Unexpected Earnings",
+      "field": "IndRel_SUEC",
+      "file": "1006.parquet"
+    },
+    {
+      "id": 1007,
+      "code": "IndRel_EPSEstDispFY1C",
+      "name": "Ind Grp Rel Analyst Dispersion for FY1 EPS",
+      "field": "IndRel_EPSEstDispFY1C",
+      "file": "1007.parquet"
+    },
+    {
+      "id": 1008,
+      "code": "IndRel_EPSSurpC",
+      "name": "Ind Grp Rel Earnings Surprise",
+      "field": "IndRel_EPSSurpC",
+      "file": "1008.parquet"
+    },
+    {
+      "id": 1009,
+      "code": "IndRel_InvPEGC",
+      "name": "Ind Grp Rel Inverse PEG",
+      "field": "IndRel_InvPEGC",
+      "file": "1009.parquet"
+    },
+    {
+      "id": 1010,
+      "code": "IndRel_FwdEPC",
+      "name": "Ind Grp Rel Forward Earnings to Price",
+      "field": "IndRel_FwdEPC",
+      "file": "1010.parquet"
+    },
+    {
+      "id": 1011,
+      "code": "IndRel_FwdFCFPC",
+      "name": "Ind Grp Rel Forward Free Cash Flow to Price Ratio",
+      "field": "IndRel_FwdFCFPC",
+      "file": "1011.parquet"
+    },
+    {
+      "id": 1012,
+      "code": "IndRel_InvPEGYC",
+      "name": "Ind Grp Rel Inverse P/E Ratio Adj for Growth and Yield",
+      "field": "IndRel_InvPEGYC",
+      "file": "1012.parquet"
+    },
+    {
+      "id": 1013,
+      "code": "5YRel_FwdEPC",
+      "name": "5 Yr Hist Rel Forward Earnings to Price",
+      "field": "afl_5YRel_FwdEPC",
+      "file": "1013.parquet"
+    },
+    {
+      "id": 1014,
+      "code": "5YRel_FwdFCFPC",
+      "name": "5 Yr Hist Rel Forward Free Cash Flow to Price Ratio",
+      "field": "afl_5YRel_FwdFCFPC",
+      "file": "1014.parquet"
+    },
+    {
+      "id": 1015,
+      "code": "5YRel_InvPEGYC",
+      "name": "5 Yr Hist Rel Inverse P/E Ratio Adj for Growth and Yield",
+      "field": "afl_5YRel_InvPEGYC",
+      "file": "1015.parquet"
+    },
+    {
+      "id": 1025,
+      "code": "DivperShareGrowth",
+      "name": "Dividend per Share Growth",
+      "field": "DivperShareGrowth",
+      "file": "1025.parquet"
+    },
+    {
+      "id": 1035,
+      "code": "ROAStddev20Q",
+      "name": "ROA 20 Qtr Standard Deviation",
+      "field": "ROAStddev20Q",
+      "file": "1035.parquet"
+    },
+    {
+      "id": 1036,
+      "code": "ROEStddev20Q",
+      "name": "ROE 20 Qtr Standard Deviation",
+      "field": "ROEStddev20Q",
+      "file": "1036.parquet"
+    },
+    {
+      "id": 1037,
+      "code": "ROA60MSlope",
+      "name": "ROA 60 Month Slope",
+      "field": "ROA60MSlope",
+      "file": "1037.parquet"
+    },
+    {
+      "id": 1179,
+      "code": "SharpeRatio",
+      "name": "Sharpe Ratio",
+      "field": "SharpeRatio",
+      "file": "1179.parquet"
+    },
+    {
+      "id": 1180,
+      "code": "IO_TO",
+      "name": "Institution Ownership Turnover",
+      "field": "IO_TO",
+      "file": "1180.parquet"
+    },
+    {
+      "id": 1181,
+      "code": "IO_Concentration",
+      "name": "Institution Ownership Concentration",
+      "field": "IO_Concentration",
+      "file": "1181.parquet"
+    },
+    {
+      "id": 1182,
+      "code": "IO_BreadthStabBY",
+      "name": "Ownership Breadth Stability of Institution Ownership by Buyers",
+      "field": "IO_BreadthStabBY",
+      "file": "1182.parquet"
+    },
+    {
+      "id": 1183,
+      "code": "IO_Level",
+      "name": "Institution Ownership Level",
+      "field": "IO_Level",
+      "file": "1183.parquet"
+    },
+    {
+      "id": 1184,
+      "code": "IO_Foreign",
+      "name": "Foreign Institution Ownership",
+      "field": "IO_Foreign",
+      "file": "1184.parquet"
+    },
+    {
+      "id": 1185,
+      "code": "IO_ChgofIO_AM",
+      "name": "Change of Ownership Level - All Managers",
+      "field": "IO_ChgofIO_AM",
+      "file": "1185.parquet"
+    },
+    {
+      "id": 1186,
+      "code": "IO_ChgofIO_HF",
+      "name": "Change of Ownership Level - Hedge Fund",
+      "field": "IO_ChgofIO_HF",
+      "file": "1186.parquet"
+    },
+    {
+      "id": 1187,
+      "code": "IO_StabofChgHD",
+      "name": "Stability of Change in Number of Holders",
+      "field": "IO_StabofChgHD",
+      "file": "1187.parquet"
+    },
+    {
+      "id": 1188,
+      "code": "IO_InvDuration",
+      "name": "Investment Duration",
+      "field": "IO_InvDuration",
+      "file": "1188.parquet"
+    },
+    {
+      "id": 1189,
+      "code": "IO_Level_AM",
+      "name": "Institution Ownership Level - Active Manager",
+      "field": "IO_Level_AM",
+      "file": "1189.parquet"
+    },
+    {
+      "id": 1190,
+      "code": "IO_ChgofNumHD",
+      "name": "Change in Number of Holders",
+      "field": "IO_ChgofNumHD",
+      "file": "1190.parquet"
+    },
+    {
+      "id": 1191,
+      "code": "IO_ChgofNumBY",
+      "name": "Change in Number of Buyers",
+      "field": "IO_ChgofNumBY",
+      "file": "1191.parquet"
+    },
+    {
+      "id": 1192,
+      "code": "IO_BreadthStabHD",
+      "name": "Ownership Breadth Stability of Institution Ownership by Holders",
+      "field": "IO_BreadthStabHD",
+      "file": "1192.parquet"
+    },
+    {
+      "id": 1197,
+      "code": "GrPftToAst",
+      "name": "Gross Profit to Assets",
+      "field": "GrPftToAst",
+      "file": "1197.parquet"
+    },
+    {
+      "id": 1198,
+      "code": "EbitdaToAst",
+      "name": "EBITDA to Assets",
+      "field": "EbitdaToAst",
+      "file": "1198.parquet"
+    },
+    {
+      "id": 1199,
+      "code": "EbitToAst",
+      "name": "EBIT to Assets",
+      "field": "EbitToAst",
+      "file": "1199.parquet"
+    },
+    {
+      "id": 1200,
+      "code": "AstGrwth",
+      "name": "Asset Growth - 1 Year",
+      "field": "AstGrwth",
+      "file": "1200.parquet"
+    },
+    {
+      "id": 1201,
+      "code": "IO_NAT",
+      "name": "Net Arbitrage Trading",
+      "field": "IO_NAT",
+      "file": "1201.parquet"
+    },
+    {
+      "id": 1208,
+      "code": "BNK_LossAbsorpPowerS",
+      "name": "Loss Absorption Power (Bank Reg)",
+      "field": "BNK_LossAbsorpPowerS",
+      "file": "1208.parquet"
+    },
+    {
+      "id": 1209,
+      "code": "BNK_LoanLossIndS",
+      "name": "Loan Loss Indicator (Bank Reg)",
+      "field": "BNK_LoanLossIndS",
+      "file": "1209.parquet"
+    },
+    {
+      "id": 1210,
+      "code": "BNK_LoanFundS",
+      "name": "Loan Funding (Bank Reg)",
+      "field": "BNK_LoanFundS",
+      "file": "1210.parquet"
+    },
+    {
+      "id": 1211,
+      "code": "BNK_YoYChg30DLTLS",
+      "name": "1YChg30DLoanDue/TotLoan (Bank Reg)",
+      "field": "BNK_YoYChg30DLTLS",
+      "file": "1211.parquet"
+    },
+    {
+      "id": 1212,
+      "code": "BNK_ProbLoansS",
+      "name": "Problem Loan Ratio (Bank Reg)",
+      "field": "BNK_ProbLoansS",
+      "file": "1212.parquet"
+    },
+    {
+      "id": 1213,
+      "code": "BNK_TBVPS",
+      "name": "Tangible Book Value/Price (Bank Reg)",
+      "field": "BNK_TBVPS",
+      "file": "1213.parquet"
+    },
+    {
+      "id": 1214,
+      "code": "BNK_NonPerAstEAS",
+      "name": "Non-Perf Asts / Earn Asts (Bank Reg)",
+      "field": "BNK_NonPerAstEAS",
+      "file": "1214.parquet"
+    },
+    {
+      "id": 1215,
+      "code": "BNK_TexasRatioS",
+      "name": "Texas Ratio (Bank Reg)",
+      "field": "BNK_TexasRatioS",
+      "file": "1215.parquet"
+    },
+    {
+      "id": 1216,
+      "code": "BNK_Tier1CapS",
+      "name": "Tier 1 Capital Ratio (Bank Reg)",
+      "field": "BNK_Tier1CapS",
+      "file": "1216.parquet"
+    },
+    {
+      "id": 1217,
+      "code": "BNK_LnDiverseS",
+      "name": "Loan Diversity (Bank Reg)",
+      "field": "BNK_LnDiverseS",
+      "file": "1217.parquet"
+    },
+    {
+      "id": 1218,
+      "code": "BNK_OpIncAstS",
+      "name": "Adj Op Income / Tot Asset (Bank Reg)",
+      "field": "BNK_OpIncAstS",
+      "file": "1218.parquet"
+    },
+    {
+      "id": 1219,
+      "code": "BNK_DepCostS",
+      "name": "Deposit Cost (Bank Reg)",
+      "field": "BNK_DepCostS",
+      "file": "1219.parquet"
+    },
+    {
+      "id": 1220,
+      "code": "BNK_CoreDepMixS",
+      "name": "Core Deposit Mix (Bank Reg)",
+      "field": "BNK_CoreDepMixS",
+      "file": "1220.parquet"
+    },
+    {
+      "id": 1221,
+      "code": "BNK_ProvRateS",
+      "name": "Provision Rate (Bank Reg)",
+      "field": "BNK_ProvRateS",
+      "file": "1221.parquet"
+    },
+    {
+      "id": 1222,
+      "code": "BNK_PPPPS",
+      "name": "PreProvision Profit/Price (Bank Reg)",
+      "field": "BNK_PPPPS",
+      "file": "1222.parquet"
+    },
+    {
+      "id": 1223,
+      "code": "BNK_CostEffS",
+      "name": "Cost Efficiency (Bank Reg)",
+      "field": "BNK_CostEffS",
+      "file": "1223.parquet"
+    },
+    {
+      "id": 1224,
+      "code": "BNK_DemandDepMixS",
+      "name": "Demand Deposit Mix (Bank Reg)",
+      "field": "BNK_DemandDepMixS",
+      "file": "1224.parquet"
+    },
+    {
+      "id": 1225,
+      "code": "BNK_TimeDepMixS",
+      "name": "Time Deposit Mix (Bank Reg)",
+      "field": "BNK_TimeDepMixS",
+      "file": "1225.parquet"
+    },
+    {
+      "id": 1226,
+      "code": "BNK_PPPEAS",
+      "name": "PreProv Profit/Earn Asts (Bank Reg)",
+      "field": "BNK_PPPEAS",
+      "file": "1226.parquet"
+    },
+    {
+      "id": 1227,
+      "code": "BNK_PPPAS",
+      "name": "PreProv Profit/Assets (Bank Reg)",
+      "field": "BNK_PPPAS",
+      "file": "1227.parquet"
+    },
+    {
+      "id": 1228,
+      "code": "BNK_ROTCES",
+      "name": "Return on Tang Comm Eqty (Bank Reg)",
+      "field": "BNK_ROTCES",
+      "file": "1228.parquet"
+    },
+    {
+      "id": 1229,
+      "code": "AdjEBITP",
+      "name": "Adjusted EBIT to Price",
+      "field": "AdjEBITP",
+      "file": "1229.parquet"
+    },
+    {
+      "id": 1230,
+      "code": "AdjSTO_6M",
+      "name": "Adjusted 6 Month Average Share Turn Over",
+      "field": "AdjSTO_6M",
+      "file": "1230.parquet"
+    },
+    {
+      "id": 1231,
+      "code": "Chg1YTurnover",
+      "name": "1Y Chg in Share Turnover",
+      "field": "Chg1YTurnover",
+      "file": "1231.parquet"
+    },
+    {
+      "id": 1232,
+      "code": "Amihud",
+      "name": "Amihud Illiquidity Measure",
+      "field": "Amihud",
+      "file": "1232.parquet"
+    },
+    {
+      "id": 1233,
+      "code": "Chg1YAmihud",
+      "name": "1Y Chg in Amihud",
+      "field": "Chg1YAmihud",
+      "file": "1233.parquet"
+    },
+    {
+      "id": 1234,
+      "code": "BuyToSellRecLess3MEMA",
+      "name": "Buy-to-Sell Recommendation Ratio Less 3M EMA",
+      "field": "BuyToSellRecLess3MEMA",
+      "file": "1234.parquet"
+    },
+    {
+      "id": 1235,
+      "code": "BuyToSellRecLess3MSMA",
+      "name": "Buy-to-Sell Recommendation Ratio Less 3M SMA",
+      "field": "BuyToSellRecLess3MSMA",
+      "file": "1235.parquet"
+    },
+    {
+      "id": 1236,
+      "code": "6MChgTgtPrcGapEMA",
+      "name": "Target Price Gap to 6M EMA",
+      "field": "afl_6MChgTgtPrcGapEMA",
+      "file": "1236.parquet"
+    },
+    {
+      "id": 1237,
+      "code": "6MChgTgtPrc",
+      "name": "6M Chg in Target Price",
+      "field": "afl_6MChgTgtPrc",
+      "file": "1237.parquet"
+    },
+    {
+      "id": 1238,
+      "code": "6MChgTgtPrcGap",
+      "name": "6M Chg in Target Price Gap",
+      "field": "afl_6MChgTgtPrcGap",
+      "file": "1238.parquet"
+    },
+    {
+      "id": 1239,
+      "code": "RevEstDisp",
+      "name": "Revenue Estimate Dispersion",
+      "field": "RevEstDisp",
+      "file": "1239.parquet"
+    },
+    {
+      "id": 1240,
+      "code": "EBITEstDisp",
+      "name": "EBIT Estimate Dispersion",
+      "field": "EBITEstDisp",
+      "file": "1240.parquet"
+    },
+    {
+      "id": 1244,
+      "code": "Chg1YROA",
+      "name": "1-Year Change in ROA",
+      "field": "Chg1YROA",
+      "file": "1244.parquet"
+    },
+    {
+      "id": 1245,
+      "code": "Chg1YLTDA",
+      "name": "1-Year Change in Long Term Debt to Avg Total Assets",
+      "field": "Chg1YLTDA",
+      "file": "1245.parquet"
+    },
+    {
+      "id": 1246,
+      "code": "Chg1YCACL",
+      "name": "1-Year Change in Current Ratio",
+      "field": "Chg1YCACL",
+      "file": "1246.parquet"
+    },
+    {
+      "id": 1247,
+      "code": "Chg1YGPMargin",
+      "name": "1-Year Change in Gross Profit Margin",
+      "field": "Chg1YGPMargin",
+      "file": "1247.parquet"
+    },
+    {
+      "id": 1248,
+      "code": "MVEToTL",
+      "name": "Total Market Value of Equity to Total Liabilities",
+      "field": "MVEToTL",
+      "file": "1248.parquet"
+    },
+    {
+      "id": 1249,
+      "code": "Piotroski_FScore",
+      "name": "Piotroski F-Score",
+      "field": "Piotroski_FScore",
+      "file": "1249.parquet"
+    },
+    {
+      "id": 1250,
+      "code": "Altman_ZScore",
+      "name": "Altman Z-Score",
+      "field": "Altman_ZScore",
+      "file": "1250.parquet"
+    },
+    {
+      "id": 1251,
+      "code": "REIT_SFFO1YG",
+      "name": "SNL FFO 1-year Growth",
+      "field": "REIT_SFFO1YG",
+      "file": "1251.parquet"
+    },
+    {
+      "id": 1252,
+      "code": "REIT_SSNOIG",
+      "name": "Same Store NOI Growth",
+      "field": "REIT_SSNOIG",
+      "file": "1252.parquet"
+    },
+    {
+      "id": 1253,
+      "code": "REIT_SSRG",
+      "name": "Same Store Revenue Growth",
+      "field": "REIT_SSRG",
+      "file": "1253.parquet"
+    },
+    {
+      "id": 1254,
+      "code": "REIT_PayoutRatio",
+      "name": "FFO Payout Ratio",
+      "field": "REIT_PayoutRatio",
+      "file": "1254.parquet"
+    },
+    {
+      "id": 1255,
+      "code": "REIT_SFFOStab",
+      "name": "SNL FFO Growth",
+      "field": "REIT_SFFOStab",
+      "file": "1255.parquet"
+    },
+    {
+      "id": 1256,
+      "code": "REIT_AFFOY",
+      "name": "Adjusted FFO Yield",
+      "field": "REIT_AFFOY",
+      "file": "1256.parquet"
+    },
+    {
+      "id": 1257,
+      "code": "REIT_ICR",
+      "name": "Implied Cap Rate",
+      "field": "REIT_ICR",
+      "file": "1257.parquet"
+    },
+    {
+      "id": 1258,
+      "code": "REIT_RFFOY",
+      "name": "Reported FFO Yield",
+      "field": "REIT_RFFOY",
+      "file": "1258.parquet"
+    },
+    {
+      "id": 1259,
+      "code": "REIT_SFFOY",
+      "name": "SNL FFO Yield",
+      "field": "REIT_SFFOY",
+      "file": "1259.parquet"
+    },
+    {
+      "id": 1260,
+      "code": "ROA_2",
+      "name": "Return on Assets v2",
+      "field": "ROA_2",
+      "file": "1260.parquet"
+    },
+    {
+      "id": 1261,
+      "code": "OCFAst_2",
+      "name": "Operating Cash Flow to Asset v2",
+      "field": "OCFAst_2",
+      "file": "1261.parquet"
+    },
+    {
+      "id": 1262,
+      "code": "ChgATO_2",
+      "name": "Change of Asset Turnover v2",
+      "field": "ChgATO_2",
+      "file": "1262.parquet"
+    },
+    {
+      "id": 1263,
+      "code": "AssetTurn_2",
+      "name": "Asset Turnover v2",
+      "field": "AssetTurn_2",
+      "file": "1263.parquet"
+    },
+    {
+      "id": 1264,
+      "code": "REToAst_2",
+      "name": "Retained Earnings to Total Assets v2",
+      "field": "REToAst_2",
+      "file": "1264.parquet"
+    },
+    {
+      "id": 1265,
+      "code": "WCA_2",
+      "name": "Working Capital to Assets Ratio v2",
+      "field": "WCA_2",
+      "file": "1265.parquet"
+    },
+    {
+      "id": 1266,
+      "code": "EbitToAst_2",
+      "name": "EBIT to Assets v2",
+      "field": "EbitToAst_2",
+      "file": "1266.parquet"
+    },
+    {
+      "id": 1267,
+      "code": "BNK_F_CoreEPSS",
+      "name": "Core EPS to Price (Fundamentals)",
+      "field": "BNK_F_CoreEPSS",
+      "file": "1267.parquet"
+    },
+    {
+      "id": 1268,
+      "code": "BNK_F_PreProvNetRevPrcS",
+      "name": "Pre-Provision Net Revenue / Price  (Fundamentals)",
+      "field": "BNK_F_PreProvNetRevPrcS",
+      "file": "1268.parquet"
+    },
+    {
+      "id": 1269,
+      "code": "BNK_F_Chg1YModTexasRatioS",
+      "name": "1Y Change in Modified Texas Ratio (Fundamentals)",
+      "field": "BNK_F_Chg1YModTexasRatioS",
+      "file": "1269.parquet"
+    },
+    {
+      "id": 1270,
+      "code": "BNK_F_Chg1YNonAccLnToAstS",
+      "name": "1Y Change in Nonaccrual Loans to Total Assets (Fundamentals)",
+      "field": "BNK_F_Chg1YNonAccLnToAstS",
+      "file": "1270.parquet"
+    },
+    {
+      "id": 1271,
+      "code": "BNK_F_Chg3YOpIncTier1EqtS",
+      "name": "3Y Change in Operating Income to Tier 1 Common Equity (Fundamentals)",
+      "field": "BNK_F_Chg3YOpIncTier1EqtS",
+      "file": "1271.parquet"
+    },
+    {
+      "id": 1272,
+      "code": "BNK_F_Chg3YTotExpAvgAstS",
+      "name": "3Y Change in Total Pretax Expense to Average Assets (Fundamentals)",
+      "field": "BNK_F_Chg3YTotExpAvgAstS",
+      "file": "1272.parquet"
+    },
+    {
+      "id": 1273,
+      "code": "BNK_F_SMMDATotDepS",
+      "name": "Savings & Money Market Deposit Accounts to Total Deposits (Fundamentals)",
+      "field": "BNK_F_SMMDATotDepS",
+      "file": "1273.parquet"
+    },
+    {
+      "id": 1274,
+      "code": "BNK_F_ProbLnsTotEqtResvS",
+      "name": "Problem Loans to Total Equity plus Loan Loss Reserves (Fundamentals)",
+      "field": "BNK_F_ProbLnsTotEqtResvS",
+      "file": "1274.parquet"
+    },
+    {
+      "id": 1275,
+      "code": "BNK_F_RRWAS",
+      "name": "Return on Risk Weighted Assets (Fundamentals)",
+      "field": "BNK_F_RRWAS",
+      "file": "1275.parquet"
+    },
+    {
+      "id": 1276,
+      "code": "BNK_F_Tier1CapS",
+      "name": "Tier 1 Capital Ratio  (Fundamentals)",
+      "field": "BNK_F_Tier1CapS",
+      "file": "1276.parquet"
+    },
+    {
+      "id": 1277,
+      "code": "UT_RecEBITDAEV",
+      "name": "Recurrent EBITDA to Enterprise Value",
+      "field": "UT_RecEBITDAEV",
+      "file": "1277.parquet"
+    },
+    {
+      "id": 1278,
+      "code": "UT_TBP",
+      "name": "Tangible Book Value per Share",
+      "field": "UT_TBP",
+      "file": "1278.parquet"
+    },
+    {
+      "id": 1279,
+      "code": "UT_AdjOCFMC",
+      "name": "Adjusted Operating Cash Flow to Market Cap",
+      "field": "UT_AdjOCFMC",
+      "file": "1279.parquet"
+    },
+    {
+      "id": 1280,
+      "code": "BVEV_2",
+      "name": "Book Value to Enterprise Value",
+      "field": "BVEV_2",
+      "file": "1280.parquet"
+    }
+  ],
+  "source": {
+    "dictionary": "AFL_Dictionary.xlsx",
+    "sha256": "c404911a8e03f6f34487e5bb64589a1c529454f62550cc102aa3e8501a3153d7"
+  }
+}

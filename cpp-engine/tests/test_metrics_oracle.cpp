@@ -56,19 +56,6 @@ double max_finite(const std::vector<double>& v)
     return mx;
 }
 
-double min_finite_or_zero(const std::vector<double>& v)
-{
-    double mn = std::numeric_limits<double>::max();
-    bool found = false;
-    for (double x : v) {
-        if (std::isfinite(x)) {
-            mn = std::min(mn, x);
-            found = true;
-        }
-    }
-    return found ? mn : 0.0;
-}
-
 double sharpe_of(const std::vector<double>& r, unsigned bars_per_year)
 {
     if (r.size() < 2)
@@ -410,4 +397,42 @@ TEST(MetricsOracle, InSampleStartAfterDataDoesNotEvaluateTheWholeHistory) {
     EXPECT_DOUBLE_EQ(m.is_summary.sharpe,0.0);
     EXPECT_EQ(m.is_start_index,m.timeseries.timestamps.size());
     EXPECT_EQ(m.os_start_index,m.timeseries.timestamps.size());
+}
+
+
+TEST(MetricsOracle, TradingSpanExcludesWarmupAndIncludesFirstEntryFee) {
+    const int64_t day = 86400000LL;
+    const int64_t dec30 = 1703894400000LL;
+    const std::vector<int64_t> dates = {dec30, dec30+day, dec30+2*day, dec30+3*day, dec30+4*day};
+    const std::vector<double> ret = {0.7, -0.9, -0.001, 0.1, -0.2};
+    const std::vector<double> turnover = {99, 99, 1, 0, 0};
+    const std::vector<double> weights(5, 1), shorts(5, 0);
+    const std::vector<int> counts(5, 1);
+    const auto metrics = compute_full_metrics(dates, ret, turnover, weights, weights, shorts, counts,
+        dates[0], dates[4], 0.001, 252, 2);
+    EXPECT_EQ(metrics.is_start_index, 0u);
+    EXPECT_EQ(metrics.os_start_index, 2u);
+    EXPECT_NEAR(metrics.is_summary.pnl, 0.099, 1e-12);
+    EXPECT_NEAR(metrics.is_summary.ann_ret, 0.0495 * 252, 1e-12);
+    EXPECT_NEAR(metrics.os_summary.pnl, -0.2, 1e-12);
+    ASSERT_EQ(metrics.timeseries.timestamps.size(), 3u);
+    EXPECT_EQ(metrics.timeseries.timestamps.front(), dates[2]);
+    EXPECT_DOUBLE_EQ(metrics.timeseries.cum_pnl.front(), -0.001);
+    EXPECT_DOUBLE_EQ(metrics.timeseries.cum_pnl_gross.front(), 0.0);
+    EXPECT_NEAR(metrics.timeseries.cum_pnl.back(), -0.101, 1e-12);
+    ASSERT_EQ(metrics.yearly.size(), 1u);
+    EXPECT_EQ(metrics.yearly[0].year, 2024);
+    EXPECT_NEAR(metrics.yearly[0].pnl_pct, -10.1, 1e-12);
+}
+
+TEST(MetricsOracle, OutOfSampleStartBeforeTradingSpanDoesNotIncludeWarmup) {
+    const std::vector<int64_t> dates = {0, 86400000, 172800000, 259200000};
+    const std::vector<double> ret = {5, 5, -0.1, 0.2}, zeros(4, 0);
+    const std::vector<int> counts(4, 0);
+    const auto metrics = compute_full_metrics(dates, ret, zeros, zeros, zeros, zeros, counts,
+        -86400000, 0, 0, 365, 2);
+    EXPECT_EQ(metrics.is_start_index, 0u);
+    EXPECT_EQ(metrics.os_start_index, 0u);
+    EXPECT_DOUBLE_EQ(metrics.is_summary.pnl, 0.0);
+    EXPECT_NEAR(metrics.os_summary.pnl, 0.1, 1e-12);
 }

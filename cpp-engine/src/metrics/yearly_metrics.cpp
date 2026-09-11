@@ -21,15 +21,16 @@ std::vector<YearlyMetrics> compute_yearly(
     const std::vector<double>& turnover,
     const std::vector<double>& long_weight,
     const std::vector<double>& short_weight,
-    unsigned bars_per_year)
+    unsigned bars_per_year,
+    std::size_t start_index)
 {
     if (timestamps.empty()) return {};
 
     const size_t T = timestamps.size();
 
-    // Build year -> list of indices, skipping index 0 (first bar convention)
+    // Warmup bars outside the requested trading span do not affect yearly metrics.
     std::map<int, std::vector<size_t>> year_indices;
-    for (size_t i = 1; i < T; ++i) {
+    for (size_t i = std::min(start_index, T); i < T; ++i) {
         int yr = epoch_ms_to_year(timestamps[i]);
         year_indices[yr].push_back(i);
     }

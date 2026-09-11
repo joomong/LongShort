@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 struct TimeseriesOutput {
     std::vector<int64_t> timestamps;
@@ -18,5 +19,6 @@ TimeseriesOutput compute_timeseries(
     const std::vector<double>& turnover,
     const std::vector<double>& max_weight,
     const std::vector<int>& position_count,
-    double fee_rate
+    double fee_rate,
+    std::size_t start_index = 1
 );

@@ -280,3 +280,49 @@ TEST(MDiv, DivByZero) {
     // 10/0 -> NaN per STAR spec (MDiv guards rhs==0)
     EXPECT_TRUE(std::isnan(sv[0]));
 }
+
+
+TEST(Modules, CrossSectionRankUsesTheCurrentUniverseOnly) {
+    DataPanel panel;
+    panel.T = 2;
+    panel.N = 3;
+    panel.universe_mask = {1,0,1, 1,1,1};
+    MRank rank;
+    rank.panel = &panel;
+    rank.numAssets = 3;
+    rank.init();
+    std::vector<float> values = {1, 100, 3};
+    SignalVector signal{values.data(), 3};
+    rank.calculate(0, signal);
+    EXPECT_FLOAT_EQ(values[0], 0.5f);
+    EXPECT_TRUE(std::isnan(values[1]));
+    EXPECT_FLOAT_EQ(values[2], 1.0f);
+    values = {1,100,3};
+    signal.data = values.data();
+    rank.calculate(1, signal);
+    EXPECT_FLOAT_EQ(values[0], 1.0f/3.0f);
+    EXPECT_FLOAT_EQ(values[1], 1.0f);
+    EXPECT_FLOAT_EQ(values[2], 2.0f/3.0f);
+}
+
+TEST(Modules, CrossSectionZscoreExcludesExitedSymbolBeforeComputingMoments) {
+    DataPanel panel;
+    panel.T = 2;
+    panel.N = 3;
+    panel.universe_mask = {1,0,1, 1,0,0};
+    MZscore zscore;
+    zscore.panel = &panel;
+    zscore.numAssets = 3;
+    zscore.init();
+    std::vector<float> values = {1, 100, 3};
+    SignalVector signal{values.data(), 3};
+    zscore.calculate(0, signal);
+    EXPECT_NEAR(values[0], -1.0/std::sqrt(2.0), 1e-6);
+    EXPECT_TRUE(std::isnan(values[1]));
+    EXPECT_NEAR(values[2], 1.0/std::sqrt(2.0), 1e-6);
+    values = {1,100,3};
+    signal.data = values.data();
+    zscore.calculate(1, signal);
+    for (float value : values) EXPECT_TRUE(std::isnan(value));
+    EXPECT_EQ(panel.universe_mask, (std::vector<uint8_t>{1,0,1, 1,0,0}));
+}

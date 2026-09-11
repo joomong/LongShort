@@ -10,7 +10,7 @@ struct DataPanel;
 // Parse an expression string into a Module tree.
 // All created modules are appended to `owned`; caller manages lifetime.
 // Returns a non-owning pointer to the root (output) module.
-// Allowed identifiers: open, high, low, close, volume, returns
+// Allowed identifiers: fields registered in the DataPanel, plus derived returns
 // Allowed operators: +, -, *, /
 // Numeric literals produce MConstant modules.
 // Special: "returns" expands to close / Delay(close, 1) - 1.0

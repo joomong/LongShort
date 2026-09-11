@@ -190,3 +190,108 @@ TEST(Simulator, RawSignalObserverAndCollectionKeepTheirExecutionPathContract) {
     EXPECT_EQ(replay.ret, generated.ret);
     EXPECT_EQ(replay.turnover, generated.turnover);
 }
+
+TEST(Simulator, UniverseExitSharesSignalDelayAndPreservesHoldingLossAndFees) {
+    auto panel = timing_panel();
+    panel.arrays["close"] = {100,100,100,100,90,100,81,100,72,100};
+    panel.universe_mask = {1,1,1,1,0,1,0,1,0,1};
+    const std::vector<std::vector<float>> signals(panel.T, {1,-1});
+    panel.arrays["test_signal"] = {1,-1,1,-1,1,-1,1,-1,1,-1};
+    const auto original_close = panel.arrays.at("close");
+    for (int mode : {0,1}) {
+        SimulatorConfig cfg{panel.T,panel.N,0.001,mode,false,{}};
+        auto out = Simulator(panel,cfg).run_from_signals(signals);
+        MData data; data.column_name = "test_signal"; data.panel = &panel;
+        auto generated = Simulator(panel,cfg).run({&data});
+        EXPECT_EQ(out.ret, generated.ret);
+        EXPECT_EQ(out.turnover, generated.turnover);
+        if (mode == 0) {
+            EXPECT_NEAR(out.ret[2], -0.05-0.001, 1e-12);
+            EXPECT_EQ(out.position_count[2], 1);
+            EXPECT_DOUBLE_EQ(out.ret[3], 0.0);
+        } else {
+            EXPECT_NEAR(out.ret[2], -0.05, 1e-12);
+            EXPECT_DOUBLE_EQ(out.turnover[2], 0.0);
+            EXPECT_EQ(out.position_count[2], 2);
+            EXPECT_NEAR(out.ret[3], -0.05-0.001, 1e-12);
+            EXPECT_NEAR(out.turnover[3], 1.0, 1e-12);
+            EXPECT_EQ(out.position_count[3], 1);
+            EXPECT_DOUBLE_EQ(out.ret[4], 0.0);
+        }
+    }
+    EXPECT_EQ(panel.arrays.at("close"), original_close);
+}
+
+TEST(Simulator, ExcludedHeldAssetWithMissingLiquidationCloseStillFails) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (int mode : {0,1}) {
+        auto panel = timing_panel();
+        panel.universe_mask = {1,1,1,1,0,1,0,1,0,1};
+        panel.arrays["close"][(2+mode)*panel.N] = nan;
+        SimulatorConfig cfg{panel.T,panel.N,0.001,mode,false,{}};
+        EXPECT_THROW(Simulator(panel,cfg).run_from_signals(
+            std::vector<std::vector<float>>(panel.T,{1,-1})),std::runtime_error);
+    }
+}
+
+TEST(Simulator, EmptyUniverseLiquidationDoesNotEraseLossOrFees) {
+    auto panel = timing_panel();
+    panel.arrays["close"] = {100,100,100,100,90,100,81,100,72,100};
+    panel.universe_mask = {1,1,1,1,0,0,0,0,0,0};
+    SimulatorConfig cfg{panel.T,panel.N,0.001,1,false,{}};
+    auto out = Simulator(panel,cfg).run_from_signals(
+        std::vector<std::vector<float>>(panel.T,{1,-1}));
+    EXPECT_NEAR(out.ret[3], -0.05-0.001, 1e-12);
+    EXPECT_NEAR(out.turnover[3], 1.0, 1e-12);
+    EXPECT_EQ(out.position_count[3], 0);
+}
+
+TEST(Simulator, StartDateWarmsModulesButStartsWithNoHistoricalHoldings) {
+    auto panel = timing_panel();
+    panel.arrays["close"] = {100,100,120,100,60,100,90,100,90,100};
+    MData data; data.column_name = "close"; data.panel = &panel;
+    MDelay delay; delay.days = IntParameter(1);
+    SimulatorConfig cfg{panel.T,panel.N,0.001,1,true,{}};
+    cfg.sim_start_index = 2;
+    auto out = Simulator(panel,cfg).run({&data,&delay});
+    for (unsigned di = 0; di < 2; ++di) {
+        EXPECT_DOUBLE_EQ(out.ret[di], 0.0);
+        EXPECT_DOUBLE_EQ(out.turnover[di], 0.0);
+        EXPECT_EQ(out.position_count[di], 0);
+    }
+    // Delay module is warm: day 1 raw values are 100/100, executed at day 2 close.
+    EXPECT_FLOAT_EQ(out.signals[1][0], 100.0f);
+    EXPECT_NEAR(out.ret[2], -0.001, 1e-12); // no pre-start 120 -> 60 loss
+    EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
+    // First holding period is 60 -> 90 at 50% weight. New weights are 120/220,100/220.
+    EXPECT_NEAR(out.ret[3], 0.25-(1.0/11.0)*0.001, 1e-12);
+    auto replay = Simulator(panel,cfg).run_from_signals(out.signals);
+    EXPECT_EQ(out.ret,replay.ret);
+    EXPECT_EQ(out.turnover,replay.turnover);
+}
+
+TEST(Simulator, StartDateDoesNotValueInvalidUnheldWarmupPrices) {
+    auto panel = timing_panel();
+    panel.arrays["close"][0] = std::numeric_limits<float>::quiet_NaN();
+    panel.arrays["close"][2] = std::numeric_limits<float>::quiet_NaN();
+    SimulatorConfig cfg{panel.T,panel.N,0.001,0,false,{}};
+    cfg.sim_start_index = 2;
+    auto out = Simulator(panel,cfg).run_from_signals(
+        std::vector<std::vector<float>>(panel.T,{1,-1}));
+    EXPECT_DOUBLE_EQ(out.ret[0],0.0);
+    EXPECT_DOUBLE_EQ(out.ret[1],0.0);
+    EXPECT_NEAR(out.ret[2],-0.001,1e-12);
+}
+
+TEST(Simulator, ValidatesStartAndUniverseDimensions) {
+    auto panel = timing_panel();
+    SimulatorConfig cfg{panel.T,panel.N,0.0,1,false,{}};
+    cfg.sim_start_index = panel.T+1;
+    EXPECT_THROW(Simulator(panel,cfg),std::invalid_argument);
+    cfg.sim_start_index = panel.T;
+    auto out = Simulator(panel,cfg).run_from_signals(
+        std::vector<std::vector<float>>(panel.T,{1,-1}));
+    for (double value : out.ret) EXPECT_DOUBLE_EQ(value,0.0);
+    panel.universe_mask = {1,0};
+    EXPECT_THROW(Simulator(panel,cfg),std::invalid_argument);
+}

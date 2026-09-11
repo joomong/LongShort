@@ -12,12 +12,13 @@ Json::Value yearly_to_json(const std::vector<YearlyMetrics>& yearly);
 // Timeseries -> JSON object
 Json::Value timeseries_to_json(const TimeseriesOutput& ts);
 
-// Signal plot -> JSON (rows from start_index with timestamps + symbols)
+// Raw signal plot with aligned date/symbol downsampling and a hard cell budget.
 Json::Value signal_plot_to_json(
     const std::vector<std::vector<float>>& signals,
     const std::vector<int64_t>& timestamps,
     const std::vector<std::string>& symbols,
-    std::size_t start_index = 0);
+    std::size_t start_index = 0,
+    std::size_t max_cells = 250000);
 
 // Signal distribution histogram (fixed 50 bins, rows from start_index)
 Json::Value signal_distribution_to_json(

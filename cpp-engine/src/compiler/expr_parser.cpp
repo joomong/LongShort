@@ -1,10 +1,13 @@
 #include "expr_parser.h"
+#include "../data/data_panel.h"
 #include "../modules/Data.h"
 #include "../modules/Delay.h"
 #include "../modules/Ops.h"
 #include "../modules/Constant.h"
 #include "../modules/Chain.h"
 #include <cctype>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 #include <memory>
@@ -78,6 +81,8 @@ struct Parser {
     }
 
     Module* make_data(const std::string& col) {
+        if (!panel || !panel->has_column(col))
+            throw std::runtime_error("expr_parser: unknown or disabled data field '" + col + "'");
         auto m = std::make_unique<MData>();
         m->column_name = col;
         m->panel = panel;
@@ -157,7 +162,18 @@ struct Parser {
 
     Module* parse_primary() {
         if (cur().kind == TokKind::Number) {
-            double v = std::stod(cur().text);
+            size_t consumed = 0;
+            double v = 0.0;
+            try {
+                v = std::stod(cur().text, &consumed);
+            } catch (const std::invalid_argument&) {
+                throw std::runtime_error("expr_parser: invalid numeric literal '" + cur().text + "'");
+            } catch (const std::out_of_range&) {
+                throw std::runtime_error("expr_parser: numeric literal out of range '" + cur().text + "'");
+            }
+            if (consumed != cur().text.size() || !std::isfinite(v) ||
+                std::fabs(v) > std::numeric_limits<float>::max())
+                throw std::runtime_error("expr_parser: invalid numeric literal '" + cur().text + "'");
             consume();
             return make_constant(v);
         }
@@ -166,12 +182,6 @@ struct Parser {
             consume();
             if (name == "returns")
                 return make_returns();
-            static const char* allowed[] = {"open","high","low","close","volume", nullptr};
-            bool ok = false;
-            for (int i = 0; allowed[i]; ++i)
-                if (name == allowed[i]) { ok = true; break; }
-            if (!ok)
-                throw std::runtime_error("expr_parser: unknown identifier '" + name + "'");
             return make_data(name);
         }
         if (cur().kind == TokKind::LParen) {

@@ -16,6 +16,7 @@
 #include "engine/simulator.h"
 #include "metrics/metrics_engine.h"
 #include "api/json_serializer.h"
+#include "api/combined_signals.h"
 #include "ga/search_space.h"
 #include "ga/ga_engine.h"
 #include <thread>
@@ -105,6 +106,178 @@ static bool resolve_alpha_path(const std::string& name, fs::path* out_path)
     return true;
 }
 
+// Keep GA workers owned until completion, and join them before shared data is
+// destroyed at shutdown. Completed workers are reaped when another run starts.
+class GaWorkers {
+public:
+    ~GaWorkers() { stop_and_join(); }
+
+    void stop_and_join() {
+        stopping_.store(true, std::memory_order_release);
+        std::vector<Task> tasks;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            tasks = std::move(tasks_);
+        }
+        for (auto& task : tasks)
+            if (task.thread.joinable()) task.thread.join();
+    }
+
+    bool stopping() const { return stopping_.load(std::memory_order_acquire); }
+
+    template<class Work>
+    void launch(Work work) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping()) throw std::runtime_error("Server is stopping");
+        for (auto it = tasks_.begin(); it != tasks_.end();) {
+            if (it->done->load(std::memory_order_acquire)) {
+                it->thread.join();
+                it = tasks_.erase(it);
+            } else ++it;
+        }
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        tasks_.push_back(Task{std::thread{}, done});
+        try {
+            tasks_.back().thread = std::thread([work = std::move(work), done]() mutable {
+                try { work(); }
+                catch (const std::exception& error) { LOG_ERROR << "GA worker: " << error.what(); }
+                catch (...) { LOG_ERROR << "GA worker failed"; }
+                done->store(true, std::memory_order_release);
+            });
+        } catch (...) {
+            tasks_.pop_back();
+            throw;
+        }
+    }
+
+private:
+    struct Task { std::thread thread; std::shared_ptr<std::atomic<bool>> done; };
+    std::vector<Task> tasks_;
+    std::mutex mutex_;
+    std::atomic<bool> stopping_{false};
+};
+static GaWorkers g_ga_workers;
+
+class ClientDisconnected : public std::runtime_error {
+public:
+    ClientDisconnected() : std::runtime_error("Client disconnected") {}
+};
+
+struct RunOptions {
+    int64_t is_ms = 0;
+    int64_t os_ms = 0;
+    unsigned sim_start_index = 0;
+    int mode = 1;
+    unsigned threads = 0;
+    bool collect_signals = false;
+    unsigned signal_top_k = 1;
+    std::size_t signal_max_cells = 250000;
+    std::string combined_mode;
+};
+
+static RunOptions parse_run_options(const Json::Value& body) {
+    RunOptions options;
+    const std::string is_start = body.get("isStart", "2021-01-01").asString();
+    const std::string os_start = body.get("osStart", "2024-01-01").asString();
+    if (!parse_iso_date_ms(is_start, &options.is_ms) || !parse_iso_date_ms(os_start, &options.os_ms))
+        throw std::invalid_argument("Invalid date format; expected YYYY-MM-DD");
+    if (options.is_ms >= options.os_ms)
+        throw std::invalid_argument("isStart must be earlier than osStart");
+    options.sim_start_index = g_data.trade_start_index;
+    const std::string sim_start = body.get("simStart", "").asString();
+    if (!sim_start.empty()) {
+        int64_t sim_ms = 0;
+        if (!parse_iso_date_ms(sim_start, &sim_ms))
+            throw std::invalid_argument("Invalid simStart; expected YYYY-MM-DD");
+        const auto requested = static_cast<unsigned>(std::lower_bound(
+            g_data.timestamps.begin(), g_data.timestamps.end(), sim_ms) - g_data.timestamps.begin());
+        options.sim_start_index = std::max(options.sim_start_index, requested);
+    }
+    if (options.sim_start_index >= g_data.T)
+        throw std::invalid_argument("simStart is after the available trading period");
+    const Json::Value requested_mode = body.get("mode", g_config.mode);
+    if (!requested_mode.isInt() || requested_mode.asInt() < 0 || requested_mode.asInt() > 1)
+        throw std::invalid_argument("mode must be 0 (D0) or 1 (D1)");
+    options.mode = requested_mode.asInt();
+    options.threads = body.get("threads", 0).asUInt();
+    options.collect_signals = body.get("collectSignals", false).asBool();
+    options.signal_top_k = std::clamp(body.get("collectSignalsTopK", 1).asUInt(), 1u, 5u);
+    const unsigned requested_cells = body.get("signalPlotMaxCells", 250000).asUInt();
+    if (requested_cells == 0)
+        throw std::invalid_argument("signalPlotMaxCells must be positive");
+    options.signal_max_cells = std::min<unsigned>(requested_cells, 250000);
+    options.combined_mode = body.get("combinedMode", g_config.combined_mode).asString();
+    if (options.combined_mode != "normalized" && options.combined_mode != "raw")
+        throw std::invalid_argument("combinedMode must be 'normalized' or 'raw'");
+    return options;
+}
+
+static SimulatorConfig simulator_config(const RunOptions& options, bool collect) {
+    SimulatorConfig config;
+    config.T = g_data.T;
+    config.N = g_data.N;
+    config.fee_rate = g_config.transaction_fee_rate;
+    config.mode = options.mode;
+    config.sim_start_index = options.sim_start_index;
+    config.collect_signals = collect;
+    return config;
+}
+
+static SimulatorOutput execute_alpha(
+    CompiledAlpha& alpha, const RunOptions& options, bool collect,
+    const SimulatorConfig::SignalRowCallback& callback = {}) {
+    auto config = simulator_config(options, collect);
+    config.signal_row_callback = callback;
+    return Simulator(g_data, config).run(alpha.pipeline);
+}
+
+static FullMetricsResult full_metrics(const SimulatorOutput& output, const RunOptions& options) {
+    // Preserve the global D1 warmup convention when no earlier signal exists.
+    const std::size_t first_metric_bar = options.mode == 1
+        ? std::max<unsigned>(options.sim_start_index, 1) : options.sim_start_index;
+    return compute_full_metrics(
+        output.timestamps, output.ret, output.turnover, output.max_weight,
+        output.long_weight, output.short_weight, output.position_count,
+        options.is_ms, options.os_ms, g_config.transaction_fee_rate,
+        g_config.bars_per_year, first_metric_bar);
+}
+
+static Json::Value metrics_payload(const FullMetricsResult& metrics) {
+    Json::Value payload;
+    payload["summary"]["is"] = summary_to_json(metrics.is_summary);
+    payload["summary"]["os"] = summary_to_json(metrics.os_summary);
+    payload["yearly"] = yearly_to_json(metrics.yearly);
+    payload["timeseries"] = timeseries_to_json(metrics.timeseries);
+    payload["isStartIndex"] = static_cast<Json::UInt64>(metrics.is_start_index);
+    payload["osStartIndex"] = static_cast<Json::UInt64>(metrics.os_start_index);
+    return payload;
+}
+
+static void copy_top_metrics(Json::Value& response, const Json::Value& metrics) {
+    for (const char* key : {"yearly", "timeseries", "isStartIndex", "osStartIndex"})
+        response[key] = metrics[key];
+}
+
+static void append_signal_payload(
+    Json::Value& payload, const std::vector<std::vector<float>>& signals,
+    const std::vector<int64_t>& timestamps, const RunOptions& options) {
+    const std::size_t begin = options.sim_start_index;
+    payload["signalPlot"] = signal_plot_to_json(
+        signals, timestamps, g_data.symbols, begin, options.signal_max_cells);
+    payload["distribution"] = signal_distribution_to_json(signals, begin);
+    float minimum = 0.0f, maximum = 0.0f;
+    bool first = true;
+    for (std::size_t di = begin; di < signals.size(); ++di) {
+        for (float value : signals[di]) {
+            if (!std::isfinite(value)) continue;
+            if (first) { minimum = maximum = value; first = false; }
+            else { minimum = std::min(minimum, value); maximum = std::max(maximum, value); }
+        }
+    }
+    payload["signalRange"]["min"] = minimum;
+    payload["signalRange"]["max"] = maximum;
+}
+
 int main(int argc, char* argv[])
 {
     // Config path: first arg or default
@@ -114,16 +287,9 @@ int main(int argc, char* argv[])
     std::cout << "Loading config from " << config_path << " ..." << std::endl;
     g_config = BacktestConfig::from_yaml(config_path);
 
-    // Resolve parquet path relative to config.yaml's directory
     fs::path cfg_dir = fs::path(config_path).parent_path();
-    std::string parquet_path = (cfg_dir / g_config.parquet_path).string();
-
-    std::cout << "Loading data from " << parquet_path << " ..." << std::endl;
-    g_data = DataPanel::load(
-        parquet_path,
-        g_config.use_columns,
-        g_config.time_col,
-        g_config.symbol_col);
+    std::cout << "Loading configured datasets ..." << std::endl;
+    g_data = DataPanel::load(g_config);
     std::cout << "Data loaded: T=" << g_data.T << " N=" << g_data.N << std::endl;
 
     // Alphas directory (relative to config.yaml)
@@ -197,635 +363,260 @@ int main(int argc, char* argv[])
                 return;
             }
 
-            json["simStart"] = ms_to_date(g_data.timestamps.front());
+            json["simStart"] = ms_to_date(g_data.timestamps.at(g_data.trade_start_index));
             json["simEnd"]   = ms_to_date(g_data.timestamps.back());
             json["feeRate"]  = g_config.transaction_fee_rate;
-            json["barsPerYear"] = 365;
+            json["barsPerYear"] = g_config.bars_per_year;
+            json["combinedMode"] = g_config.combined_mode;
+            json["mode"] = g_config.mode;
             json["T"] = g_data.T;
             json["N"] = g_data.N;
 
             // Available columns
             Json::Value columns(Json::arrayValue);
-            for (const auto& c : g_config.use_columns)
+            for (const auto& c : g_data.column_names())
                 columns.append(c);
             json["columns"] = columns;
+            // Resident float-field storage only: excludes masks, modules, plots and process overhead.
+            json["loadedFields"] = static_cast<Json::UInt64>(g_data.loaded_field_count());
+            json["loadedDataBytes"] = static_cast<Json::UInt64>(g_data.loaded_bytes());
 
             callback(drogon::HttpResponse::newHttpJsonResponse(json));
         },
         {drogon::Get});
 
-    // POST /api/simulate — single alpha
+    // POST /api/simulate — one or more expanded alphas
     drogon::app().registerHandler(
         "/api/simulate",
-        [](const drogon::HttpRequestPtr &req,
-           std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-
-            auto body = req->getJsonObject();
-            if (!body) {
-                Json::Value err;
-                err["error"] = "Invalid JSON body";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
-            std::string xml = (*body)["xml"].asString();
-            std::string sim_start_str = (*body).get("simStart", "").asString();
-            std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
-            std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
-            unsigned req_threads = (*body).get("threads", 0).asUInt();
-            bool req_collect_signals = (*body).get("collectSignals", false).asBool();
-            unsigned req_collect_top_k = (*body).get("collectSignalsTopK", 1).asUInt();
-
-            if (xml.empty()) {
-                Json::Value err;
-                err["error"] = "Missing 'xml' field";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
-            int64_t is_ms = 0;
-            int64_t os_ms = 0;
-            if (!parse_iso_date_ms(is_start_str, &is_ms) || !parse_iso_date_ms(os_start_str, &os_ms)) {
-                Json::Value err;
-                err["error"] = "Invalid date format; expected YYYY-MM-DD";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-            if (is_ms >= os_ms) {
-                Json::Value err;
-                err["error"] = "isStart must be earlier than osStart";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
+        [](const drogon::HttpRequestPtr& req,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             try {
-                // 1. Compile XML -> module pipelines
+                const auto body = req->getJsonObject();
+                if (!body) throw std::invalid_argument("Invalid JSON body");
+                const std::string xml = (*body)["xml"].asString();
+                if (xml.empty()) throw std::invalid_argument("Missing 'xml' field");
+                const RunOptions options = parse_run_options(*body);
                 auto alphas = compile_xml(xml, &g_data);
-                if (alphas.empty()) {
-                    Json::Value err;
-                    err["error"] = "No alpha compiled from XML";
-                    auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                    resp->setStatusCode(drogon::k400BadRequest);
-                    callback(resp);
-                    return;
-                }
+                if (alphas.empty()) throw std::invalid_argument("No alpha compiled from XML");
+                const bool single = alphas.size() == 1;
 
-                bool single = (alphas.size() == 1);
-
-                // Helper: run one alpha through simulator + metrics
-                auto run_one = [&](CompiledAlpha& alpha,
-                                   bool collect,
-                                   const SimulatorConfig::SignalRowCallback& signal_row_callback = {}) {
-                    const auto& pipeline = alpha.pipeline;
-
-                    SimulatorConfig sim_cfg;
-                    sim_cfg.T = g_data.T;
-                    sim_cfg.N = g_data.N;
-                    sim_cfg.fee_rate = g_config.transaction_fee_rate;
-                    sim_cfg.mode = 1;  // D1
-                    sim_cfg.collect_signals = collect;
-                    sim_cfg.signal_row_callback = signal_row_callback;
-
-                    Simulator sim(g_data, sim_cfg);
-                    auto sim_out = sim.run(pipeline);
-
-                    auto metrics = compute_full_metrics(
-                        sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
-                        sim_out.long_weight, sim_out.short_weight,
-                        sim_out.position_count,
-                        is_ms, os_ms,
-                        g_config.transaction_fee_rate, 365);
-
-                    return std::make_pair(std::move(sim_out), std::move(metrics));
-                };
-
-                auto rerun_with_collected_signals = [&](CompiledAlpha& alpha) {
-                    const auto& pipeline = alpha.pipeline;
-
-                    SimulatorConfig sim_cfg;
-                    sim_cfg.T = g_data.T;
-                    sim_cfg.N = g_data.N;
-                    sim_cfg.fee_rate = g_config.transaction_fee_rate;
-                    sim_cfg.mode = 1;  // D1
-                    sim_cfg.collect_signals = true;
-
-                    Simulator sim(g_data, sim_cfg);
-                    return sim.run(pipeline);
-                };
-
-                // Unified path: always build batches[]
                 struct BatchResult {
-                    int index;
+                    std::size_t index = 0;
                     std::string xml;
                     FullMetricsResult metrics;
                 };
-                struct BatchSignalPayload {
-                    bool has_payload = false;
-                    Json::Value signal_plot;
-                    Json::Value signal_range;
-                    Json::Value distribution;
-                };
-
                 std::vector<BatchResult> batches(alphas.size());
-                std::vector<BatchSignalPayload> batch_signal_payloads(alphas.size());
-                SimulatorOutput single_sim_out;  // kept only for signal data
+                SimulatorOutput single_output;
                 std::vector<std::vector<float>> combined_signals;
-
-                auto assign_batch = [&](size_t i, FullMetricsResult&& metrics) {
-                    BatchResult br;
-                    br.index = static_cast<int>(i);
-                    br.xml = alphas[i].source_xml;
-                    br.metrics = std::move(metrics);
-                    batches[i] = std::move(br);
-                };
-
                 if (single) {
-                    auto [sim_out, metrics] = run_one(alphas[0], true);
-                    single_sim_out = std::move(sim_out);
-                    assign_batch(0, std::move(metrics));
+                    single_output = execute_alpha(alphas[0], options, true);
+                    batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options)};
                 } else {
-                    const unsigned T = g_data.T;
-                    const unsigned N = g_data.N;
-                    combined_signals.assign(
-                        T, std::vector<float>(N, std::numeric_limits<float>::quiet_NaN()));
-
-                    unsigned hw = std::thread::hardware_concurrency();
-                    if (hw == 0)
-                        hw = 1;
-                    unsigned n_threads = (req_threads == 0) ? hw : req_threads;
-                    n_threads = std::max(1u, std::min<unsigned>(n_threads, static_cast<unsigned>(alphas.size())));
-
-                    std::atomic<size_t> next_idx{0};
-                    std::atomic<bool> has_err{false};
-                    std::mutex err_mu;
-                    std::mutex combined_mu;
-                    std::string first_err;
-
-                    auto accumulate_combined_row = [&](unsigned di, const float* row, unsigned row_n) {
-                        std::lock_guard<std::mutex> lock(combined_mu);
-                        auto& combined_row = combined_signals[di];
-                        for (unsigned ii = 0; ii < row_n; ++ii) {
-                            const float s = row[ii];
-                            if (!std::isfinite(s))
-                                continue;
-                            float& c = combined_row[ii];
-                            c = std::isfinite(c) ? c + s : s;
-                        }
-                    };
-
-                    auto worker = [&]() {
-                        while (true) {
-                            if (has_err.load(std::memory_order_acquire))
-                                return;
-
-                            const size_t i = next_idx.fetch_add(1);
-                            if (i >= alphas.size())
-                                return;
+                    OrderedSignalAccumulator accumulator(g_data, options.combined_mode);
+                    unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
+                    const unsigned thread_count = std::max(1u, std::min<unsigned>(
+                        options.threads == 0 ? hardware : options.threads,
+                        static_cast<unsigned>(alphas.size())));
+                    std::atomic<std::size_t> next_index{0};
+                    std::atomic<bool> failed{false};
+                    std::exception_ptr first_error;
+                    std::mutex error_mutex;
+                    auto worker = [&] {
+                        std::vector<double> normalized_scratch;
+                        while (!failed.load(std::memory_order_acquire)) {
+                            const std::size_t i = next_index.fetch_add(1);
+                            if (i >= alphas.size()) return;
                             try {
-                                auto [sim_out, metrics] = run_one(
-                                    alphas[i], false, accumulate_combined_row);
-                                assign_batch(i, std::move(metrics));
-                            } catch (const std::exception& e) {
-                                std::lock_guard<std::mutex> lock(err_mu);
-                                if (first_err.empty()) {
-                                    first_err = e.what();
-                                    has_err.store(true, std::memory_order_release);
+                                auto output = execute_alpha(alphas[i], options, false,
+                                    [&](unsigned di, const float* row, unsigned n) {
+                                        accumulator.add(i, di, row, n, normalized_scratch);
+                                    });
+                                batches[i] = {i, alphas[i].source_xml, full_metrics(output, options)};
+                                // Completed module state is no longer needed; selected plots
+                                // are recomputed from the stored expanded XML after ranking.
+                                alphas[i] = CompiledAlpha{};
+                            } catch (...) {
+                                {
+                                    std::lock_guard<std::mutex> lock(error_mutex);
+                                    if (!first_error) first_error = std::current_exception();
                                 }
+                                failed.store(true, std::memory_order_release);
+                                accumulator.cancel();
                                 return;
                             }
                         }
                     };
-
                     std::vector<std::thread> workers;
-                    workers.reserve(n_threads);
-                    for (unsigned t = 0; t < n_threads; ++t)
-                        workers.emplace_back(worker);
-                    for (auto& th : workers)
-                        th.join();
-
-                    if (!first_err.empty())
-                        throw std::runtime_error(first_err);
-                }
-
-                auto sharpe_key = [](const BatchResult& b) {
-                    const double s = b.metrics.is_summary.sharpe;
-                    return std::isfinite(s) ? s : -std::numeric_limits<double>::infinity();
-                };
-
-                std::stable_sort(
-                    batches.begin(), batches.end(),
-                    [&](const BatchResult& a, const BatchResult& b) {
-                        const double sa = sharpe_key(a);
-                        const double sb = sharpe_key(b);
-                        if (sa == sb)
-                            return a.index < b.index;
-                        return sa > sb;
-                    });
-
-                if (batches.empty()) {
-                    Json::Value err;
-                    err["error"] = "No batch results";
-                    auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                    resp->setStatusCode(drogon::k400BadRequest);
-                    callback(resp);
-                    return;
-                }
-
-                for (const auto& b : batches) {
-                    if (b.xml.empty()) {
-                        Json::Value err;
-                        err["error"] = "Invalid batch result";
-                        auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                        resp->setStatusCode(drogon::k400BadRequest);
-                        callback(resp);
-                        return;
+                    try {
+                        for (unsigned t = 0; t < thread_count; ++t)
+                            workers.emplace_back(worker);
+                    } catch (...) {
+                        failed.store(true, std::memory_order_release);
+                        accumulator.cancel();
+                        for (auto& worker_thread : workers) worker_thread.join();
+                        throw;
                     }
+                    for (auto& worker_thread : workers) worker_thread.join();
+                    if (first_error) std::rethrow_exception(first_error);
+                    combined_signals = accumulator.take_signals();
                 }
 
-                if (!single && req_collect_signals) {
-                    unsigned top_k = req_collect_top_k;
-                    if (top_k == 0)
-                        top_k = 1;
-                    top_k = std::min<unsigned>(top_k, static_cast<unsigned>(batches.size()));
+                std::stable_sort(batches.begin(), batches.end(), [](const auto& a, const auto& b) {
+                    const double a_sharpe = std::isfinite(a.metrics.is_summary.sharpe)
+                        ? a.metrics.is_summary.sharpe : -std::numeric_limits<double>::infinity();
+                    const double b_sharpe = std::isfinite(b.metrics.is_summary.sharpe)
+                        ? b.metrics.is_summary.sharpe : -std::numeric_limits<double>::infinity();
+                    return a_sharpe == b_sharpe ? a.index < b.index : a_sharpe > b_sharpe;
+                });
 
-                    for (unsigned bi = 0; bi < top_k; ++bi) {
-                        const int alpha_idx = batches[bi].index;
-                        if (alpha_idx < 0 || static_cast<size_t>(alpha_idx) >= alphas.size())
-                            continue;
-
-                        auto collected = rerun_with_collected_signals(alphas[static_cast<size_t>(alpha_idx)]);
-                        if (collected.signals.empty())
-                            continue;
-
-                        size_t plot_start = batches[bi].metrics.is_start_index;
-                        if (!sim_start_str.empty()) {
-                            int64_t sim_start_ms = 0;
-                            if (parse_iso_date_ms(sim_start_str, &sim_start_ms)) {
-                                plot_start = static_cast<size_t>(
-                                    std::lower_bound(
-                                        collected.timestamps.begin(),
-                                        collected.timestamps.end(),
-                                        sim_start_ms) - collected.timestamps.begin());
-                            }
-                        }
-                        if (plot_start >= collected.signals.size())
-                            continue;
-
-                        batch_signal_payloads[bi].signal_plot =
-                            signal_plot_to_json(collected.signals, collected.timestamps, g_data.symbols, plot_start);
-                        batch_signal_payloads[bi].distribution =
-                            signal_distribution_to_json(collected.signals, plot_start);
-
-                        float sig_min = 0.0f;
-                        float sig_max = 0.0f;
-                        bool first = true;
-                        for (size_t di = plot_start; di < collected.signals.size(); ++di) {
-                            for (float v : collected.signals[di]) {
-                                if (!std::isfinite(v))
-                                    continue;
-                                if (first) {
-                                    sig_min = v;
-                                    sig_max = v;
-                                    first = false;
-                                } else {
-                                    if (v < sig_min) sig_min = v;
-                                    if (v > sig_max) sig_max = v;
-                                }
-                            }
-                        }
-                        Json::Value sr;
-                        sr["min"] = sig_min;
-                        sr["max"] = sig_max;
-                        batch_signal_payloads[bi].signal_range = sr;
-                        batch_signal_payloads[bi].has_payload = true;
+                Json::Value response;
+                Json::Value batch_array(Json::arrayValue);
+                for (std::size_t i = 0; i < batches.size(); ++i) {
+                    const auto& batch = batches[i];
+                    Json::Value entry = metrics_payload(batch.metrics);
+                    entry["index"] = static_cast<Json::UInt64>(batch.index);
+                    entry["xml"] = batch.xml;
+                    if (!single && options.collect_signals && i < options.signal_top_k) {
+                        auto selected = compile_xml(batch.xml, &g_data);
+                        auto output = execute_alpha(selected.at(0), options, true);
+                        append_signal_payload(entry, output.signals, output.timestamps, options);
                     }
+                    batch_array.append(std::move(entry));
                 }
-
-                // Combined alpha: sum signals + run separate simulation
-                FullMetricsResult combined_metrics;
-                if (!single) {
-                    const unsigned T = g_data.T;
-                    const unsigned N = g_data.N;
-
-                    SimulatorConfig combined_cfg;
-                    combined_cfg.T = T;
-                    combined_cfg.N = N;
-                    combined_cfg.fee_rate = g_config.transaction_fee_rate;
-                    combined_cfg.mode = 1;
-                    combined_cfg.collect_signals = false;
-
-                    Simulator combined_sim(g_data, combined_cfg);
-                    auto combined_out = combined_sim.run_from_signals(combined_signals);
-
-                    combined_metrics = compute_full_metrics(
-                        combined_out.timestamps, combined_out.ret, combined_out.turnover, combined_out.max_weight,
-                        combined_out.long_weight, combined_out.short_weight,
-                        combined_out.position_count,
-                        is_ms, os_ms, g_config.transaction_fee_rate, 365);
+                response["batches"] = std::move(batch_array);
+                if (single) {
+                    copy_top_metrics(response, response["batches"][0]);
+                    append_signal_payload(response, single_output.signals, single_output.timestamps, options);
+                } else {
+                    Simulator combined_simulator(g_data, simulator_config(options, false));
+                    auto combined_output = combined_simulator.run_from_signals(combined_signals);
+                    Json::Value combined = metrics_payload(full_metrics(combined_output, options));
+                    combined["index"] = -1;
+                    if (options.collect_signals) {
+                        append_signal_payload(combined, combined_signals, g_data.timestamps, options);
+                        response["signalPlot"] = combined["signalPlot"];
+                        response["signalRange"] = combined["signalRange"];
+                        response["distribution"] = combined["distribution"];
+                    }
+                    copy_top_metrics(response, combined);
+                    response["combined"] = std::move(combined);
                 }
-
-                // Build JSON
+                response["combinedMode"] = options.combined_mode;
+                response["mode"] = options.mode;
+                callback(drogon::HttpResponse::newHttpJsonResponse(response));
+            } catch (const std::exception& error) {
                 Json::Value json;
-                Json::Value batches_arr(Json::arrayValue);
-
-                auto append_batch = [&](const BatchResult& batch, size_t batch_pos) {
-                    Json::Value b;
-                    b["index"] = batch.index;
-                    b["xml"] = batch.xml;
-
-                    Json::Value summary;
-                    summary["is"] = summary_to_json(batch.metrics.is_summary);
-                    summary["os"] = summary_to_json(batch.metrics.os_summary);
-                    b["summary"] = summary;
-
-                    b["yearly"] = yearly_to_json(batch.metrics.yearly);
-                    b["timeseries"] = timeseries_to_json(batch.metrics.timeseries);
-                    b["isStartIndex"] = static_cast<Json::UInt64>(batch.metrics.is_start_index);
-                    b["osStartIndex"] = static_cast<Json::UInt64>(batch.metrics.os_start_index);
-                    if (!single && batch_pos < batch_signal_payloads.size() &&
-                        batch_signal_payloads[batch_pos].has_payload) {
-                        b["signalPlot"] = batch_signal_payloads[batch_pos].signal_plot;
-                        b["signalRange"] = batch_signal_payloads[batch_pos].signal_range;
-                        b["distribution"] = batch_signal_payloads[batch_pos].distribution;
-                    }
-                    batches_arr.append(b);
-                };
-
-                for (size_t bi = 0; bi < batches.size(); ++bi)
-                    append_batch(batches[bi], bi);
-                json["batches"] = batches_arr;
-
-                // Top-level: combined metrics for multi-alpha, best for single
-                const auto& top_metrics = single ? batches[0].metrics : combined_metrics;
-                json["yearly"] = yearly_to_json(top_metrics.yearly);
-                json["timeseries"] = timeseries_to_json(top_metrics.timeseries);
-                json["isStartIndex"] = static_cast<Json::UInt64>(top_metrics.is_start_index);
-                json["osStartIndex"] = static_cast<Json::UInt64>(top_metrics.os_start_index);
-
-                if (!single) {
-                    Json::Value cj;
-                    Json::Value cs;
-                    cs["is"] = summary_to_json(combined_metrics.is_summary);
-                    cs["os"] = summary_to_json(combined_metrics.os_summary);
-                    cj["summary"] = cs;
-                    cj["yearly"] = yearly_to_json(combined_metrics.yearly);
-                    cj["timeseries"] = timeseries_to_json(combined_metrics.timeseries);
-                    cj["isStartIndex"] = static_cast<Json::UInt64>(combined_metrics.is_start_index);
-                    cj["osStartIndex"] = static_cast<Json::UInt64>(combined_metrics.os_start_index);
-                    json["combined"] = cj;
-                }
-
-                // Single alpha: add signal data at top level (simStart or IS, skip warmup)
-                if (single && !single_sim_out.signals.empty()) {
-                    size_t plot_start;
-                    if (!sim_start_str.empty()) {
-                        int64_t sim_start_ms = 0;
-                        if (parse_iso_date_ms(sim_start_str, &sim_start_ms)) {
-                            plot_start = std::lower_bound(
-                                single_sim_out.timestamps.begin(),
-                                single_sim_out.timestamps.end(), sim_start_ms
-                            ) - single_sim_out.timestamps.begin();
-                        } else {
-                            plot_start = top_metrics.is_start_index;
-                        }
-                    } else {
-                        plot_start = top_metrics.is_start_index;
-                    }
-                    json["signalPlot"] = signal_plot_to_json(
-                        single_sim_out.signals, single_sim_out.timestamps, g_data.symbols, plot_start);
-
-                    float sig_min = 0, sig_max = 0;
-                    bool first = true;
-                    for (size_t di = plot_start; di < single_sim_out.signals.size(); ++di) {
-                        for (float v : single_sim_out.signals[di]) {
-                            if (!std::isfinite(v)) continue;
-                            if (first) { sig_min = sig_max = v; first = false; }
-                            else { if (v < sig_min) sig_min = v; if (v > sig_max) sig_max = v; }
-                        }
-                    }
-                    Json::Value sr;
-                    sr["min"] = sig_min;
-                    sr["max"] = sig_max;
-                    json["signalRange"] = sr;
-
-                    json["distribution"] = signal_distribution_to_json(single_sim_out.signals, plot_start);
-                }
-
-                callback(drogon::HttpResponse::newHttpJsonResponse(json));
-
-            } catch (const std::exception& e) {
-                Json::Value err;
-                err["error"] = e.what();
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
+                json["error"] = error.what();
+                auto response = drogon::HttpResponse::newHttpJsonResponse(json);
+                response->setStatusCode(drogon::k400BadRequest);
+                callback(response);
             }
-        },
-        {drogon::Post});
+        }, {drogon::Post});
 
-    // POST /api/ga/stream — NDJSON streaming GA optimization
+    // POST /api/ga/stream — final best alpha uses the same period and plot contract
     drogon::app().registerHandler(
         "/api/ga/stream",
-        [](const drogon::HttpRequestPtr &req,
-           std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-
-            auto body = req->getJsonObject();
-            if (!body) {
-                Json::Value err;
-                err["error"] = "Invalid JSON body";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
-            std::string xml = (*body)["xml"].asString();
-            // Preserve the existing request type check without retaining unused state.
-            (void)(*body).get("simStart", "").asString();
-            std::string is_start_str = (*body).get("isStart", "2021-01-01").asString();
-            std::string os_start_str = (*body).get("osStart", "2024-01-01").asString();
-            unsigned pop_size = (*body).get("popSize", 50).asUInt();
-            unsigned generations = (*body).get("generations", 20).asUInt();
-            unsigned n_threads = (*body).get("threads", 4).asUInt();
-
-            if (xml.empty()) {
-                Json::Value err;
-                err["error"] = "Missing 'xml' field";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
-            int64_t is_ms = 0;
-            int64_t os_ms = 0;
-            if (!parse_iso_date_ms(is_start_str, &is_ms) || !parse_iso_date_ms(os_start_str, &os_ms)) {
-                Json::Value err;
-                err["error"] = "Invalid date format; expected YYYY-MM-DD";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-            if (is_ms >= os_ms) {
-                Json::Value err;
-                err["error"] = "isStart must be earlier than osStart";
-                auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
-                resp->setStatusCode(drogon::k400BadRequest);
-                callback(resp);
-                return;
-            }
-
-            // Async stream response for NDJSON
-            auto resp = drogon::HttpResponse::newAsyncStreamResponse(
-                [xml, pop_size, generations, n_threads, is_ms, os_ms](drogon::ResponseStreamPtr stream) {
-
-                    auto write_json = [&stream](const Json::Value& j) {
-                        Json::StreamWriterBuilder wb;
-                        wb["indentation"] = "";
-                        std::string line = Json::writeString(wb, j) + "\n";
-                        stream->send(line);
-                    };
-
-                    try {
-                        auto space = extract_search_space(xml);
-
-                        if (space.genes.empty() || space.total_combinations() <= 1) {
-                            Json::Value err;
-                            err["type"] = "error";
-                            err["error"] = "No search dimensions found in XML";
-                            write_json(err);
-                            stream->close();
-                            return;
+        [](const drogon::HttpRequestPtr& req,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            try {
+                const auto body = req->getJsonObject();
+                if (!body) throw std::invalid_argument("Invalid JSON body");
+                const std::string xml = (*body)["xml"].asString();
+                if (xml.empty()) throw std::invalid_argument("Missing 'xml' field");
+                const RunOptions options = parse_run_options(*body);
+                GAConfig ga_config;
+                ga_config.population_size = (*body).get("popSize", 50).asUInt();
+                ga_config.generations = (*body).get("generations", 20).asUInt();
+                ga_config.n_threads = options.threads == 0 ? 4 : options.threads;
+                if (ga_config.population_size == 0 || ga_config.generations == 0)
+                    throw std::invalid_argument("GA population and generations must be positive");
+                auto response = drogon::HttpResponse::newAsyncStreamResponse(
+                    [xml, options, ga_config, req](drogon::ResponseStreamPtr stream) {
+                        // The I/O loop must remain free to receive cancellation and
+                        // flush generation events while the GA controller is running.
+                        try {
+                            g_ga_workers.launch([xml, options, ga_config, req, stream = std::move(stream)]() mutable {
+                                auto require_connection = [&] {
+                                    if (g_ga_workers.stopping() || !req->connected()) throw ClientDisconnected();
+                                };
+                                auto write = [&stream, &require_connection](const Json::Value& value) {
+                                    require_connection();
+                                    Json::StreamWriterBuilder builder;
+                                    builder["indentation"] = "";
+                                    if (!stream->send(Json::writeString(builder, value) + "\n"))
+                                        throw ClientDisconnected();
+                                };
+                                try {
+                                    const auto space = extract_search_space(xml);
+                                    if (space.genes.empty() || space.total_combinations() <= 1)
+                                        throw std::invalid_argument("No search dimensions found in XML");
+                                    auto evaluate = [&](const std::string& candidate_xml) {
+                                        if (g_ga_workers.stopping() || !req->connected()) return -1e18;
+                                        try {
+                                            auto alphas = compile_xml(candidate_xml, &g_data);
+                                            if (alphas.empty()) return -1e18;
+                                            auto output = execute_alpha(alphas[0], options, false,
+                                                [&](unsigned, const float*, unsigned) { require_connection(); });
+                                            return full_metrics(output, options).is_summary.sharpe;
+                                        } catch (...) { return -1e18; }
+                                    };
+                                    GAEngine engine(xml, space, ga_config);
+                                    auto progress = [&](unsigned generation, const std::string& best_xml, double fitness) {
+                                        Json::Value event;
+                                        event["type"] = "generation_end";
+                                        event["generation"] = generation;
+                                        event["totalGenerations"] = ga_config.generations;
+                                        event["bestSharpe"] = fitness;
+                                        event["bestXml"] = best_xml;
+                                        write(event);
+                                    };
+                                    const auto best = engine.run_streaming(evaluate, progress);
+                                    require_connection();
+                                    auto alphas = compile_xml(best.best_xml, &g_data);
+                                    if (alphas.empty()) throw std::runtime_error("Best GA alpha did not compile");
+                                    auto output = execute_alpha(alphas[0], options, true,
+                                        [&](unsigned, const float*, unsigned) { require_connection(); });
+                                    Json::Value batch = metrics_payload(full_metrics(output, options));
+                                    batch["index"] = 0;
+                                    batch["xml"] = best.best_xml;
+                                    append_signal_payload(batch, output.signals, output.timestamps, options);
+                                    Json::Value complete;
+                                    complete["type"] = "complete";
+                                    complete["bestXml"] = best.best_xml;
+                                    complete["combinedMode"] = options.combined_mode;
+                                    complete["mode"] = options.mode;
+                                    copy_top_metrics(complete, batch);
+                                    complete["signalPlot"] = batch["signalPlot"];
+                                    complete["signalRange"] = batch["signalRange"];
+                                    complete["distribution"] = batch["distribution"];
+                                    complete["batches"] = Json::Value(Json::arrayValue);
+                                    complete["batches"].append(std::move(batch));
+                                    write(complete);
+                                } catch (const ClientDisconnected&) {
+                                    // The caller has cancelled; do not evaluate another generation.
+                                } catch (const std::exception& error) {
+                                    Json::Value event;
+                                    event["type"] = "error";
+                                    event["error"] = error.what();
+                                    try { write(event); } catch (const ClientDisconnected&) {}
+                                }
+                                stream->close();
+                            });
+                        } catch (const std::exception& error) {
+                            // A failed launch destroys the owned stream and closes it.
+                            LOG_ERROR << "Unable to start GA worker: " << error.what();
                         }
-
-                        // Eval function: compile XML -> simulate -> return IS sharpe
-                        auto eval_fn = [&](const std::string& candidate_xml) -> double {
-                            try {
-                                auto alphas = compile_xml(candidate_xml, &g_data);
-                                if (alphas.empty()) return -1e18;
-
-                                const auto& pipeline = alphas[0].pipeline;
-
-                                SimulatorConfig sim_cfg;
-                                sim_cfg.T = g_data.T;
-                                sim_cfg.N = g_data.N;
-                                sim_cfg.fee_rate = g_config.transaction_fee_rate;
-                                sim_cfg.mode = 1;
-                                sim_cfg.collect_signals = false;
-
-                                Simulator sim(g_data, sim_cfg);
-                                auto sim_out = sim.run(pipeline);
-
-                                auto metrics = compute_full_metrics(
-                                    sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
-                                    sim_out.long_weight, sim_out.short_weight,
-                                    sim_out.position_count,
-                                    is_ms, os_ms,
-                                    g_config.transaction_fee_rate, 365);
-
-                                return metrics.is_summary.sharpe;
-                            } catch (...) {
-                                return -1e18;
-                            }
-                        };
-
-                        GAConfig ga_cfg;
-                        ga_cfg.population_size = pop_size;
-                        ga_cfg.generations = generations;
-                        ga_cfg.n_threads = n_threads;
-
-                        GAEngine engine(xml, space, ga_cfg);
-
-                        // Progress callback: emit NDJSON per generation
-                        auto progress_cb = [&](unsigned gen, const std::string& best_xml, double fitness) {
-                            Json::Value ev;
-                            ev["type"] = "generation_end";
-                            ev["generation"] = gen;
-                            ev["totalGenerations"] = generations;
-                            ev["bestSharpe"] = fitness;
-                            ev["bestXml"] = best_xml;
-                            write_json(ev);
-                        };
-
-                        auto result = engine.run_streaming(eval_fn, progress_cb);
-
-                        // Final: run best through full metrics for complete response
-                        auto alphas = compile_xml(result.best_xml, &g_data);
-                        if (!alphas.empty()) {
-                            const auto& pipeline = alphas[0].pipeline;
-
-                            SimulatorConfig sim_cfg;
-                            sim_cfg.T = g_data.T;
-                            sim_cfg.N = g_data.N;
-                            sim_cfg.fee_rate = g_config.transaction_fee_rate;
-                            sim_cfg.mode = 1;
-                            sim_cfg.collect_signals = false;
-
-                            Simulator sim(g_data, sim_cfg);
-                            auto sim_out = sim.run(pipeline);
-
-                            auto metrics = compute_full_metrics(
-                                sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
-                                sim_out.long_weight, sim_out.short_weight,
-                                sim_out.position_count,
-                                is_ms, os_ms,
-                                g_config.transaction_fee_rate, 365);
-
-                            Json::Value complete;
-                            complete["type"] = "complete";
-                            complete["bestXml"] = result.best_xml;
-
-                            // Wrap in batches[] for unified format
-                            Json::Value batch;
-                            batch["index"] = 0;
-                            batch["xml"] = result.best_xml;
-                            Json::Value summary;
-                            summary["is"] = summary_to_json(metrics.is_summary);
-                            summary["os"] = summary_to_json(metrics.os_summary);
-                            batch["summary"] = summary;
-                            batch["yearly"] = yearly_to_json(metrics.yearly);
-                            batch["timeseries"] = timeseries_to_json(metrics.timeseries);
-                            batch["isStartIndex"] = static_cast<Json::UInt64>(metrics.is_start_index);
-                            batch["osStartIndex"] = static_cast<Json::UInt64>(metrics.os_start_index);
-
-                            Json::Value batches_arr(Json::arrayValue);
-                            batches_arr.append(batch);
-                            complete["batches"] = batches_arr;
-
-                            complete["yearly"] = yearly_to_json(metrics.yearly);
-                            complete["timeseries"] = timeseries_to_json(metrics.timeseries);
-                            complete["isStartIndex"] = static_cast<Json::UInt64>(metrics.is_start_index);
-                            complete["osStartIndex"] = static_cast<Json::UInt64>(metrics.os_start_index);
-
-                            write_json(complete);
-                        }
-
-                    } catch (const std::exception& e) {
-                        Json::Value err;
-                        err["type"] = "error";
-                        err["error"] = e.what();
-                        Json::StreamWriterBuilder wb;
-                        wb["indentation"] = "";
-                        stream->send(Json::writeString(wb, err) + "\n");
-                    }
-
-                    stream->close();
-                },
-                true);  // disableKickoffTimeout = true (long-running)
-
-            resp->addHeader("Content-Type", "application/x-ndjson");
-            callback(resp);
-        },
-        {drogon::Post});
+                    }, true);
+                response->addHeader("Content-Type", "application/x-ndjson");
+                callback(response);
+            } catch (const std::exception& error) {
+                Json::Value json;
+                json["error"] = error.what();
+                auto response = drogon::HttpResponse::newHttpJsonResponse(json);
+                response->setStatusCode(drogon::k400BadRequest);
+                callback(response);
+            }
+        }, {drogon::Post});
 
     // GET/POST /api/alphas — list or save alphas
     drogon::app().registerHandler(
@@ -925,5 +716,6 @@ int main(int argc, char* argv[])
         .setThreadNum(4)
         .run();
 
+    g_ga_workers.stop_and_join();
     return 0;
 }

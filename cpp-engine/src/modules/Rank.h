@@ -1,4 +1,5 @@
 #pragma once
+#include "../data/data_panel.h"
 
 // MRank: cross-sectional percentile rank (stateless).
 struct MRank : public Module {
@@ -6,8 +7,15 @@ struct MRank : public Module {
     {
         finite_values.reserve(numAssets);
     }
-    void calculate(unsigned /*di*/, SignalVector &output)
+    void calculate(unsigned di, SignalVector &output)
     {
+        const auto* mask = panel && !panel->universe_mask.empty()
+            ? panel->universe_mask.data() + static_cast<size_t>(di) * panel->N : nullptr;
+        // Excluded symbols must not influence ranks or cross-sectional moments.
+        if (mask) {
+            for (unsigned ii = 0; ii < numAssets; ++ii)
+                if (!mask[ii]) output[ii] = std::numeric_limits<float>::quiet_NaN();
+        }
         finite_values.clear();
         for (unsigned ii = 0; ii < numAssets; ++ii) {
             const float v = output[ii];
@@ -53,5 +61,6 @@ struct MRank : public Module {
     }
 
     std::vector<std::pair<float, unsigned>> finite_values;
+    const DataPanel* panel = nullptr;  // optional; null preserves standalone module behavior
     IntParameter pct{1};
 };

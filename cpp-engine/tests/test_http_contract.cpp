@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <stdexcept>
 #include <chrono>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -144,6 +145,11 @@ HttpResult http_post_json(int port, const std::string& path, const Json::Value& 
 
 fs::path find_server_binary()
 {
+    if (const char* path = std::getenv("LONGSHORT_TEST_SERVER"); path && *path) {
+        if (!fs::is_regular_file(path))
+            throw std::runtime_error("LONGSHORT_TEST_SERVER does not name an existing binary");
+        return fs::weakly_canonical(path);
+    }
     const std::vector<fs::path> candidates = {
         fs::current_path() / "longshort-server",
         fs::current_path().parent_path() / "longshort-server",
@@ -157,6 +163,11 @@ fs::path find_server_binary()
 
 fs::path find_config_path()
 {
+    if (const char* path = std::getenv("LONGSHORT_TEST_CONFIG"); path && *path) {
+        if (!fs::is_regular_file(path))
+            throw std::runtime_error("LONGSHORT_TEST_CONFIG does not name an existing config");
+        return fs::weakly_canonical(path);
+    }
     const std::vector<fs::path> candidates = {
         fs::current_path() / "../../config.yaml",
         fs::current_path() / "../config.yaml",
@@ -450,6 +461,7 @@ TEST_F(HttpContractTest, MultiAlphaCombinedDeterministicAcrossRepeatedThreadedCa
     std::string baseline_combined;
     std::string baseline_top_level;
     for (int attempt = 0; attempt < 5; ++attempt) {
+        req["threads"] = 1 + (attempt % 4);
         const HttpResult res = simulate(req);
         ASSERT_EQ(res.status, 200) << res.body;
 
@@ -478,7 +490,7 @@ TEST_F(HttpContractTest, SingleAlphaIncludesSignalPlotWithValues)
         GTEST_SKIP() << skip_reason_;
 
     Json::Value req;
-    req["xml"] = "<data expr=\"return\"/>";
+    req["xml"] = "<data expr=\"returns\"/>";
     req["isStart"] = "2000-01-01";
     req["osStart"] = "2100-01-01";
 
@@ -535,4 +547,155 @@ TEST_F(HttpContractTest, InvalidExprReturns400)
 
     const HttpResult res = simulate(req);
     ASSERT_EQ(res.status, 400) << res.body;
+}
+
+
+TEST_F(HttpContractTest, SimStartBeginsWithAnUnfundedBookAndFirstEntryFee) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/><rank/>";
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    auto baseline = simulate(request);
+    ASSERT_EQ(baseline.status, 200) << baseline.body;
+    Json::Value original;
+    ASSERT_TRUE(parse_json(baseline.body, &original));
+    ASSERT_GT(original["timeseries"]["timestamps"].size(), 3u);
+    request["simStart"] = original["timeseries"]["timestamps"][3];
+    const auto response = simulate(request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    Json::Value body;
+    ASSERT_TRUE(parse_json(response.body, &body));
+    EXPECT_EQ(body["timeseries"]["timestamps"][0], request["simStart"]);
+    EXPECT_EQ(body["signalPlot"]["timestamps"][0], request["simStart"]);
+    EXPECT_EQ(body["isStartIndex"].asUInt(), 0u);
+    const auto config_response = http_get(server_->port(), "/api/config");
+    Json::Value config;
+    ASSERT_EQ(config_response.status, 200);
+    ASSERT_TRUE(parse_json(config_response.body, &config));
+    const double fee = config["feeRate"].asDouble();
+    EXPECT_NEAR(body["timeseries"]["cumPnl"][0].asDouble(), -fee, 1e-12);
+    EXPECT_NEAR(body["timeseries"]["cumPnlGross"][0].asDouble(), 0.0, 1e-12);
+}
+
+TEST_F(HttpContractTest, SingleSignalPlotHonorsCellBudgetAndRejectsInvalidStart) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/>";
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    request["signalPlotMaxCells"] = 8;
+    const auto response = simulate(request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    Json::Value body;
+    ASSERT_TRUE(parse_json(response.body, &body));
+    const auto& plot = body["signalPlot"];
+    EXPECT_LE(plot["values"].size() * plot["symbols"].size(), 8u);
+    EXPECT_EQ(plot["timestamps"].size(), plot["values"].size());
+    EXPECT_TRUE(plot.isMember("rowStride"));
+    EXPECT_TRUE(plot.isMember("originalRows"));
+    request["simStart"] = "not-a-date";
+    EXPECT_EQ(simulate(request).status, 400);
+    request["simStart"] = "2200-01-01";
+    EXPECT_EQ(simulate(request).status, 400);
+}
+
+TEST_F(HttpContractTest, CombinedModesAndTopSignalPayloadsAreExplicit) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3|4\"/>";
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    request["collectSignals"] = true;
+    request["collectSignalsTopK"] = 1;
+    request["signalPlotMaxCells"] = 12;
+    for (const char* mode : {"normalized", "raw"}) {
+        request["combinedMode"] = mode;
+        const auto response = simulate(request);
+        ASSERT_EQ(response.status, 200) << response.body;
+        Json::Value body;
+        ASSERT_TRUE(parse_json(response.body, &body));
+        EXPECT_EQ(body["combinedMode"].asString(), mode);
+        EXPECT_TRUE(body["combined"].isMember("signalPlot"));
+        EXPECT_EQ(body["signalPlot"], body["combined"]["signalPlot"]);
+        ASSERT_EQ(body["batches"].size(), 3u);
+        EXPECT_TRUE(body["batches"][0].isMember("signalPlot"));
+        EXPECT_FALSE(body["batches"][1].isMember("signalPlot"));
+        EXPECT_LE(body["batches"][0]["signalPlot"]["values"].size() *
+                  body["batches"][0]["signalPlot"]["symbols"].size(), 12u);
+    }
+    request["combinedMode"] = "misspelled";
+    EXPECT_EQ(simulate(request).status, 400);
+}
+
+TEST_F(HttpContractTest, GaCompleteContainsBoundedBestAlphaSignals) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3\"/>";
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    request["popSize"] = 2;
+    request["generations"] = 1;
+    request["signalPlotMaxCells"] = 12;
+    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    std::istringstream lines(response.body);
+    std::string line;
+    Json::Value complete;
+    while (std::getline(lines, line)) {
+        if (line.empty()) continue;
+        Json::Value event;
+        ASSERT_TRUE(parse_json(line, &event)) << line;
+        ASSERT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "complete") complete = event;
+    }
+    ASSERT_EQ(complete["type"].asString(), "complete") << response.body;
+    EXPECT_TRUE(complete.isMember("signalRange"));
+    EXPECT_TRUE(complete.isMember("distribution"));
+    EXPECT_EQ(complete["signalPlot"], complete["batches"][0]["signalPlot"]);
+    EXPECT_LE(complete["signalPlot"]["values"].size() * complete["signalPlot"]["symbols"].size(), 12u);
+}
+
+
+TEST_F(HttpContractTest, D0AndD1UseCurrentAndPreviousSignalTargets) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/>";
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    request["mode"] = 0;
+    auto call = [&](const Json::Value& payload) {
+        const auto response = simulate(payload);
+        EXPECT_EQ(response.status, 200) << response.body;
+        Json::Value body;
+        EXPECT_TRUE(parse_json(response.body, &body));
+        return body;
+    };
+    const auto initial = call(request);
+    EXPECT_EQ(initial["timeseries"]["timestamps"][0], initial["signalPlot"]["timestamps"][0]);
+    ASSERT_GT(initial["timeseries"]["timestamps"].size(), 3u);
+    request["simStart"] = initial["timeseries"]["timestamps"][3];
+    const auto d0 = call(request);
+    request["mode"] = 1;
+    const auto d1 = call(request);
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/>";
+    const auto previous_signal = call(request);
+    auto normalized_max = [](const Json::Value& row) {
+        double gross = 0.0, maximum = 0.0;
+        for (const auto& value : row) {
+            if (value.isNull()) continue;
+            const double absolute = std::fabs(value.asDouble());
+            gross += absolute;
+            maximum = std::max(maximum, absolute);
+        }
+        return 100.0 * maximum / gross;
+    };
+    EXPECT_EQ(d0["mode"].asInt(), 0);
+    EXPECT_EQ(d1["mode"].asInt(), 1);
+    EXPECT_NEAR(d0["timeseries"]["maxWeight"][0].asDouble(), normalized_max(d0["signalPlot"]["values"][0]), 1e-8);
+    EXPECT_NEAR(d1["timeseries"]["maxWeight"][0].asDouble(), normalized_max(previous_signal["signalPlot"]["values"][0]), 1e-8);
+    for (const Json::Value& mode : {Json::Value(-1), Json::Value(2), Json::Value(1.5)}) {
+        request["mode"] = mode;
+        EXPECT_EQ(simulate(request).status, 400);
+    }
 }

@@ -13,6 +13,7 @@ struct SimulatorConfig {
     int mode;               // 0=D0, 1=D1
     bool collect_signals = false;  // run() stores the T×N raw signal matrix
     SignalRowCallback signal_row_callback{}; // run() observes raw rows before normalization
+    unsigned sim_start_index = 0; // earlier bars warm modules/targets, with no positions or fees
 };
 
 struct SimulatorOutput {
@@ -28,6 +29,11 @@ struct SimulatorOutput {
 
 class Module;
 struct DataPanel;
+
+// Normalize finite signals over the signal-date universe and valid closes.
+// The resulting targets (including the universe mask) share the mode=1 delay.
+void normalize_signal_row(const DataPanel& data, unsigned di, const float* signal,
+                          std::vector<double>& targets);
 
 class Simulator {
 public:

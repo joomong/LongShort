@@ -2,6 +2,7 @@
 #include "api/json_serializer.h"
 
 #include <limits>
+#include <cmath>
 
 TEST(JsonSerializer, SummaryPreservesLegacyKeysForPositionCounts) {
     SummaryMetrics metrics;
@@ -112,4 +113,46 @@ TEST(JsonSerializer, HistogramWithNoSelectedValuesKeepsEmptyContract) {
         EXPECT_DOUBLE_EQ(json["min"].asDouble(), 0.0);
         EXPECT_DOUBLE_EQ(json["max"].asDouble(), 0.0);
     }
+}
+
+
+TEST(JsonSerializer, SignalPlotCellBudgetPreservesRawValuesDatesAndLatestRow) {
+    std::vector<std::vector<float>> signals(10, std::vector<float>(4));
+    std::vector<int64_t> dates(10);
+    for (std::size_t di = 0; di < signals.size(); ++di) {
+        dates[di] = static_cast<int64_t>(di) * 86400000;
+        for (std::size_t ii = 0; ii < 4; ++ii) signals[di][ii] = static_cast<float>(10 * di + ii);
+    }
+    const auto json = signal_plot_to_json(signals, dates, {"A", "B", "C", "D"}, 0, 12);
+    ASSERT_EQ(json["values"].size(), 3u);
+    EXPECT_EQ(json["values"].size() * json["symbols"].size(), 12u);
+    EXPECT_TRUE(json["sampled"].asBool());
+    EXPECT_EQ(json["originalRows"].asUInt(), 10u);
+    EXPECT_EQ(json["timestamps"][0].asString(), "1970-01-01");
+    EXPECT_EQ(json["timestamps"][2].asString(), "1970-01-10");
+    EXPECT_DOUBLE_EQ(json["values"][0][0].asDouble(), 0.0);
+    EXPECT_DOUBLE_EQ(json["values"][1][2].asDouble(), 52.0);
+    EXPECT_DOUBLE_EQ(json["values"][2][3].asDouble(), 93.0);
+}
+
+TEST(JsonSerializer, SignalPlotBudgetAlsoBoundsVeryWidePanels) {
+    const std::vector<std::vector<float>> signals = {{0, 1, 2, 3, 4}, {5, 6, 7, 8, 9}};
+    const auto json = signal_plot_to_json(signals, {0, 86400000}, {"A", "B", "C", "D", "E"}, 0, 3);
+    EXPECT_LE(json["values"].size() * json["symbols"].size(), 3u);
+    EXPECT_EQ(json["timestamps"][0].asString(), "1970-01-02");
+    EXPECT_EQ(json["symbols"][2].asString(), "E");
+    EXPECT_DOUBLE_EQ(json["values"][0][2].asDouble(), 9.0);
+    EXPECT_GT(json["symbolStride"].asUInt(), 1u);
+}
+
+
+TEST(JsonSerializer, HistogramKeepsFiniteBinsForOppositeFloatExtremes) {
+    const float maximum = std::numeric_limits<float>::max();
+    const auto json = signal_distribution_to_json({{-maximum, maximum}});
+    ASSERT_EQ(json["bins"].size(), 50u);
+    for (const auto& bin : json["bins"]) EXPECT_TRUE(std::isfinite(bin.asDouble()));
+    EXPECT_EQ(json["counts"][0].asInt(), 1);
+    EXPECT_EQ(json["counts"][49].asInt(), 1);
+    EXPECT_DOUBLE_EQ(json["min"].asDouble(), -static_cast<double>(maximum));
+    EXPECT_DOUBLE_EQ(json["max"].asDouble(), static_cast<double>(maximum));
 }

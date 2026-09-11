@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <ctime>
+#include <stdexcept>
 
 static std::string ms_to_date(int64_t ms) {
     time_t sec = ms / 1000;
@@ -94,39 +95,76 @@ Json::Value timeseries_to_json(const TimeseriesOutput& ts) {
     return j;
 }
 
+namespace {
+struct SampledIndices {
+    std::vector<std::size_t> indices;
+    std::size_t stride = 1;
+};
+
+SampledIndices sample_indices(std::size_t begin, std::size_t end, std::size_t limit) {
+    SampledIndices result;
+    if (begin >= end)
+        return result;
+    const std::size_t count = end - begin;
+    if (limit == 1) {
+        result.indices.push_back(end - 1);  // always retain the latest observation
+        result.stride = count;
+        return result;
+    }
+    if (count > limit)
+        result.stride = 1 + (count - 2) / (limit - 1);
+    for (std::size_t i = begin; i < end - 1; i += result.stride)
+        result.indices.push_back(i);
+    result.indices.push_back(end - 1);
+    return result;
+}
+}  // namespace
+
 Json::Value signal_plot_to_json(
     const std::vector<std::vector<float>>& signals,
     const std::vector<int64_t>& timestamps,
     const std::vector<std::string>& symbols,
-    std::size_t start_index)
+    std::size_t start_index,
+    std::size_t max_cells)
 {
-    Json::Value j;
+    if (max_cells == 0)
+        throw std::invalid_argument("Signal plot cell budget must be positive");
+    if (signals.size() != timestamps.size())
+        throw std::invalid_argument("Signal plot dates must match signal rows");
+    const auto columns = sample_indices(0, symbols.size(), max_cells);
+    const std::size_t row_limit = std::min<std::size_t>(
+        1000, max_cells / std::max<std::size_t>(columns.indices.size(), 1));
+    const auto rows = sample_indices(start_index, signals.size(), row_limit);
 
+    Json::Value j;
     Json::Value ts_arr(Json::arrayValue);
-    for (std::size_t di = start_index; di < timestamps.size(); ++di)
+    for (std::size_t di : rows.indices)
         ts_arr.append(ms_to_date(timestamps[di]));
-    j["timestamps"] = ts_arr;
+    j["timestamps"] = std::move(ts_arr);
 
     Json::Value sym_arr(Json::arrayValue);
-    for (const auto& s : symbols)
-        sym_arr.append(s);
-    j["symbols"] = sym_arr;
+    for (std::size_t ii : columns.indices)
+        sym_arr.append(symbols[ii]);
+    j["symbols"] = std::move(sym_arr);
 
-    // Rows from start_index: rows = timestamps, cols = symbols.
     Json::Value values(Json::arrayValue);
-    for (std::size_t di = start_index; di < signals.size(); ++di) {
-        const auto& row = signals[di];
+    for (std::size_t di : rows.indices) {
+        if (signals[di].size() != symbols.size())
+            throw std::invalid_argument("Signal plot symbols must match signal columns");
         Json::Value row_arr(Json::arrayValue);
-        for (float v : row) {
-            if (std::isfinite(v))
-                row_arr.append(v);
-            else
-                row_arr.append(Json::nullValue);
+        for (std::size_t ii : columns.indices) {
+            const float v = signals[di][ii];
+            row_arr.append(std::isfinite(v) ? Json::Value(v) : Json::Value(Json::nullValue));
         }
-        values.append(row_arr);
+        values.append(std::move(row_arr));
     }
-    j["values"] = values;
-
+    j["values"] = std::move(values);
+    const std::size_t original_rows = signals.size() - std::min(start_index, signals.size());
+    j["originalRows"] = static_cast<Json::UInt64>(original_rows);
+    j["originalSymbols"] = static_cast<Json::UInt64>(symbols.size());
+    j["rowStride"] = static_cast<Json::UInt64>(rows.stride);
+    j["symbolStride"] = static_cast<Json::UInt64>(columns.stride);
+    j["sampled"] = rows.indices.size() < original_rows || columns.indices.size() < symbols.size();
     return j;
 }
 
@@ -166,8 +204,11 @@ Json::Value signal_distribution_to_json(
 
     const int nbins = 50;
     float range = vmax - vmin;
+    const bool wide_range = !std::isfinite(range);
     if (range < 1e-12f) range = 1.0f;
-    float bin_width = range / nbins;
+    const float bin_width = range / nbins;
+    // Finite float endpoints may still overflow when subtracted as floats.
+    const double wide_bin_width = (static_cast<double>(vmax) - vmin) / nbins;
 
     std::vector<int> counts(nbins, 0);
     // Second pass: count in place; no flattened copy of T×N signal values.
@@ -175,7 +216,10 @@ Json::Value signal_distribution_to_json(
         for (float v : signals[di]) {
             if (!std::isfinite(v) || std::fabs(v) <= 1e-12f)
                 continue;
-            int idx = static_cast<int>((v - vmin) / bin_width);
+            const double coordinate = wide_range
+                ? (static_cast<double>(v) - vmin) / wide_bin_width
+                : static_cast<double>((v - vmin) / bin_width);
+            int idx = static_cast<int>(coordinate);
             if (idx >= nbins) idx = nbins - 1;
             if (idx < 0) idx = 0;
             counts[idx]++;
@@ -185,7 +229,9 @@ Json::Value signal_distribution_to_json(
     Json::Value bins_arr(Json::arrayValue);
     Json::Value counts_arr(Json::arrayValue);
     for (int i = 0; i < nbins; ++i) {
-        bins_arr.append(static_cast<double>(vmin + bin_width * (i + 0.5f)));
+        bins_arr.append(wide_range
+            ? static_cast<double>(vmin) + wide_bin_width * (i + 0.5)
+            : static_cast<double>(vmin + bin_width * (i + 0.5f)));
         counts_arr.append(counts[i]);
     }
     j["bins"] = bins_arr;

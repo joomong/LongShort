@@ -1,10 +1,18 @@
 #pragma once
+#include "../data/data_panel.h"
 
 // MZscore: cross-sectional z-score (stateless).
 struct MZscore : public Module {
     void init() {}
-    void calculate(unsigned /*di*/, SignalVector &output)
+    void calculate(unsigned di, SignalVector &output)
     {
+        const auto* mask = panel && !panel->universe_mask.empty()
+            ? panel->universe_mask.data() + static_cast<size_t>(di) * panel->N : nullptr;
+        // Excluded symbols must not influence ranks or cross-sectional moments.
+        if (mask) {
+            for (unsigned ii = 0; ii < numAssets; ++ii)
+                if (!mask[ii]) output[ii] = std::numeric_limits<float>::quiet_NaN();
+        }
         double sum   = 0.0;
         int    count = 0;
         for (unsigned ii = 0; ii < numAssets; ++ii) {
@@ -44,6 +52,7 @@ struct MZscore : public Module {
         }
     }
 
+    const DataPanel* panel = nullptr;  // optional; null preserves standalone module behavior
     IntParameter ddof{1};
     IntParameter min_count{2};
     FloatParameter eps{1e-12};

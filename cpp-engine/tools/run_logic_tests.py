@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the non-HTTP engine tests without Arrow/Parquet or the server build.
+"""Build in-memory engine tests without Arrow/Parquet or the server build.
 
 This is a temporary-environment validation path, not a replacement for CMake/CI.
 It uses Boost 1.85 headers already on the machine and builds matching static
@@ -39,7 +39,7 @@ def checked(command, *, cwd=None):
 
 def run_tool_tests(engine, build):
     results = []
-    for name in ("test_generate_modules", "test_run_engine", "test_module_build"):
+    for name in ("test_generate_modules", "test_run_engine", "test_module_build", "test_afl_catalog"):
         result = run([sys.executable, str(engine / "tests" / (name + ".py")), "-v"], cwd=engine)
         result["suite"] = name
         results.append(result)
@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--with-tool-tests", action="store_true",
-                        help="also run generator, launcher and incremental-build Python tests")
+                        help="also run module/catalog generators, launcher and incremental-build Python tests")
     parser.add_argument("--modules-dir", type=Path, help="default: modules/ beside the repository config")
     parser.add_argument("--drogon-source", type=Path)
     parser.add_argument("--drogon-build", type=Path)
@@ -174,7 +174,8 @@ def main():
         "-include", str(engine / "include/ModulePrelude.h"),
     ]
     # DataPanel::load is unreferenced by these in-memory tests and is discarded
-    # with --gc-sections. File loading, YAML and HTTP integration are excluded.
+    # with --gc-sections. Run CTest for test_config_loader, test_parquet_loader
+    # and test_http_contract; those require the complete engine dependency build.
     excluded = {"main.cpp", "parquet_reader.cpp", "config_loader.cpp"}
     sources = sorted(path for path in (engine / "src").rglob("*.cpp") if path.name not in excluded)
     sources.append(generated_registry)
@@ -183,7 +184,7 @@ def main():
         if path.is_file() and path.suffix in {".cpp", ".cc", ".cxx"}
         and all(not part.startswith(".") for part in path.relative_to(modules).parts)
     )
-    sources += sorted(path for path in (engine / "tests").glob("test_*.cpp") if path.name != "test_http_contract.cpp")
+    sources += sorted(path for path in (engine / "tests").glob("test_*.cpp") if path.name not in {"test_http_contract.cpp", "test_config_loader.cpp", "test_parquet_loader.cpp"})
     print(f"Building {len(sources)} engine/test translation units...", flush=True)
     objects = build_objects(sources, build / "engine_objects", engine_flags, args.jobs)
     binary = build / "logic_tests"

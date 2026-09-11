@@ -58,19 +58,13 @@ public:
           targets_(data.N, 0.0) {}
 
     void advance(unsigned di, const float* signal) {
-        const float* close = data_.row("close", di);
-        double absolute_signal_sum = 0.0;
-        for (unsigned ii = 0; ii < data_.N; ++ii) {
-            if (valid_close(close[ii]) && std::isfinite(signal[ii]))
-                absolute_signal_sum += std::fabs(static_cast<double>(signal[ii]));
-        }
-
-        std::fill(targets_.begin(), targets_.end(), 0.0);
-        if (absolute_signal_sum > 1e-12) {
-            for (unsigned ii = 0; ii < data_.N; ++ii) {
-                if (valid_close(close[ii]) && std::isfinite(signal[ii]))
-                    targets_[ii] = static_cast<double>(signal[ii]) / absolute_signal_sum;
-            }
+        normalize_signal_row(data_, di, signal, targets_);
+        if (di < config_.sim_start_index) {
+            // Warmup supplies the previous signal for the first D1 execution,
+            // but cannot create historical positions, turnover, or P&L.
+            if (config_.mode == 1)
+                previous_targets_.swap(targets_);
+            return;
         }
 
         const auto& execution_weights = config_.mode == 0 ? targets_ : previous_targets_;
@@ -115,6 +109,25 @@ private:
 };
 } // namespace
 
+void normalize_signal_row(const DataPanel& data, unsigned di, const float* signal,
+                          std::vector<double>& targets) {
+    const float* close = data.row("close", di);
+    const auto* mask = data.universe_mask.empty()
+        ? nullptr : data.universe_mask.data() + static_cast<size_t>(di) * data.N;
+    double absolute_signal_sum = 0.0;
+    for (unsigned ii = 0; ii < data.N; ++ii) {
+        if ((!mask || mask[ii]) && valid_close(close[ii]) && std::isfinite(signal[ii]))
+            absolute_signal_sum += std::fabs(static_cast<double>(signal[ii]));
+    }
+    targets.assign(data.N, 0.0);
+    if (absolute_signal_sum > 1e-12) {
+        for (unsigned ii = 0; ii < data.N; ++ii) {
+            if ((!mask || mask[ii]) && valid_close(close[ii]) && std::isfinite(signal[ii]))
+                targets[ii] = static_cast<double>(signal[ii]) / absolute_signal_sum;
+        }
+    }
+}
+
 Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
     : data_(data), config_(config)
 {
@@ -124,6 +137,11 @@ Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
         throw std::invalid_argument("Simulator mode must be 0 or 1");
     if (!std::isfinite(config_.fee_rate) || config_.fee_rate < 0.0)
         throw std::invalid_argument("Simulator fee_rate must be finite and nonnegative");
+    if (config_.sim_start_index > data_.T)
+        throw std::invalid_argument("Simulator start index exceeds the data panel");
+    if (!data_.universe_mask.empty() &&
+        data_.universe_mask.size() != static_cast<size_t>(data_.T) * data_.N)
+        throw std::invalid_argument("Universe mask dimensions must match the data panel");
 }
 
 SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {

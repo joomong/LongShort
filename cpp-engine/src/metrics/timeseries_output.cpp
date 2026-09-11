@@ -9,18 +9,20 @@ TimeseriesOutput compute_timeseries(
     const std::vector<double>& turnover,
     const std::vector<double>& max_weight,
     const std::vector<int>& position_count,
-    double fee_rate)
+    double fee_rate,
+    std::size_t start_index)
 {
     TimeseriesOutput out;
 
     if (timestamps.empty()) return out;
 
-    // Skip first bar (index 0); output starts from index 1
+    // Start with zero cumulative PnL at the requested trading span.
     const size_t T = timestamps.size();
     if (ret.size() < T || turnover.size() < T || max_weight.size() < T || position_count.size() < T) {
         throw std::invalid_argument("compute_timeseries: input vectors must be at least timestamps.size()");
     }
-    const size_t n = (T > 1) ? T - 1 : 0;
+    const size_t begin = std::min(start_index, T);
+    const size_t n = T - begin;
 
     out.timestamps.reserve(n);
     out.cum_pnl.reserve(n);
@@ -34,7 +36,7 @@ TimeseriesOutput compute_timeseries(
     double cp_gross = 0.0;
     double peak_net = 0.0;
 
-    for (size_t i = 1; i < T; ++i) {
+    for (size_t i = begin; i < T; ++i) {
         double r = ret[i];
         double tvr = turnover[i];
         double mw = max_weight[i];

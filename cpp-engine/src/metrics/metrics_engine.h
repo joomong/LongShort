@@ -13,7 +13,8 @@ struct FullMetricsResult {
     size_t os_start_index;                   // index into timeseries where OS starts
 };
 
-// STAR-style: full-period timeseries/yearly, IS/OS split for summary only
+// Timeseries/yearly cover [start_index, end); IS/OS summary ranges are clamped
+// to that trading span. The default keeps the legacy global warmup bar 0.
 // is_timestamp_ms: first bar of IS metrics period
 // os_timestamp_ms: first bar of OS period
 FullMetricsResult compute_full_metrics(
@@ -27,5 +28,6 @@ FullMetricsResult compute_full_metrics(
     int64_t is_timestamp_ms,
     int64_t os_timestamp_ms,
     double fee_rate,
-    unsigned bars_per_year = 365
+    unsigned bars_per_year = 365,
+    std::size_t start_index = 1
 );

@@ -211,14 +211,16 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             return m;
         });
 
-        r.register_module("rank", [](const auto& a, const auto*) {
+        r.register_module("rank", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MRank>();
+            m->panel = panel;
             m->pct = IntParameter(get_bool(a, "pct", true) ? 1 : 0);
             return m;
         });
 
-        r.register_module("zscore", [](const auto& a, const auto*) {
+        r.register_module("zscore", [](const auto& a, const auto* panel) {
             auto m = std::make_unique<MZscore>();
+            m->panel = panel;
             m->ddof = IntParameter(get_int(a, "ddof", 1));
             m->min_count = IntParameter(get_int(a, "min_count", 2));
             m->eps = FloatParameter(get_double(a, "eps", 1e-12));

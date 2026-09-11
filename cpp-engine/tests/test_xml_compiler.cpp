@@ -501,3 +501,43 @@ TEST(ModuleRegistry, BuiltinTagCannotBeOverridden) {
     }), CompileError);
     EXPECT_NE(registry.create("rank", {}, nullptr), nullptr);
 }
+
+TEST(XmlCompiler, RegisteredDataFieldWorksInExpressionsAndExplicitDelay) {
+    auto dp = make_panel(5,2);
+    dp.arrays["EPSNumRevFY1C"] = {1,-1,2,-2,3,-3,4,-4,5,-5};
+    auto alphas = compile_xml(R"(<data expr="EPSNumRevFY1C * 2" delay="1"/>)",&dp);
+    ASSERT_EQ(alphas.size(),1u);
+    for (auto* module : alphas[0].pipeline) {
+        module->numAssets = dp.N;
+        module->init();
+    }
+    std::vector<float> values(dp.N);
+    SignalVector signal{values.data(),dp.N};
+    for (unsigned di=0;di<dp.T;++di) {
+        signal.fill_nan();
+        for (auto* module : alphas[0].pipeline)
+            module->calculate(di,signal);
+        if (di==0) {
+            EXPECT_TRUE(std::isnan(signal[0]));
+        } else {
+            EXPECT_FLOAT_EQ(signal[0],static_cast<float>(di)*2.0f);
+            EXPECT_FLOAT_EQ(signal[1],-static_cast<float>(di)*2.0f);
+        }
+    }
+}
+
+TEST(XmlCompiler, RejectsUnregisteredFieldsAndMissingDerivedReturnSource) {
+    auto dp = make_panel();
+    EXPECT_THROW(compile_xml(R"(<data expr="number_of_revision"/>)",&dp),std::runtime_error);
+    dp.arrays.erase("close");
+    EXPECT_THROW(compile_xml(R"(<data expr="close"/>)",&dp),std::runtime_error);
+    EXPECT_THROW(compile_xml(R"(<data expr="returns"/>)",&dp),std::runtime_error);
+}
+
+TEST(XmlCompiler, RejectsPartiallyParsedOrOverflowingNumericLiterals) {
+    auto dp = make_panel();
+    for (const std::string& literal : {std::string("1.2.3"), std::string("..2"),
+                                      std::string(60,'9')}) {
+        EXPECT_THROW(compile_xml("<data expr=\""+literal+"\"/>",&dp),std::runtime_error);
+    }
+}
