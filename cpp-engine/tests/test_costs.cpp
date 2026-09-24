@@ -17,7 +17,7 @@
 #include "api/json_serializer.h"
 #include "metrics/timeseries_output.h"
 
-// ── Borrow financing of the short book (docs/corporate_actions_engine_2026-09-17.md "costs") ──
+// Borrow financing of the short book.
 //
 // cost(bar) = sum over short weights carried into the bar of |w| * rate / day_count * days,
 // days = calendar days since the previous bar. Net only; gross untouched.
@@ -141,7 +141,7 @@ TEST(BorrowCost, DisabledModelAndNoModelAreBitIdenticalToTheFixedBook) {
                                                   bare.position_count, kFee, 1);
         const auto rebuilt = compute_timeseries(with_model.timestamps, with_model.ret, with_model.turnover,
                                                 with_model.max_weight, with_model.position_count, kFee, 1,
-                                                nullptr, nullptr, nullptr, nullptr, &with_model.borrow_cost);
+                                                nullptr, &with_model.borrow_cost);
         EXPECT_EQ(rebuilt.cum_pnl_gross, reference.cum_pnl_gross);
         EXPECT_EQ(rebuilt.cum_pnl, reference.cum_pnl);
     }
@@ -176,8 +176,7 @@ TEST(BorrowCost, ShortBookPaysTheDefaultRatePerCalendarDayFromNetOnly) {
         }
         // The gross cumulative series adds the financing back; the net one keeps it.
         const auto series = compute_timeseries(out.timestamps, out.ret, out.turnover, out.max_weight,
-                                               out.position_count, kFee, 1, nullptr, nullptr, nullptr, nullptr,
-                                               &out.borrow_cost);
+                                               out.position_count, kFee, 1, nullptr, &out.borrow_cost);
         const auto reference = compute_timeseries(bare.timestamps, bare.ret, bare.turnover, bare.max_weight,
                                                   bare.position_count, kFee, 1);
         ASSERT_EQ(series.borrow_cost.size(), reference.cum_pnl.size());
@@ -329,7 +328,7 @@ TEST(BorrowCost, TimeseriesJsonCarriesTheBorrowSeries) {
     const std::vector<int> position_count(3, 0);
     const std::vector<double> borrow = {9.0, 0.0001, 0.0002};
     const auto series = compute_timeseries(timestamps, ret, turnover, max_weight, position_count, kFee, 1,
-                                           nullptr, nullptr, nullptr, nullptr, &borrow);
+                                           nullptr, &borrow);
     ASSERT_EQ(series.borrow_cost.size(), 2u);   // the warmup bar is dropped with the rest
     EXPECT_DOUBLE_EQ(series.borrow_cost[1], 0.0002);
     EXPECT_DOUBLE_EQ(series.cum_pnl_gross[1], 0.0003);   // net 0 + financing added back
@@ -344,49 +343,18 @@ TEST(BorrowCost, TimeseriesJsonCarriesTheBorrowSeries) {
     EXPECT_TRUE(bare["borrowCost"].empty());
 }
 
-// Financing follows the book carried into the bar: a short that settles or freezes
-// on the bar still paid for the night before it, and a received short child pays
-// from the bar after it joins the book.
-TEST(BorrowCost, SettledFrozenAndReceivedShortsPayForTheNightsTheyWereHeld) {
+// A short pays borrow for nights carried through a missing quote.
+TEST(BorrowCost, FrozenShortsPayForTheNightsTheyWereHeld) {
     const double per_day = 0.5 * 0.036 / 360.0;
-    // Frozen: S1 loses its quote on bars 2-3; the short keeps paying while frozen.
     auto frozen = flat_panel(6, 2);
     frozen.at("close", 2, 1) = std::numeric_limits<float>::quiet_NaN();
     frozen.at("close", 3, 1) = std::numeric_limits<float>::quiet_NaN();
     const auto model = BorrowCostModel::load(borrow_config(0.036), frozen, ".");
     const std::vector<std::vector<float>> signals(frozen.T, {1, -1});
     const auto out = Simulator(frozen, config_for(frozen, 0, &model)).run_from_signals(signals);
-    for (unsigned di = 1; di < frozen.T; ++di) EXPECT_NEAR(out.borrow_cost[di], per_day, 1e-15) << di;
+    for (unsigned di = 1; di < frozen.T; ++di)
+        EXPECT_NEAR(out.borrow_cost[di], per_day, 1e-15) << di;
     EXPECT_EQ(out.missing_data[2].missing_held_count, 1u);
-
-    // Settled: S1 ends on bar 2 (event on the silent bar). The night into bar 2 is
-    // paid, nothing after; the pending settlement is not a market trade.
-    auto settled = flat_panel(6, 2);
-    for (unsigned di = 2; di < settled.T; ++di) settled.at("close", di, 1) = std::numeric_limits<float>::quiet_NaN();
-    settled.settlement_bar = {-1, 2};
-    const auto settled_model = BorrowCostModel::load(borrow_config(0.036), settled, ".");
-    const auto settled_out = Simulator(settled, config_for(settled, 0, &settled_model)).run_from_signals(signals);
-    EXPECT_NEAR(settled_out.borrow_cost[1], per_day, 1e-15);
-    EXPECT_NEAR(settled_out.borrow_cost[2], per_day, 1e-15);   // carried into the settlement bar
-    EXPECT_EQ(settled_out.missing_data[2].delisting_count, 1u);
-    for (unsigned di = 3; di < settled.T; ++di) EXPECT_EQ(settled_out.borrow_cost[di], 0.0) << di;
-
-    // Received: a short parent spins off a child on bar 2; the received short child
-    // (-0.2 = -1 * 0.4 * 50 / 100) pays from bar 3 and is bought back at the bar-3 close.
-    auto spin = flat_panel(6, 3);
-    for (unsigned di = 0; di < spin.T; ++di) spin.at("close", di, 1) = 50.0f;
-    DataPanel::CorporateActionLeg leg;
-    leg.bar = 2; leg.parent = 0; leg.child = 1; leg.stock_leg = true; leg.child_ratio = 0.4;
-    leg.event_type = "spin_off"; leg.value_source = "child_close_ex";
-    spin.corporate_actions = {leg};
-    const auto spin_model = BorrowCostModel::load(borrow_config(0.036), spin, ".");
-    const std::vector<std::vector<float>> short_parent(spin.T, {-1, 0, 1});   // -0.5 parent, +0.5 filler
-    const auto spin_out = Simulator(spin, config_for(spin, 0, &spin_model)).run_from_signals(short_parent);
-    const double parent_night = 0.5 * 0.036 / 360.0;
-    EXPECT_NEAR(spin_out.borrow_cost[2], parent_night, 1e-15);
-    EXPECT_NEAR(spin_out.borrow_cost[3], parent_night + 0.5 * 0.4 * 50.0 / 100.0 * 0.036 / 360.0, 1e-15);
-    EXPECT_NEAR(spin_out.borrow_cost[4], parent_night, 1e-15);   // the child was bought back on bar 3
-    EXPECT_EQ(spin_out.corporate_actions[2].child_positions_created, 1u);
 }
 
 TEST(BorrowCost, ParquetTablesAcceptIntegerSymbols) {

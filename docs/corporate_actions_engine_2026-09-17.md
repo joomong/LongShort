@@ -1,5 +1,7 @@
 # 엔진 기업행동 원장 회계 — 2026-09-17 (rc2 E1)
 
+> 이 문서는 **전환 전 엔진**의 원장 회계 계약과 과거 검증 기록이다. 현재 로더는 최상위 `events:`와 `backtest.corporate_actions:`를 thin/nonthin 모두에서 거부한다. thin-v1에서는 `base.cache/manifest.json`이 레이아웃을 선언하고, 캐시의 `returns_total.parquet`이 배당·분배·종료 손익을 이미 포함한다. `events.parquet`은 종료와 받은 주식 position 이동만 담는다. 일반 nonthin long/wide 입력과 close에서 파생되는 신호용 `returns`는 계속 지원되지만, 이 문서의 원장 회계는 더 이상 실행 경로가 아니다. 현행 thin 계약은 [캐시 단순화 계획](backtest_cache_simplification_plan_2026-09-23.md) §2–6을 참조한다.
+
 `backtest.corporate_actions:` 로 로더 export 원장(`engine/ca_ledger_cache.parquet`, rc2 BRIEF §3-3)을 읽어 배당락일에 **현금식 총수익률**(P2)을 장부에 반영한다. 기존 fixed-book 가중치·마크 회계(`docs/missing_data_validation_2026-09-11.md`)를 그대로 두고, 배당락일 bar 에 현금 leg 와 주식 leg 를 추가로 기장한다. 원장이 없는 설정은 이전 엔진과 **비트 동일**하다(§7 테스트 13).
 
 ## 1. 설정
@@ -187,7 +189,7 @@ D0/D1 은 `carried_` 를 공유하므로 두 실행 경로에서 같은 식이�
 
 HTTP: `tools/make_http_test_fixture.py` 가 `engine/ca_ledger_cache.parquet`(A 현금 0.5 @2022-06-15, C→D 0.1 @2023-03-10, B→E(패널 밖) 0.2 @2024-02-20, D→W 워런트 0.1 @2024-09-10 만료 2024-10-15 — W 는 전 구간 NaN 인 5번째 심볼, 표시용 행 A 현금 NaN @2023-09-12 `no_cash_amount`·C 자회사 null @2025-02-14 `no_child`(§9-1), B→F(패널 밖) vendor_implied 값 3.0 @2025-06-12(§9-6), D→A 0.05 @2025-08-15 시세 평가·`estimateReason` ratio(§9-8), §3-3 16 컬럼 + 만료·행사 3 컬럼 + `markerReason`·`childValuePerShareCache`·`estimateReason`)를 만들고 `backtest.corporate_actions.path` 로 연결하므로 `test_http_contract` 25 개가 원장이 켜진 서버로 돈다(기존 계약 무변경). 서버 포트는 `LONGSHORT_TEST_PORT`(기본 18080)로 바꿀 수 있다. `distributionLog` 응답 예: C→D `childWeight 0.0333`(= 0.3×0.1×155.13/139.68, `valueSource child_close_ex`, `estimate false`), B→E `source: unpriced`.
 
-실행: `docs/logic_completion_data_2026-09-11.md` 의 CMake/CTest 명령에 `-DUUID_INCLUDE_DIRS=... -DUUID_LIBRARIES=...`(기존 빌드 캐시와 동일) 를 더해 별도 빌드 디렉토리에서 27 target / gtest 319 케이스 전부 통과, skip 0. rc2f Y1(2026-09-21, `/tmp/longshort_rc2f_y1/build`): 28 target / gtest 359 케이스(HTTP fixture 연결) 전부 통과, skip 0; V1 하니스 `recon_engine_ca.py --http` 2,677 pass / 0 fail(표시용 행 3 + 값 leg 3 + 시세 추정 3 + §E2 실데이터 8행 + §G events export 6 케이스 + §9 대조 포함).
+과거 검증 기록: `docs/logic_completion_data_2026-09-11.md` 의 CMake/CTest 명령에 `-DUUID_INCLUDE_DIRS=... -DUUID_LIBRARIES=...`(기존 빌드 캐시와 동일) 를 더해 별도 빌드 디렉토리에서 27 target / gtest 319 케이스 전부 통과, skip 0. rc2f Y1(2026-09-21, `/tmp/longshort_rc2f_y1/build`): 28 target / gtest 359 케이스(HTTP fixture 연결) 전부 통과, skip 0; 당시 V1 엔진 원장 대조 하니스는 2,677 pass / 0 fail을 기록했다. 이 전환 전용 하니스는 thin 정리에서 제거했다. 현재 검증에는 유지되는 엔진 테스트와 thin 대조를 사용한다.
 
 
 ## 8. costs — 차입비 모듈 (rc2 E2, 2026-09-17)
@@ -339,4 +341,3 @@ rc2f 발행 원장 재생성 export: 453,265 행 = R1 453,064 행(셀 단위 동
 - 자회사가 패널 밖이고 값도 없으면 `pending_dropped(child_not_in_panel)` 이 된다: 유니버스로 좁힌 패널(예 Top500 멤버만)에서는 실제로 가격이 있는 자회사도 여기 잡히므로, 전체 북 비교는 자회사가 포함된 패널로 돌려야 한다.
 - 패널 안 자회사인데 비율이 없는 leg(값만 있음)는 종전대로 `unpriced`(발행 원장에 해당 행 없음).
 - `export_events` 는 패널이 자라면(일별 갱신) 다시 내야 한다(정산 bar·앵커가 패널에 묶임); `no_settlement_bar_in_panel` 행은 그때 정산 가능해진다.
-

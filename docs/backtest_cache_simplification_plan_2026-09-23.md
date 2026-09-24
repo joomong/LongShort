@@ -234,7 +234,7 @@ sector/industry는 이번 범위에서 현행(현재 분류를 전 기간에 적
 - 합성 사례: 보통 가격변동, 2:1 분할, 현금배당, 분사, 현금합병, 주식/혼합 합병, 가치 소멸, 권리 만료.
 - 실제 사례: AAPL·DD·HON·TYC·Lionsgate 등 기존에 근거를 확보한 사건.
 - 각 사례에서 롱·숏, 기존 자회사 보유, 소수주, 다중 대가를 대조한다.
-- 포지션 × `returns_total` 손익과 원가격·실제 수량·현금의 전후 가치 차이를 독립 계산해 일치시킨다. 기존 대조 하니스(`cache_v21/tests/recon_engine_ca.py`)를 재사용한다.
+- 포지션 × `returns_total` 손익과 원가격·실제 수량·현금의 전후 가치 차이를 독립 계산해 일치시킨다. 전환 전 원장 회계 전용 하니스는 thin 검증을 대신할 수 없으므로 별도 thin 대조 결과로 확인한다.
 - 동일 포지션 북에서 새로 생긴 차이 전부를 사건·정책으로 설명한다. 부모 position 규칙이 현행 엔진과 같으므로, 차이는 1단계에서 확정한 값(기본값으로 처리하던 정산, 첫 시세를 기다리던 자회사)에서 나와야 한다.
 - 통과 후 아래 제거 목록의 실행 경로를 걷어낸다. 데이터 조사 근거는 삭제하지 않는다.
 
@@ -264,7 +264,7 @@ sector/industry는 이번 범위에서 현행(현재 분류를 전 기간에 적
 | 3 | thin-v1 로더(manifest 판별, raw 가격, `returns` 캐시 필드, `adj_factor`, 구간형 유니버스 `universe.name`, 이동 목적지 자동 로딩, 패널 시작 전 종료는 bar 0 은퇴). 옛 레이아웃 로딩은 해시 동일 |
 | 4 | 엔진 thin 경로(`포지션 × returns_total`, 승계 이동은 주문 전·자회사는 주문 뒤). 옛 경로 동작은 그대로 |
 | 5 검증 | 같은 북(combo000014 2016~2026)·전 종목 롱숏 북(2000~2026)에서 현행 대비 설명되지 않은 차이 0. 차이는 전부 대기 자회사 21건(누적 −0.24bp / −2.39bp). 신호 3종은 순위 동률 외 동일. 실제 사례 13건과 권리 value-only 1건은 현행 엔진과 비트 동일 |
-| 5 제거 | 초안 작성, 사용자 확인·커밋 대기 |
+| 5 제거 | thin 설정·문서·전환 전용 도구 정리. nonthin 일반 데이터 로더와 close 기반 `returns` fallback은 유지; 구식 사건/원장 설정은 제거 |
 
 데이터 정합성(1단계)으로 넘길 항목:
 - 대기 자회사 21건(엔진 값·날짜 기록, `thin_work/rc2f3/transitional.csv`)
@@ -276,12 +276,12 @@ sector/industry는 이번 범위에서 현행(현재 분류를 전 기간에 적
 
 | 대상 | 조치 | 시점 |
 |---|---|---|
-| C++ close 변화율 기반 보유 손익 + 별도 CA 손익 | `returns_total` 기반 손익으로 교체 | 4단계 연결, 5단계 검증 후 옛 경로 제거 |
-| book_corporate_actions·book_settlements·정산(settle)의 금액 재계산, 기본 정산값(default_delisting_return), 자회사 별도 손익 가산 | 받은 주식 position 생성과 종료 표시로 대체 | 5단계 |
+| C++ close 변화율 기반 보유 손익 + 별도 CA 손익 | thin 레이아웃에서는 `returns_total` 기반 손익으로 교체; nonthin 일반 입력은 close 기반 보유 손익·신호용 `returns`를 유지하되 별도 CA 회계는 제거 | 4–5단계 |
+| book_corporate_actions·book_settlements·정산(settle)의 금액 재계산, 기본 정산값(default_delisting_return), 자회사 별도 손익 가산 | thin에서는 받은 주식 position 생성과 종료 표시로 대체; 구식 설정은 현재 로더가 거부 | 5단계 |
 | 권리 만료 처리(`rights_expiry_`) | 빌더 `returns_total`(−1)과 종료 행으로 대체 | 5단계 |
 | 미확정 기록·strict 중단(corporateActions.unconfirmed, pnlUnconfirmed, unresolved_policy) | 빌더 발행 게이트로 대체 | 5단계 |
-| returns 특수 처리(`make_returns`)·이름 예약 | 캐시 `returns` 필드로 대체 | 3단계 |
-| engine/ca_ledger_cache·engine/events_cache·이중 로더/앵커 설정 | 단일 events로 대체 | 5단계 |
+| returns 특수 처리(`make_returns`)·이름 예약 | thin에서는 캐시 `returns` 필드를 사용; nonthin의 close 기반 `returns` fallback과 사용자 필드명 예약은 유지 | 3단계 |
+| engine/ca_ledger_cache·engine/events_cache·이중 로더/앵커 설정 | thin 발행물에서는 단일 events로 대체; 옛 설정 블록은 제거 | 5단계 |
 | dividends/·distributions/·원천 ca_ledger·corporate_actions | 발행물에서 제거, 빌더 입력·근거로 보관 | 3단계부터 새 발행물에서 제외 |
 | dividend factor·adjustment_factor_daily | 발행물에서 제거, 빌더 QA에 보관 | 3단계 |
 | 큰 master 이력·계보 파일 | 계산은 빌더에서 수행, 실행에 필요한 필드만 발행 | 3단계 |
@@ -301,4 +301,362 @@ sector/industry는 이번 범위에서 현행(현재 분류를 전 기간에 적
 - AFL_US.필드명 점 표기와 필드 등록. 회계 단순화와 무관한 파서 기능이므로 별도 작업으로 한다.
 - sector/industry 가용 시점 전환. 신호를 바꾸므로 별도 작업으로 한다.
 
-필요한 데이터 정합성은 빌더가 책임지고, C++은 캐시에 있는 `returns`·`returns_total`과 간단한 포지션 이동만 처리한다.
+thin 발행물에 필요한 데이터 정합성은 빌더가 책임지고, C++은 캐시에 있는 `returns`·`returns_total`과 간단한 포지션 이동만 처리한다. 일반 nonthin 데이터는 close 기반 손익과 XML `returns` 계산 경로를 유지한다.
+
+`build_events.py`는 `cache_v21/events_build.py`가 import·호출하므로 유지한다. `build_distributions.py`는 원장 빌더의 정적 분배 입력을 다시 생성할 때 사용하므로 유지한다. 전환 전 엔진 원장 대조 전용 `cache_v21/tests/recon_engine_ca.py`는 현재 thin 검증 경로와 빌더에서 쓰지 않아 제거했다.
+
+## 부록: thin 전환 전 예제 설정 기록
+
+아래 YAML은 이전 cache_v1/cache_v2 비교 입력의 원문 기록이다. 실행용 예제는 `cpp-engine/examples/datasets/`의 thin-v1 YAML을 사용한다. 이 기록은 과거 결과의 입력 경로·유니버스·Altaba override를 추적하기 위한 것이며 현재 엔진에서 실행할 수 없다. 일반 nonthin long/wide 데이터와 close 기반 `returns` fallback은 계속 지원되지만, 구식 `events:`·원장 설정 블록은 현재 로더가 거부한다.
+
+### compare_v1_snapshot.yaml (전환 전)
+
+```yaml
+# compare_v1_v2 L0: frozen v1 snapshot (2026-09-14) prices + TopUniverseV1 masks + v1 events file.
+# Derived from equities_monthly_afl.yaml; only the three paths below differ. AFL stays on the live AflData_M (read-only).
+# Daily prices plus the existing monthly AFL cache. Paths are local server examples.
+# Copy this file and afl_catalog.json into your personal configuration directory.
+# Base data. `cache` holds BaseData/{open,high,low,close,volume,VWAP,marketCap_USD}.parquet
+# (public names open high low close volume vwap cap); `groups` holds sector.parquet and
+# industry.parquet, built by cpp-engine/tools/data/build_group_panels.py. All nine fields are
+# read at startup and a missing file fails the start. See README.md and
+# cpp-engine/tools/data/README_group_panels.md.
+base:
+  cache: /home/jgo/61/data2/temp_stock/cache_v1_snapshot_2026-09-14
+  groups: ../../../data/groups/cache_v1_cash_1d
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    catalog: afl_catalog.json
+    lazy: true
+    # Keep the most recent observation at/before each price timestamp.
+    # This does not turn monthly source observations into daily vendor updates.
+    alignment: asof
+
+universe:
+  path: /home/jgo/61/data2/temp_stock/cache_v1_snapshot_2026-09-14/TopUniverseV1/Top500.parquet
+
+# Administrative delisting/settlement dates, one row per security.
+# The panel matches `id_col` (int64 or string) against the price symbols.
+events:
+  # Built by cpp-engine/tools/data/build_events.py from co_acthist plus the override table.
+  path: /home/jgo/61/data2/temp_stock/cache_v1_snapshot_2026-09-14/events/events.parquet
+  id_col: tradingItemId
+  end_date_col: endDate
+  return_col: settlementReturn              # explicit total return; NaN falls back to the successor or the default
+  successor_col: successorTradingItemId     # surviving security after a merger or rename
+  # Cash and ratio are restated in this price cache's share units, so the file is
+  # only valid for the cache it was built against: rebuild the cache, regenerate
+  # the events. The two guard columns let the loader refuse a stale file.
+  successor_ratio_col: successorRatioCache  # successor shares per old share, in cache units
+  cash_col: cashPerShareCache               # cash per old share, in cache units
+  stock_leg_col: hasStockLeg                # the deal structure, independent of what this panel can price
+  cash_leg_col: hasCashLeg
+  # Guard anchors: the loader re-reads both from this cache on the settlement bar.
+  successor_price_col: successorCacheClose      # successor close on the settlement bar
+  successor_price_date_col: successorCacheCloseDate
+  target_price_col: targetCacheMark             # last cache mark of the settling security
+  target_price_date_col: targetCacheMarkDate
+
+backtest:
+  start_date: '2010-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 5  # one-way bps; existing fee default retained
+  bars_per_year: 252
+  combined_mode: normalized
+  mode: 1
+  # Hold a position through a missing close instead of failing; 'error' keeps the legacy fail-fast.
+  missing_close_policy: carry
+  # Settlement return used when the events file carries no explicit return. 0 is an assumption, not a measurement.
+  default_delisting_return: 0.0
+  # Settle a frozen holding that has no event after this many consecutive missing bars. 0 disables it.
+  stale_quote_settle_bars: 0
+```
+
+### compare_v2.yaml (전환 전)
+
+```yaml
+# compare_v1_v2 L1/L2: cache_v2_cash_1d prices (float32, single share basis) + TopUniverseV2_v1rule masks (L1)
+# + v2-anchored events file. L2 swaps universe.path to TopUniverseV2/<name>.parquet via the harness --universe-path.
+# Derived from equities_monthly_afl.yaml; only the three paths below differ. AFL stays on the live AflData_M (read-only).
+# v2 DivData/Distributions are not read by the engine.
+# Daily prices plus the existing monthly AFL cache. Paths are local server examples.
+# Copy this file and afl_catalog.json into your personal configuration directory.
+# Base data. `cache` holds BaseData/{open,high,low,close,volume,VWAP,marketCap_USD}.parquet
+# (public names open high low close volume vwap cap); `groups` holds sector.parquet and
+# industry.parquet, built by cpp-engine/tools/data/build_group_panels.py. All nine fields are
+# read at startup and a missing file fails the start. See README.md and
+# cpp-engine/tools/data/README_group_panels.md.
+base:
+  cache: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d
+  groups: ../../../data/groups/cache_v2_cash_1d
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    catalog: afl_catalog.json
+    lazy: true
+    # Keep the most recent observation at/before each price timestamp.
+    # This does not turn monthly source observations into daily vendor updates.
+    alignment: asof
+
+universe:
+  path: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d/TopUniverseV2_v1rule/Top500.parquet
+
+# Administrative delisting/settlement dates, one row per security.
+# The panel matches `id_col` (int64 or string) against the price symbols.
+events:
+  # Built by cpp-engine/tools/data/build_events.py from co_acthist plus the override table.
+  path: /home/jgo/61/data2/temp_stock/compare_v1_v2/events_v2/events.parquet
+  id_col: tradingItemId
+  end_date_col: endDate
+  return_col: settlementReturn              # explicit total return; NaN falls back to the successor or the default
+  successor_col: successorTradingItemId     # surviving security after a merger or rename
+  # Cash and ratio are restated in this price cache's share units, so the file is
+  # only valid for the cache it was built against: rebuild the cache, regenerate
+  # the events. The two guard columns let the loader refuse a stale file.
+  successor_ratio_col: successorRatioCache  # successor shares per old share, in cache units
+  cash_col: cashPerShareCache               # cash per old share, in cache units
+  stock_leg_col: hasStockLeg                # the deal structure, independent of what this panel can price
+  cash_leg_col: hasCashLeg
+  # Guard anchors: the loader re-reads both from this cache on the settlement bar.
+  successor_price_col: successorCacheClose      # successor close on the settlement bar
+  successor_price_date_col: successorCacheCloseDate
+  target_price_col: targetCacheMark             # last cache mark of the settling security
+  target_price_date_col: targetCacheMarkDate
+
+backtest:
+  start_date: '2010-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 5  # one-way bps; existing fee default retained
+  bars_per_year: 252
+  combined_mode: normalized
+  mode: 1
+  # Hold a position through a missing close instead of failing; 'error' keeps the legacy fail-fast.
+  missing_close_policy: carry
+  # Settlement return used when the events file carries no explicit return. 0 is an assumption, not a measurement.
+  default_delisting_return: 0.0
+  # Settle a frozen holding that has no event after this many consecutive missing bars. 0 disables it.
+  stale_quote_settle_bars: 0
+```
+
+### compare_v2_altaba.yaml (전환 전)
+
+```yaml
+# compare_v1_v2 L1/L2 with the Altaba (2665340) LIQ override: identical to compare_v2.yaml except events.path -> events_v2_altaba/events.parquet.
+# compare_v1_v2 L1/L2: cache_v2_cash_1d prices (float32, single share basis) + TopUniverseV2_v1rule masks (L1)
+# + v2-anchored events file. L2 swaps universe.path to TopUniverseV2/<name>.parquet via the harness --universe-path.
+# Derived from equities_monthly_afl.yaml; only the three paths below differ. AFL stays on the live AflData_M (read-only).
+# v2 DivData/Distributions are not read by the engine.
+# Daily prices plus the existing monthly AFL cache. Paths are local server examples.
+# Copy this file and afl_catalog.json into your personal configuration directory.
+# Base data. `cache` holds BaseData/{open,high,low,close,volume,VWAP,marketCap_USD}.parquet
+# (public names open high low close volume vwap cap); `groups` holds sector.parquet and
+# industry.parquet, built by cpp-engine/tools/data/build_group_panels.py. All nine fields are
+# read at startup and a missing file fails the start. See README.md and
+# cpp-engine/tools/data/README_group_panels.md.
+base:
+  cache: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d
+  groups: ../../../data/groups/cache_v2_cash_1d
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    catalog: afl_catalog.json
+    lazy: true
+    # Keep the most recent observation at/before each price timestamp.
+    # This does not turn monthly source observations into daily vendor updates.
+    alignment: asof
+
+universe:
+  path: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d/TopUniverseV2_v1rule/Top500.parquet
+
+# Administrative delisting/settlement dates, one row per security.
+# The panel matches `id_col` (int64 or string) against the price symbols.
+events:
+  # Built by cpp-engine/tools/data/build_events.py from co_acthist plus the override table.
+  path: /home/jgo/61/data2/temp_stock/compare_v1_v2/events_v2_altaba/events.parquet
+  id_col: tradingItemId
+  end_date_col: endDate
+  return_col: settlementReturn              # explicit total return; NaN falls back to the successor or the default
+  successor_col: successorTradingItemId     # surviving security after a merger or rename
+  # Cash and ratio are restated in this price cache's share units, so the file is
+  # only valid for the cache it was built against: rebuild the cache, regenerate
+  # the events. The two guard columns let the loader refuse a stale file.
+  successor_ratio_col: successorRatioCache  # successor shares per old share, in cache units
+  cash_col: cashPerShareCache               # cash per old share, in cache units
+  stock_leg_col: hasStockLeg                # the deal structure, independent of what this panel can price
+  cash_leg_col: hasCashLeg
+  # Guard anchors: the loader re-reads both from this cache on the settlement bar.
+  successor_price_col: successorCacheClose      # successor close on the settlement bar
+  successor_price_date_col: successorCacheCloseDate
+  target_price_col: targetCacheMark             # last cache mark of the settling security
+  target_price_date_col: targetCacheMarkDate
+
+backtest:
+  start_date: '2010-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 5  # one-way bps; existing fee default retained
+  bars_per_year: 252
+  combined_mode: normalized
+  mode: 1
+  # Hold a position through a missing close instead of failing; 'error' keeps the legacy fail-fast.
+  missing_close_policy: carry
+  # Settlement return used when the events file carries no explicit return. 0 is an assumption, not a measurement.
+  default_delisting_return: 0.0
+  # Settle a frozen holding that has no event after this many consecutive missing bars. 0 disables it.
+  stale_quote_settle_bars: 0
+```
+
+### compare_v2_all.yaml (전환 전)
+
+```yaml
+# compare_v1_v2 L1/L2 with the Altaba (2665340) LIQ override: identical to compare_v2.yaml except events.path -> events_v2_altaba/events.parquet.
+# compare_v1_v2 L1/L2: cache_v2_cash_1d prices (float32, single share basis) + TopUniverseV2_v1rule masks (L1)
+# + v2-anchored events file. L2 swaps universe.path to TopUniverseV2/<name>.parquet via the harness --universe-path.
+# Derived from equities_monthly_afl.yaml; only the three paths below differ. AFL stays on the live AflData_M (read-only).
+# v2 DivData/Distributions are not read by the engine.
+# Daily prices plus the existing monthly AFL cache. Paths are local server examples.
+# Copy this file and afl_catalog.json into your personal configuration directory.
+# Base data. `cache` holds BaseData/{open,high,low,close,volume,VWAP,marketCap_USD}.parquet
+# (public names open high low close volume vwap cap); `groups` holds sector.parquet and
+# industry.parquet, built by cpp-engine/tools/data/build_group_panels.py. All nine fields are
+# read at startup and a missing file fails the start. See README.md and
+# cpp-engine/tools/data/README_group_panels.md.
+base:
+  cache: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d
+  groups: ../../../data/groups/cache_v2_cash_1d
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    catalog: afl_catalog.json
+    lazy: true
+    # Keep the most recent observation at/before each price timestamp.
+    # This does not turn monthly source observations into daily vendor updates.
+    alignment: asof
+
+universe:
+  path: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d/TopUniverseV2/ALL.parquet
+
+# Administrative delisting/settlement dates, one row per security.
+# The panel matches `id_col` (int64 or string) against the price symbols.
+events:
+  # Built by cpp-engine/tools/data/build_events.py from co_acthist plus the override table.
+  path: /home/jgo/61/data2/temp_stock/compare_v1_v2/events_v2_altaba/events.parquet
+  id_col: tradingItemId
+  end_date_col: endDate
+  return_col: settlementReturn              # explicit total return; NaN falls back to the successor or the default
+  successor_col: successorTradingItemId     # surviving security after a merger or rename
+  # Cash and ratio are restated in this price cache's share units, so the file is
+  # only valid for the cache it was built against: rebuild the cache, regenerate
+  # the events. The two guard columns let the loader refuse a stale file.
+  successor_ratio_col: successorRatioCache  # successor shares per old share, in cache units
+  cash_col: cashPerShareCache               # cash per old share, in cache units
+  stock_leg_col: hasStockLeg                # the deal structure, independent of what this panel can price
+  cash_leg_col: hasCashLeg
+  # Guard anchors: the loader re-reads both from this cache on the settlement bar.
+  successor_price_col: successorCacheClose      # successor close on the settlement bar
+  successor_price_date_col: successorCacheCloseDate
+  target_price_col: targetCacheMark             # last cache mark of the settling security
+  target_price_date_col: targetCacheMarkDate
+
+backtest:
+  symbol_labels_path: /home/jgo/61/data2/temp_stock/cache_v2_cash_1d/Master/symbol_labels.json  # tradingItemId -> ticker for the UI
+  start_date: '2010-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 5  # one-way bps; existing fee default retained
+  bars_per_year: 252
+  combined_mode: normalized
+  mode: 1
+  # Hold a position through a missing close instead of failing; 'error' keeps the legacy fail-fast.
+  missing_close_policy: carry
+  # Settlement return used when the events file carries no explicit return. 0 is an assumption, not a measurement.
+  default_delisting_return: 0.0
+  # Settle a frozen holding that has no event after this many consecutive missing bars. 0 disables it.
+  stale_quote_settle_bars: 0
+```
+
+### equities_monthly_afl.yaml (전환 전)
+
+```yaml
+# Daily prices plus the existing monthly AFL cache. Paths are local server examples.
+# Copy this file and afl_catalog.json into your personal configuration directory.
+# Base data. `cache` holds BaseData/{open,high,low,close,volume,VWAP,marketCap_USD}.parquet
+# (public names open high low close volume vwap cap); `groups` holds sector.parquet and
+# industry.parquet, built by cpp-engine/tools/data/build_group_panels.py. All nine fields are
+# read at startup and a missing file fails the start. See README.md and
+# cpp-engine/tools/data/README_group_panels.md.
+base:
+  cache: /home/base/cache/cache_v1_cash_1d
+  groups: ../../../data/groups/cache_v1_cash_1d
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    catalog: afl_catalog.json
+    lazy: true
+    # Keep the most recent observation at/before each price timestamp.
+    # This does not turn monthly source observations into daily vendor updates.
+    alignment: asof
+
+universe:
+  path: /home/base/cache/cache_v1_cash_1d/TopUniverseV1/Top500.parquet
+
+# Administrative delisting/settlement dates, one row per security.
+# The panel matches `id_col` (int64 or string) against the price symbols.
+events:
+  # Built by cpp-engine/tools/data/build_events.py from co_acthist plus the override table.
+  path: ../../../data/events/events.parquet
+  id_col: tradingItemId
+  end_date_col: endDate
+  return_col: settlementReturn              # explicit total return; NaN falls back to the successor or the default
+  successor_col: successorTradingItemId     # surviving security after a merger or rename
+  # Cash and ratio are restated in this price cache's share units, so the file is
+  # only valid for the cache it was built against: rebuild the cache, regenerate
+  # the events. The two guard columns let the loader refuse a stale file.
+  successor_ratio_col: successorRatioCache  # successor shares per old share, in cache units
+  cash_col: cashPerShareCache               # cash per old share, in cache units
+  stock_leg_col: hasStockLeg                # the deal structure, independent of what this panel can price
+  cash_leg_col: hasCashLeg
+  # Guard anchors: the loader re-reads both from this cache on the settlement bar.
+  successor_price_col: successorCacheClose      # successor close on the settlement bar
+  successor_price_date_col: successorCacheCloseDate
+  target_price_col: targetCacheMark             # last cache mark of the settling security
+  target_price_date_col: targetCacheMarkDate
+
+backtest:
+  start_date: '2010-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 5  # one-way bps; existing fee default retained
+  bars_per_year: 252
+  combined_mode: normalized
+  mode: 1
+  # Hold a position through a missing close instead of failing; 'error' keeps the legacy fail-fast.
+  missing_close_policy: carry
+  # Settlement return used when the events file carries no explicit return. 0 is an assumption, not a measurement.
+  default_delisting_return: 0.0
+  # Settle a frozen holding that has no event after this many consecutive missing bars. 0 disables it.
+  stale_quote_settle_bars: 0
+```

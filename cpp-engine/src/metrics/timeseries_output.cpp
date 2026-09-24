@@ -12,11 +12,7 @@ TimeseriesOutput compute_timeseries(
     double fee_rate,
     std::size_t start_index,
     const std::vector<double>* frozen_gross,
-    const std::vector<double>* settled_gross,
-    const std::vector<double>* dividend_pnl,
-    const std::vector<double>* distribution_pnl,
-    const std::vector<double>* borrow_cost,
-    const std::vector<double>* unconfirmed_weight)
+    const std::vector<double>* borrow_cost)
 {
     TimeseriesOutput out;
 
@@ -38,11 +34,7 @@ TimeseriesOutput compute_timeseries(
     out.max_weight_pct.reserve(n);
     out.drawdown.reserve(n);
     if (frozen_gross != nullptr) out.frozen_gross.reserve(n);
-    if (settled_gross != nullptr) out.settled_gross.reserve(n);
-    if (dividend_pnl != nullptr) out.dividend_pnl.reserve(n);
-    if (distribution_pnl != nullptr) out.distribution_pnl.reserve(n);
     if (borrow_cost != nullptr) out.borrow_cost.reserve(n);
-    if (unconfirmed_weight != nullptr) out.unconfirmed_weight.reserve(n);
 
     double cp_net = 0.0;
     double cp_gross = 0.0;
@@ -77,15 +69,7 @@ TimeseriesOutput compute_timeseries(
         // Bars outside a supplied series keep the neutral zero exposure.
         if (frozen_gross != nullptr)
             out.frozen_gross.push_back(i < frozen_gross->size() ? (*frozen_gross)[i] : 0.0);
-        if (settled_gross != nullptr)
-            out.settled_gross.push_back(i < settled_gross->size() ? (*settled_gross)[i] : 0.0);
-        if (dividend_pnl != nullptr)
-            out.dividend_pnl.push_back(i < dividend_pnl->size() ? (*dividend_pnl)[i] : 0.0);
-        if (distribution_pnl != nullptr)
-            out.distribution_pnl.push_back(i < distribution_pnl->size() ? (*distribution_pnl)[i] : 0.0);
         if (borrow_cost != nullptr) out.borrow_cost.push_back(borrow);
-        if (unconfirmed_weight != nullptr)
-            out.unconfirmed_weight.push_back(i < unconfirmed_weight->size() ? (*unconfirmed_weight)[i] : 0.0);
     }
 
     return out;

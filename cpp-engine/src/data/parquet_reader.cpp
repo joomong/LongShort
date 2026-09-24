@@ -278,20 +278,9 @@ std::vector<float> read_field(const Source& source, const Coordinates& coordinat
     return output;
 }
 // ---------------------------------------------------------------------------
-// Delisting/settlement events. One row per security; matched to panel symbols by
-// a normalized string ID. The panel keeps prices untouched; only the settlement
-// schedule is derived here.
+// Shared ID and value readers for thin events and universe membership.
 // ---------------------------------------------------------------------------
 constexpr int64_t day_ms = 86400000;
-int64_t day_end_ms(int64_t value) {
-    // The security is held through the whole calendar day of its end date and is
-    // settled on the next panel bar, so compare against the last millisecond of that day.
-    int64_t days = value / day_ms;
-    if (value % day_ms < 0) --days; // floor for pre-epoch end dates
-    if (days > (std::numeric_limits<int64_t>::max() - (day_ms - 1)) / day_ms)
-        return std::numeric_limits<int64_t>::max(); // a far-future end date never settles inside a panel
-    return days * day_ms + (day_ms - 1);
-}
 std::string iso_date(int64_t epoch_ms) {
     const std::time_t seconds = static_cast<std::time_t>(epoch_ms / 1000);
     std::tm parts{};
@@ -305,10 +294,9 @@ std::string trimmed(const std::string& value) {
     if (first == std::string::npos) return {};
     return value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
 }
-// The readers below serve the events file and the corporate-action ledger; `what`
-// names the file in their messages.
+// These readers also serve thin events and universe membership.
 std::vector<std::string> read_event_ids(const std::shared_ptr<arrow::ChunkedArray>& column,
-                                        const std::string& what = "Events") {
+                                        const std::string& what = "ID") {
     std::vector<std::string> ids;
     ids.reserve(column->length());
     for (const auto& chunk : column->chunks()) {
@@ -331,9 +319,9 @@ std::vector<std::string> read_event_ids(const std::shared_ptr<arrow::ChunkedArra
     }
     return ids;
 }
-// Successor ids are optional per row, so nulls are allowed and become empty.
+// Destination ids are optional per row, so nulls become empty.
 std::vector<std::string> read_optional_ids(const std::shared_ptr<arrow::ChunkedArray>& column,
-                                           const std::string& what = "Events successor") {
+                                           const std::string& what = "Optional ID") {
     std::vector<std::string> ids;
     ids.reserve(column->length());
     for (const auto& chunk : column->chunks()) {
@@ -360,7 +348,7 @@ std::vector<std::string> read_optional_ids(const std::shared_ptr<arrow::ChunkedA
 }
 // Optional boolean columns; a null cell means "not declared".
 std::vector<uint8_t> read_flags(const std::shared_ptr<arrow::ChunkedArray>& column,
-                                const std::string& what = "Events leg") {
+                                const std::string& what = "Boolean") {
     std::vector<uint8_t> flags;
     flags.reserve(column->length());
     for (const auto& chunk : column->chunks()) {
@@ -385,7 +373,7 @@ std::vector<uint8_t> read_flags(const std::shared_ptr<arrow::ChunkedArray>& colu
 }
 // The successor ratio multiplies a price, so it keeps double precision.
 std::vector<double> read_doubles(const std::shared_ptr<arrow::ChunkedArray>& column,
-                                 const std::string& what = "Events") {
+                                 const std::string& what = "ID") {
     std::vector<double> values;
     values.reserve(column->length());
     const double absent = std::numeric_limits<double>::quiet_NaN();
@@ -416,7 +404,7 @@ struct EventDates {
     std::vector<uint8_t> present; // 0 = null cell, i.e. no event for that security
 };
 EventDates read_event_dates(const std::shared_ptr<arrow::ChunkedArray>& column,
-                            const std::string& what = "events end date") {
+                            const std::string& what = "date") {
     EventDates dates;
     dates.epoch_ms.reserve(column->length());
     dates.present.reserve(column->length());
@@ -453,253 +441,7 @@ EventDates read_event_dates(const std::shared_ptr<arrow::ChunkedArray>& column,
     }
     return dates;
 }
-void read_events(const BacktestConfig& config, DataPanel& panel) {
-    if (config.events.path.empty()) return;
-    const std::string path = resolved(config, config.events.path);
-    std::error_code lookup;
-    // A configured events file must exist: a silently ignored typo would disable every settlement.
-    if (!std::filesystem::exists(path, lookup))
-        throw std::runtime_error("Events parquet not found: " + path);
-    auto source = arrow::io::ReadableFile::Open(path);
-    if (!source.ok()) throw std::runtime_error("Cannot open events parquet " + path + ": " + source.status().ToString());
-    parquet::arrow::FileReaderBuilder builder;
-    require_status(builder.Open(*source), "Cannot create events parquet reader for " + path);
-    builder.memory_pool(arrow::default_memory_pool());
-    auto built = builder.Build();
-    if (!built.ok()) throw std::runtime_error("Cannot build events parquet reader: " + built.status().ToString());
-    auto reader = std::move(*built);
-    reader->set_use_threads(false);
-    std::shared_ptr<arrow::Schema> schema;
-    require_status(reader->GetSchema(&schema), "Cannot read events parquet schema");
-    const auto column_index = [&](const std::string& name) {
-        const int index = schema->GetFieldIndex(name);
-        if (index < 0) throw std::runtime_error("Events parquet column not found: " + name + " in " + path);
-        return index;
-    };
-    const bool explicit_returns = !config.events.return_col.empty();
-    const bool has_successors = !config.events.successor_col.empty();
-    const bool has_ratios = !config.events.successor_ratio_col.empty();
-    const bool has_cash = !config.events.cash_col.empty();
-    const bool has_successor_guard = !config.events.successor_price_col.empty() &&
-                                     !config.events.successor_price_date_col.empty();
-    const bool has_target_guard = !config.events.target_price_col.empty() &&
-                                  !config.events.target_price_date_col.empty();
-    const bool has_stock_flag = !config.events.stock_leg_col.empty();
-    const bool has_cash_flag = !config.events.cash_leg_col.empty();
-    std::vector<int> projection{column_index(config.events.id_col), column_index(config.events.end_date_col)};
-    if (explicit_returns) projection.push_back(column_index(config.events.return_col));
-    if (has_successors) projection.push_back(column_index(config.events.successor_col));
-    if (has_ratios) projection.push_back(column_index(config.events.successor_ratio_col));
-    if (has_cash) projection.push_back(column_index(config.events.cash_col));
-    if (has_successor_guard) {
-        projection.push_back(column_index(config.events.successor_price_col));
-        projection.push_back(column_index(config.events.successor_price_date_col));
-    }
-    if (has_target_guard) {
-        projection.push_back(column_index(config.events.target_price_col));
-        projection.push_back(column_index(config.events.target_price_date_col));
-    }
-    if (has_stock_flag) projection.push_back(column_index(config.events.stock_leg_col));
-    if (has_cash_flag) projection.push_back(column_index(config.events.cash_leg_col));
-    std::shared_ptr<arrow::Table> table;
-    require_status(reader->ReadTable(projection, &table), "Cannot read events columns from " + path);
-    auto ids = read_event_ids(table->GetColumnByName(config.events.id_col));
-    auto ends = read_event_dates(table->GetColumnByName(config.events.end_date_col));
-    std::vector<float> returns;
-    if (explicit_returns) returns = numbers(table->GetColumnByName(config.events.return_col));
-    std::vector<std::string> successors;
-    if (has_successors) successors = read_optional_ids(table->GetColumnByName(config.events.successor_col));
-    std::vector<double> ratios;
-    if (has_ratios) ratios = read_doubles(table->GetColumnByName(config.events.successor_ratio_col));
-    std::vector<double> cash;
-    if (has_cash) cash = read_doubles(table->GetColumnByName(config.events.cash_col));
-    std::vector<double> guard_prices, target_prices;
-    EventDates guard_dates, target_dates;
-    if (has_successor_guard) {
-        guard_prices = read_doubles(table->GetColumnByName(config.events.successor_price_col));
-        guard_dates = read_event_dates(table->GetColumnByName(config.events.successor_price_date_col));
-    }
-    if (has_target_guard) {
-        target_prices = read_doubles(table->GetColumnByName(config.events.target_price_col));
-        target_dates = read_event_dates(table->GetColumnByName(config.events.target_price_date_col));
-    }
-    std::vector<uint8_t> stock_flags, cash_flags;
-    if (has_stock_flag) stock_flags = read_flags(table->GetColumnByName(config.events.stock_leg_col));
-    if (has_cash_flag) cash_flags = read_flags(table->GetColumnByName(config.events.cash_leg_col));
-    table.reset();
-    reader.reset(); // release decoded columns and the parquet footer before the panel is published
-    if (ids.size() != ends.present.size() || (explicit_returns && returns.size() != ids.size()) ||
-        (has_successors && successors.size() != ids.size()) || (has_ratios && ratios.size() != ids.size()) ||
-        (has_cash && cash.size() != ids.size()) ||
-        (has_successor_guard && (guard_prices.size() != ids.size() ||
-                                 guard_dates.present.size() != ids.size())) ||
-        (has_target_guard && (target_prices.size() != ids.size() ||
-                              target_dates.present.size() != ids.size())) ||
-        (has_stock_flag && stock_flags.size() != ids.size()) ||
-        (has_cash_flag && cash_flags.size() != ids.size()))
-        throw std::runtime_error("Events columns have inconsistent lengths in " + path);
-    std::unordered_map<std::string, size_t> rows;
-    rows.reserve(ids.size() * 2);
-    for (size_t row = 0; row < ids.size(); ++row)
-        if (!rows.emplace(ids[row], row).second)
-            throw std::runtime_error("Duplicate events id: " + ids[row]);
-    std::unordered_map<std::string, unsigned> panel_index;
-    if (has_successors) {
-        panel_index.reserve(panel.N * 2);
-        for (unsigned n = 0; n < panel.N; ++n) panel_index.emplace(panel.symbols[n], n);
-    }
-    panel.settlement_bar.assign(panel.N, -1);
-    panel.settlement_return.assign(panel.N, missing_value);
-    panel.settlement_successor.assign(panel.N, -1);
-    panel.settlement_successor_ratio.assign(panel.N, std::numeric_limits<double>::quiet_NaN());
-    panel.settlement_cash.assign(panel.N, std::numeric_limits<double>::quiet_NaN());
-    panel.settlement_has_stock_leg.assign(panel.N, 0);
-    panel.settlement_has_cash_leg.assign(panel.N, 0);
-    panel.settlement_successor_named.assign(panel.N, 0);
-    std::vector<size_t> matched_row(panel.N, std::numeric_limits<size_t>::max());
-    size_t unresolved_successors = 0;
-    for (unsigned n = 0; n < panel.N; ++n) {
-        auto match = rows.find(panel.symbols[n]);
-        if (match == rows.end()) continue; // securities without a row keep -1/NaN
-        const size_t row = match->second;
-        matched_row[n] = row;
-        ++panel.events_rows_matched;
-        if (ends.present[row]) {
-            const size_t bar = std::upper_bound(panel.timestamps.begin(), panel.timestamps.end(),
-                                                day_end_ms(ends.epoch_ms[row])) - panel.timestamps.begin();
-            if (bar < panel.T) panel.settlement_bar[n] = static_cast<int32_t>(bar); // >= T settles outside the panel
-        }
-        // An explicit return overrides the default whenever this security settles.
-        if (explicit_returns && std::isfinite(returns[row])) panel.settlement_return[n] = returns[row];
-        if (has_ratios) panel.settlement_successor_ratio[n] = ratios[row];
-        if (has_cash) panel.settlement_cash[n] = cash[row];
-        const bool named = has_successors && !successors[row].empty();
-        panel.settlement_successor_named[n] = named ? 1 : 0;
-        // The declared structure decides what has to be priced; the file may state
-        // it, and otherwise the original terms imply it.
-        panel.settlement_has_stock_leg[n] = has_stock_flag
-            ? stock_flags[row]
-            : ((has_ratios && std::isfinite(ratios[row])) || named ? 1 : 0);
-        panel.settlement_has_cash_leg[n] = has_cash_flag
-            ? cash_flags[row]
-            : (has_cash && std::isfinite(cash[row]) ? 1 : 0);
-        if (!named) continue;
-        auto successor = panel_index.find(successors[row]);
-        // A successor outside the loaded panel cannot receive the holding, so the
-        // settlement stays a cash settlement; the count is reported once.
-        if (successor == panel_index.end() || successor->second == n) { ++unresolved_successors; continue; }
-        panel.settlement_successor[n] = static_cast<int32_t>(successor->second);
-    }
-    if (unresolved_successors > 0)
-        std::cerr << "Events: " << unresolved_successors
-                  << " successor id(s) are not in the loaded panel; those settle in cash" << std::endl;
-
-    // ── Staleness guard ───────────────────────────────────────────────────
-    // Cash and exchange ratios are stated in the price cache's share units, so a
-    // rebuilt cache silently invalidates them. For every event this panel will
-    // actually use, re-derive the bar the engine settles on and check the anchors
-    // the generator recorded against this cache. Only an event this panel never
-    // reaches may go unchecked.
-    if ((has_cash || has_ratios) && !has_target_guard)
-        throw std::runtime_error("Events config declares cache-unit inputs without "
-            "target_price_col/target_price_date_col: the loader cannot verify them");
-    if (has_ratios && !has_successor_guard)
-        throw std::runtime_error("Events config declares successor_ratio_col without "
-            "successor_price_col/successor_price_date_col: the loader cannot verify it");
-    if (!has_successor_guard && !has_target_guard) return;
-    const auto& close_values = panel.arrays.at("close");
-    const auto observed = [&](size_t bar, unsigned asset) {
-        const float value = close_values[bar * panel.N + asset];
-        return std::isfinite(value) && value > 0.0f;
-    };
-    const auto same_bar = [&](size_t bar, int64_t stamp) {
-        // An exact stamp pins an intraday bar; a midnight stamp is a calendar day.
-        if (panel.timestamps[bar] == stamp) return true;
-        return stamp % day_ms == 0 && day_end_ms(panel.timestamps[bar]) == day_end_ms(stamp);
-    };
-    const auto compare = [&](const std::string& symbol, int64_t stamp, double expected, double cached) {
-        const double scale = std::max(std::max(std::fabs(cached), std::fabs(expected)), 1e-12);
-        if (std::isfinite(cached) && std::fabs(cached - expected) <= 1e-4 * scale) return;
-        throw std::runtime_error("Events file is stale against the price cache: " + symbol + " " +
-            iso_date(stamp) + " file=" + std::to_string(expected) + " cache=" + std::to_string(cached) +
-            " - regenerate build_events.py");
-    };
-    const auto wrong_date = [&](const std::string& side, const std::string& symbol,
-                                int64_t stamp, size_t bar) {
-        return std::runtime_error("Events file is stale against the price cache: " + symbol + " " +
-            iso_date(stamp) + " " + side + " date is not the settlement reference " +
-            iso_date(panel.timestamps[bar]) + " - regenerate build_events.py");
-    };
-    for (unsigned n = 0; n < panel.N; ++n) {
-        const size_t row = matched_row[n];
-        if (row == std::numeric_limits<size_t>::max()) continue;
-        const double ratio_input = has_ratios ? ratios[row] : std::numeric_limits<double>::quiet_NaN();
-        const double cash_input = has_cash ? cash[row] : std::numeric_limits<double>::quiet_NaN();
-        const bool evaluable = std::isfinite(ratio_input) || std::isfinite(cash_input);
-        const bool successor_anchor = has_successor_guard &&
-            guard_dates.present[row] && std::isfinite(guard_prices[row]);
-        const bool target_anchor = has_target_guard &&
-            target_dates.present[row] && std::isfinite(target_prices[row]);
-        // An input the engine will multiply into a price must come with the anchor
-        // that proves which cache it was restated against.
-        if (evaluable && !target_anchor)
-            throw std::runtime_error("Events file has evaluation inputs without price anchors: " +
-                panel.symbols[n] + " target anchor missing - regenerate build_events.py");
-        if (std::isfinite(ratio_input) && !successor_anchor)
-            throw std::runtime_error("Events file has evaluation inputs without price anchors: " +
-                panel.symbols[n] + " successor anchor missing - regenerate build_events.py");
-        if (!evaluable) { ++panel.events_price_checks_not_evaluable; continue; }
-
-        // The engine settles on the first bar at or after the end date that stops
-        // quoting. No such bar means this panel never settles the event.
-        size_t settlement = std::numeric_limits<size_t>::max();
-        if (panel.settlement_bar[n] >= 0)
-            for (size_t bar = static_cast<size_t>(panel.settlement_bar[n]); bar < panel.T; ++bar)
-                if (!observed(bar, n)) { settlement = bar; break; }
-        if (settlement == std::numeric_limits<size_t>::max()) {
-            ++panel.events_price_checks_out_of_range;
-            continue;
-        }
-
-        bool checked = false;
-        const int32_t successor = panel.settlement_successor[n];
-        if (successor_anchor && successor >= 0) {
-            const unsigned target = static_cast<unsigned>(successor);
-            if (!same_bar(settlement, guard_dates.epoch_ms[row]))
-                throw wrong_date("successor", panel.symbols[target],
-                                 guard_dates.epoch_ms[row], settlement);
-            compare(panel.symbols[target], guard_dates.epoch_ms[row], guard_prices[row],
-                    close_values[settlement * panel.N + target]);
-            checked = true;
-        }
-        if (target_anchor) {
-            // The engine values the settling security at its last observed close.
-            size_t mark_bar = std::numeric_limits<size_t>::max();
-            for (size_t bar = settlement; bar-- > 0;)
-                if (observed(bar, n)) { mark_bar = bar; break; }
-            if (mark_bar == std::numeric_limits<size_t>::max()) {
-                throw std::runtime_error("Events file is stale against the price cache: " +
-                    panel.symbols[n] + " " + iso_date(target_dates.epoch_ms[row]) +
-                    " target has no observed close before its settlement - regenerate build_events.py");
-            } else {
-                if (!same_bar(mark_bar, target_dates.epoch_ms[row]))
-                    throw wrong_date("target", panel.symbols[n], target_dates.epoch_ms[row], mark_bar);
-                compare(panel.symbols[n], target_dates.epoch_ms[row], target_prices[row],
-                        close_values[mark_bar * panel.N + n]);
-                checked = true;
-            }
-        }
-        if (checked) ++panel.events_price_checks;
-        else ++panel.events_price_checks_not_evaluable;
-    }
-}
-// ---------------------------------------------------------------------------
-// Corporate-action ledger. One row per (parent, ex-date, leg) in the price
-// cache's share basis (docs/corporate_actions_engine_2026-09-17.md). Rows are
-// matched to panel symbols by the same normalized string ID as the events file
-// and scheduled on the panel bar of their ex-date; prices stay untouched.
-// ---------------------------------------------------------------------------
-// Nullable string column; a null cell becomes empty.
+// Nullable universe names; a null cell becomes empty.
 std::vector<std::string> read_strings(const std::shared_ptr<arrow::ChunkedArray>& column,
                                       const std::string& what) {
     std::vector<std::string> values;
@@ -720,303 +462,6 @@ std::vector<std::string> read_strings(const std::shared_ptr<arrow::ChunkedArray>
         }
     }
     return values;
-}
-void read_corporate_actions(const BacktestConfig& config, DataPanel& panel) {
-    const CorporateActionsConfig& ledger = config.corporate_actions;
-    if (ledger.path.empty()) return;
-    const std::string path = resolved(config, ledger.path);
-    std::error_code lookup;
-    // A configured ledger must exist: a silently ignored typo would drop every dividend.
-    if (!std::filesystem::exists(path, lookup))
-        throw std::runtime_error("Corporate actions parquet not found: " + path);
-    auto source = arrow::io::ReadableFile::Open(path);
-    if (!source.ok())
-        throw std::runtime_error("Cannot open corporate actions parquet " + path + ": " + source.status().ToString());
-    parquet::arrow::FileReaderBuilder builder;
-    require_status(builder.Open(*source), "Cannot create corporate actions parquet reader for " + path);
-    builder.memory_pool(arrow::default_memory_pool());
-    auto built = builder.Build();
-    if (!built.ok())
-        throw std::runtime_error("Cannot build corporate actions parquet reader: " + built.status().ToString());
-    auto reader = std::move(*built);
-    reader->set_use_threads(false);
-    std::shared_ptr<arrow::Schema> schema;
-    require_status(reader->GetSchema(&schema), "Cannot read corporate actions parquet schema");
-    const auto column_index = [&](const std::string& name) {
-        const int index = schema->GetFieldIndex(name);
-        if (index < 0)
-            throw std::runtime_error("Corporate actions parquet column not found: " + name + " in " + path);
-        return index;
-    };
-    std::vector<int> projection{
-        column_index(ledger.id_col), column_index(ledger.ex_date_col), column_index(ledger.type_col),
-        column_index(ledger.leg_col), column_index(ledger.cash_col), column_index(ledger.child_col),
-        column_index(ledger.child_ratio_col), column_index(ledger.child_close_col),
-        column_index(ledger.parent_close_col), column_index(ledger.parent_close_before_col),
-        column_index(ledger.parent_factor_col), column_index(ledger.estimate_col),
-        column_index(ledger.value_source_col), column_index(ledger.status_col)};
-    // Rights terms are optional columns: an export without them still loads, and no
-    // right expires (docs/rights_warrants_design_2026-09-17.md section 2).
-    const bool has_expiry = schema->GetFieldIndex(ledger.expiry_col) >= 0;
-    const bool has_subscription = schema->GetFieldIndex(ledger.subscription_price_col) >= 0;
-    const bool has_exercise = schema->GetFieldIndex(ledger.exercise_ratio_col) >= 0;
-    // The per-share value column is optional too: without it a child outside the panel is unpriced.
-    const bool has_child_value = schema->GetFieldIndex(ledger.child_value_col) >= 0;
-    const bool has_reason = schema->GetFieldIndex(ledger.estimate_reason_col) >= 0;
-    if (has_expiry) projection.push_back(column_index(ledger.expiry_col));
-    if (has_subscription) projection.push_back(column_index(ledger.subscription_price_col));
-    if (has_exercise) projection.push_back(column_index(ledger.exercise_ratio_col));
-    if (has_child_value) projection.push_back(column_index(ledger.child_value_col));
-    if (has_reason) projection.push_back(column_index(ledger.estimate_reason_col));
-    std::shared_ptr<arrow::Table> table;
-    require_status(reader->ReadTable(projection, &table), "Cannot read corporate actions columns from " + path);
-    const std::string what = "Corporate actions ledger";
-    auto ids = read_event_ids(table->GetColumnByName(ledger.id_col), what);
-    auto ex_dates = read_event_dates(table->GetColumnByName(ledger.ex_date_col), "corporate actions ex-date");
-    auto types = read_strings(table->GetColumnByName(ledger.type_col), what + " event type");
-    auto leg_types = read_strings(table->GetColumnByName(ledger.leg_col), what + " leg type");
-    auto cash = read_doubles(table->GetColumnByName(ledger.cash_col), what);
-    auto children = read_optional_ids(table->GetColumnByName(ledger.child_col), what + " child");
-    auto ratios = read_doubles(table->GetColumnByName(ledger.child_ratio_col), what);
-    auto child_closes = read_doubles(table->GetColumnByName(ledger.child_close_col), what);
-    auto parent_closes = read_doubles(table->GetColumnByName(ledger.parent_close_col), what);
-    auto parent_before = read_doubles(table->GetColumnByName(ledger.parent_close_before_col), what);
-    auto factors = read_doubles(table->GetColumnByName(ledger.parent_factor_col), what);
-    auto estimates = read_flags(table->GetColumnByName(ledger.estimate_col), what + " estimate");
-    auto sources = read_strings(table->GetColumnByName(ledger.value_source_col), what + " value source");
-    auto statuses = read_strings(table->GetColumnByName(ledger.status_col), what + " status");
-    EventDates expiries;
-    std::vector<double> subscriptions, exercises, child_values;
-    if (has_expiry) expiries = read_event_dates(table->GetColumnByName(ledger.expiry_col), "corporate actions expiry date");
-    if (has_subscription) subscriptions = read_doubles(table->GetColumnByName(ledger.subscription_price_col), what);
-    if (has_exercise) exercises = read_doubles(table->GetColumnByName(ledger.exercise_ratio_col), what);
-    if (has_child_value) child_values = read_doubles(table->GetColumnByName(ledger.child_value_col), what);
-    std::vector<std::string> reasons;
-    if (has_reason) reasons = read_strings(table->GetColumnByName(ledger.estimate_reason_col), what + " estimate reason");
-    table.reset();
-    reader.reset(); // release decoded columns and the parquet footer before the panel is published
-    const size_t rows = ids.size();
-    if (ex_dates.present.size() != rows || types.size() != rows || leg_types.size() != rows ||
-        cash.size() != rows || children.size() != rows || ratios.size() != rows ||
-        child_closes.size() != rows || parent_closes.size() != rows || parent_before.size() != rows ||
-        factors.size() != rows || estimates.size() != rows || sources.size() != rows ||
-        statuses.size() != rows || (has_expiry && expiries.present.size() != rows) ||
-        (has_subscription && subscriptions.size() != rows) || (has_exercise && exercises.size() != rows) ||
-        (has_child_value && child_values.size() != rows) || (has_reason && reasons.size() != rows))
-        throw std::runtime_error("Corporate actions columns have inconsistent lengths in " + path);
-    panel.corporate_actions_loaded = true;
-    panel.corporate_action_rows = rows;
-    panel.corporate_action_rights_terms_loaded = has_expiry;
-
-    std::unordered_map<std::string, unsigned> panel_index;
-    panel_index.reserve(panel.N * 2);
-    for (unsigned n = 0; n < panel.N; ++n) panel_index.emplace(panel.symbols[n], n);
-    const auto& close_values = panel.arrays.at("close");
-    const auto observed = [&](size_t bar, unsigned asset) {
-        const float value = close_values[bar * panel.N + asset];
-        return std::isfinite(value) && value > 0.0f;
-    };
-    const auto row_label = [&](size_t row) {
-        return ids[row] + " " + (ex_dates.present[row] ? iso_date(ex_dates.epoch_ms[row]) : "(no ex-date)");
-    };
-    const auto reject = [&](size_t row, const std::string& why) {
-        return std::runtime_error("Corporate actions ledger row " + row_label(row) + " " + why);
-    };
-    const auto stale = [&](size_t row, const std::string& why) {
-        return std::runtime_error("Corporate actions ledger is stale against the price cache: " +
-            row_label(row) + " " + why + " - re-export the ledger for this cache");
-    };
-    const auto compare = [&](const std::string& anchor, size_t row, double expected, double cached) {
-        const double scale = std::max(std::max(std::fabs(cached), std::fabs(expected)), 1e-12);
-        if (std::fabs(cached - expected) <= 1e-4 * scale) return;
-        throw stale(row, anchor + " file=" + std::to_string(expected) + " cache=" + std::to_string(cached));
-    };
-    // P10 tiers the ledger can price a child from when the panel has no quote on the
-    // ex-date: (2) a when-issued close and (3)(4) valued estimates. A child_close_ex
-    // value without a panel quote can only come from another cache.
-    const auto usable_without_quote = [](const std::string& value_source) {
-        return value_source == "wi_close" || value_source == "event_value" ||
-               value_source == "vendor_implied";
-    };
-    const int64_t first_day = day_end_ms(panel.timestamps.front());
-    const int64_t last_day = day_end_ms(panel.timestamps.back());
-    size_t unresolved_children = 0;
-    std::set<std::string> keys; // the ledger's own key: (parent, ex-date, leg type, child)
-    for (size_t row = 0; row < rows; ++row) {
-        // Basis and scope checks apply to every row: one merger row, one unadjusted
-        // factor or one row that carries both legs means the file was built for
-        // something else, and a repeated key would book the same leg twice.
-        if (types[row].empty()) throw reject(row, "has no event type");
-        if (types[row] == "merger_cash" || types[row] == "merger_stock" ||
-            types[row] == "rename" || types[row] == "relist")
-            throw reject(row, "is a " + types[row] +
-                " event, which belongs to the events file (settlements), not the ledger");
-        if (!std::isfinite(factors[row]) || std::fabs(factors[row] - 1.0) > 1e-9)
-            throw reject(row, "has parentFactorCache " + std::to_string(factors[row]) +
-                ": the engine panel is split-adjusted, so the ledger must be exported with basis split_adj");
-        if (!ex_dates.present[row]) throw reject(row, "has no ex-date");
-        const std::string& leg_type = leg_types[row];
-        const bool cash_row = leg_type == "cash";
-        const bool stock_row = leg_type == "stock" || leg_type == "rights";
-        const bool quantity_row = leg_type == "quantity";
-        if (!cash_row && !stock_row && !quantity_row)
-            throw reject(row, "has leg type '" + leg_type + "'; expected cash, stock, rights or quantity");
-        // Same-day cash and stock are two rows in the ledger; a row that carries both
-        // cannot be keyed and would double-book against the row that carries one.
-        if (!cash_row && std::isfinite(cash[row]))
-            throw reject(row, "is a " + leg_type + " row but carries a cash amount");
-        if (!stock_row && !children[row].empty())
-            throw reject(row, "is a " + leg_type + " row but names a child");
-        if (!stock_row && has_child_value && std::isfinite(child_values[row]))
-            throw reject(row, "is a " + leg_type + " row but carries a child value");
-        if (std::isfinite(ratios[row]) && ratios[row] < 0.0) throw reject(row, "has a negative child ratio");
-        if (!keys.insert(ids[row] + "\n" + std::to_string(ex_dates.epoch_ms[row]) + "\n" + leg_type +
-                         "\n" + children[row]).second)
-            throw reject(row, "repeats an earlier (parent, ex-date, leg type, child) key");
-        auto parent = panel_index.find(ids[row]);
-        if (parent == panel_index.end()) continue; // parents outside the panel have nothing to book
-        ++panel.corporate_action_rows_matched;
-        const bool unresolved = statuses[row] == "unresolved";
-        if (unresolved) ++panel.corporate_action_rows_unresolved;
-        if (quantity_row) { ++panel.corporate_action_rows_quantity; continue; } // already in the split-adjusted prices
-        // The ex-date has to be a bar of this panel; the ledger already moved
-        // holiday dates to the next trading day, so a miss inside the range is a
-        // calendar mismatch rather than something to shift silently.
-        const int64_t ex_day = day_end_ms(ex_dates.epoch_ms[row]);
-        if (ex_day < first_day || ex_day > last_day) { ++panel.corporate_action_out_of_range; continue; }
-        const size_t bar = std::lower_bound(panel.timestamps.begin(), panel.timestamps.end(),
-                                            ex_day - (day_ms - 1)) - panel.timestamps.begin();
-        if (bar >= panel.T || day_end_ms(panel.timestamps[bar]) != ex_day)
-            throw reject(row, "has an ex-date that is not a bar of this panel");
-        DataPanel::CorporateActionLeg leg;
-        leg.bar = static_cast<unsigned>(bar);
-        leg.parent = parent->second;
-        leg.stock_leg = stock_row;
-        leg.rights = leg_type == "rights";
-        leg.cash = cash[row];
-        leg.child_ratio = ratios[row];
-        leg.child_close = child_closes[row];
-        leg.event_type = types[row];
-        leg.value_source = sources[row];
-        // Unresolved rows stay visible: a cash row without an amount and a stock row
-        // without a child (the export's marker rows) are scheduled so the engine can
-        // report them on held parents; they can never book anything.
-        leg.child_named = stock_row && !children[row].empty();
-        leg.ledger_value_usable = stock_row && usable_without_quote(leg.value_source);
-        if (has_child_value && stock_row) leg.child_value = child_values[row];
-        // A stock row without a child can still book its value when the ledger carries a
-        // usable per-share value (P10 (2)(3)(4)); otherwise it is a marker row.
-        const bool valued = leg.ledger_value_usable && std::isfinite(leg.child_value) && leg.child_value > 0.0;
-        const bool unbookable = (cash_row && !std::isfinite(cash[row])) ||
-                                (stock_row && !leg.child_named && !valued);
-        leg.unresolved = unresolved || unbookable;
-        if (unbookable) ++panel.corporate_action_legs_unbookable;
-        // The ledger's own flag, its status, or a (3)(4) value source mark an estimate:
-        // a stock row's child value, or a cash row's amount (vendor-implied cash). A
-        // leg that cannot book anything is not an estimate of anything.
-        leg.estimate = !unbookable &&
-                       (estimates[row] != 0 || statuses[row] == "estimated" ||
-                        (stock_row && (leg.value_source == "event_value" ||
-                                       leg.value_source == "vendor_implied")));
-        if (has_reason && leg.estimate) leg.estimate_reason = reasons[row];
-        if (stock_row && !children[row].empty()) {
-            auto child = panel_index.find(children[row]);
-            if (child == panel_index.end()) {
-                ++unresolved_children;
-                ++panel.corporate_action_unpriced_children;
-            } else if (child->second == leg.parent) {
-                throw reject(row, "names the parent as its own child");
-            } else {
-                leg.child = static_cast<int32_t>(child->second);
-            }
-        }
-        if (leg.rights) {
-            // The expiry closes a right that never printed (or froze) at 0 on the
-            // first bar after the expiry day; beyond the panel it can never fire.
-            if (has_expiry && expiries.present[row]) {
-                if (day_end_ms(expiries.epoch_ms[row]) < ex_dates.epoch_ms[row])
-                    throw reject(row, "expires before its ex-date");
-                const size_t after = std::upper_bound(panel.timestamps.begin(), panel.timestamps.end(),
-                                                      day_end_ms(expiries.epoch_ms[row])) - panel.timestamps.begin();
-                leg.expiry_bar = static_cast<int32_t>(after);
-            } else {
-                ++panel.corporate_action_rights_without_expiry;
-            }
-            if (has_subscription) leg.subscription_price = subscriptions[row];
-            if (has_exercise) leg.exercise_ratio = exercises[row];
-        }
-        ++panel.corporate_action_legs;
-        if (leg.estimate) ++panel.corporate_action_legs_estimated;
-        if (leg.rights) ++panel.corporate_action_legs_rights;
-        if (stock_row && leg.child < 0 && valued) ++panel.corporate_action_legs_value_only;
-        // A leg inside the parent's settlement window (the events file's end date has
-        // passed) is booked only while the parent still quotes and is held; once the
-        // parent retires, the deal terms in the events file must carry it instead.
-        if (!panel.settlement_bar.empty() && panel.settlement_bar[leg.parent] >= 0 &&
-            bar >= static_cast<size_t>(panel.settlement_bar[leg.parent]))
-            ++panel.corporate_action_legs_after_parent_end;
-
-        // ── Staleness guard ───────────────────────────────────────────────
-        // Cash and ratios are stated in this cache's share units. The engine
-        // multiplies them into the parent's last observed mark before the
-        // ex-date, so that close and the ex-date close must be the ones the
-        // exporter saw. A child close is checked when both sides quote; without
-        // a panel quote it is only accepted from a tier the ledger may value
-        // (when-issued or a flagged estimate), never as a cache close.
-        bool checked = false;
-        if (ledger.stale_check) {
-            // A value-only leg divides its per-share value by the mark like a cash leg.
-            const bool evaluable = std::isfinite(leg.cash) || std::isfinite(leg.child_ratio) ||
-                                   (valued && leg.child < 0);
-            const bool parent_quoted = observed(bar, leg.parent);
-            if (std::isfinite(parent_closes[row]) != parent_quoted)
-                throw stale(row, parent_quoted ? "has no parent close on the ex-date but the cache quotes one"
-                                               : "records a parent close on the ex-date the cache does not have");
-            if (parent_quoted) {
-                compare("parent close on the ex-date", row, parent_closes[row],
-                        close_values[bar * panel.N + leg.parent]);
-                checked = true;
-            }
-            // The mark the engine will divide by: the last observed close before the
-            // ex-date. A panel that starts at or after the ledger's previous close
-            // cannot check it; inside the panel the anchor is required.
-            size_t mark_bar = std::numeric_limits<size_t>::max();
-            for (size_t before = bar; before-- > 0;)
-                if (observed(before, leg.parent)) { mark_bar = before; break; }
-            if (mark_bar != std::numeric_limits<size_t>::max()) {
-                if (std::isfinite(parent_before[row])) {
-                    compare("parent close before the ex-date", row, parent_before[row],
-                            close_values[mark_bar * panel.N + leg.parent]);
-                    checked = true;
-                } else if (evaluable) {
-                    throw std::runtime_error("Corporate actions ledger has evaluation inputs without price anchors: " +
-                        row_label(row) + " parent close before the ex-date missing - re-export the ledger for this cache");
-                }
-            }
-            if (leg.child >= 0 && std::isfinite(leg.child_close)) {
-                if (observed(bar, static_cast<unsigned>(leg.child))) {
-                    if (!leg.ledger_value_usable) {   // a cache close must be this cache's close
-                        compare("child close on the ex-date", row, leg.child_close,
-                                close_values[bar * panel.N + static_cast<unsigned>(leg.child)]);
-                        checked = true;
-                    }
-                } else if (!leg.ledger_value_usable) {
-                    throw stale(row, "records a child close (" + leg.value_source +
-                                     ") on the ex-date the cache does not have");
-                }
-            }
-        }
-        if (checked) ++panel.corporate_action_price_checks;
-        else ++panel.corporate_action_price_checks_not_evaluable;
-        panel.corporate_actions.push_back(std::move(leg));
-    }
-    if (unresolved_children > 0)
-        std::cerr << "Corporate actions: " << unresolved_children
-                  << " child id(s) are not in the loaded panel; those distributions are unpriced" << std::endl;
-    std::stable_sort(panel.corporate_actions.begin(), panel.corporate_actions.end(),
-        [](const DataPanel::CorporateActionLeg& a, const DataPanel::CorporateActionLeg& b) {
-            return a.bar != b.bar ? a.bar < b.bar : a.parent < b.parent;
-        });
 }
 std::map<std::string, std::vector<uint8_t>> read_universe(const BacktestConfig& config,
     const std::vector<int64_t>& calendar, const std::map<std::string, int>& price_symbols) {
@@ -1208,6 +653,24 @@ std::vector<float> read_adj_factor(const std::string& path, const std::vector<in
 }
 }
 
+std::map<std::string, std::string> load_thin_symbol_labels(
+    const BacktestConfig& config, const std::vector<std::string>& panel_symbols) {
+    const auto path = (std::filesystem::path(config.config_dir) / config.base_cache / "master.parquet")
+                          .lexically_normal().string();
+    auto table = read_table(path, {"tradingItemId", "symbol", "companyName"});
+    auto ids = read_event_ids(table->GetColumnByName("tradingItemId"), "Master");
+    auto symbols = read_strings(table->GetColumnByName("symbol"), "Master symbol");
+    auto companies = read_strings(table->GetColumnByName("companyName"), "Master companyName");
+    const std::unordered_set<std::string> selected(panel_symbols.begin(), panel_symbols.end());
+    std::map<std::string, std::string> labels;
+    for (size_t row = 0; row < ids.size(); ++row) {
+        if (!selected.count(ids[row])) continue;
+        const auto& label = symbols[row].empty() ? companies[row] : symbols[row];
+        if (!label.empty()) labels.emplace(ids[row], label);
+    }
+    return labels;
+}
+
 DataPanel load_config(const BacktestConfig& config, const std::vector<std::string>& selected_fields) {
     std::map<std::string, std::pair<Source, bool>> sources;
     for (const auto& dataset : config.datasets) if (dataset.enabled) {
@@ -1330,7 +793,7 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     // A group panel built for another cache (or left behind when the price cache
     // grew) aligns to nothing on the affected bars and turns every code into NaN.
     // `neutralize` would then emit an all-NaN row and the book would quietly empty
-    // over that stretch, so refuse the start the way a stale events file does.
+    // over that stretch, so refuse the start.
     if (!config.base_groups.empty()) {
         const auto& close_array = panel.arrays.at("close");
         for (const char* field : {"sector", "industry"}) {
@@ -1352,8 +815,6 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
             }
         }
     }
-    read_events(config, panel);
-    read_corporate_actions(config, panel);
     if (config.base_thin) {
         panel.thin_layout = true;
         const std::filesystem::path dir(thin_dir);
@@ -1365,8 +826,8 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         std::unordered_map<std::string, unsigned> index;
         for (unsigned n = 0; n < panel.N; ++n) index.emplace(panel.symbols[n], n);
         for (size_t row = 0; row < thin_events.dates.size(); ++row) {
-            // A source that ended before the first bar is retired from bar 0, as the events path does
-            // (settlement_bar 0); its return and any move belong to dates the panel does not have.
+            // A source that ended before the first bar is retired from bar 0;
+            // its return and any move belong to dates the panel does not have.
             if (thin_events.dates[row] < panel.timestamps.front()) {
                 auto source = index.find(thin_events.sources[row]);
                 if (!thin_events.ends[row] || source == index.end()) continue;

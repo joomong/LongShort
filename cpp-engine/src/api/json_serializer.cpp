@@ -98,30 +98,10 @@ Json::Value timeseries_to_json(const TimeseriesOutput& ts) {
         frozen.append(v);
     j["frozenGross"] = frozen;
 
-    Json::Value settled(Json::arrayValue);
-    for (double v : ts.settled_gross)
-        settled.append(v);
-    j["settledGross"] = settled;
-
-    Json::Value dividends(Json::arrayValue);
-    for (double v : ts.dividend_pnl)
-        dividends.append(v);
-    j["dividendPnl"] = dividends;
-
-    Json::Value distributions(Json::arrayValue);
-    for (double v : ts.distribution_pnl)
-        distributions.append(v);
-    j["distributionPnl"] = distributions;
-
     Json::Value borrow(Json::arrayValue);
     for (double v : ts.borrow_cost)
         borrow.append(v);
     j["borrowCost"] = borrow;
-
-    Json::Value unconfirmed(Json::arrayValue);
-    for (double v : ts.unconfirmed_weight)
-        unconfirmed.append(v);
-    j["unconfirmedWeight"] = unconfirmed;
 
     return j;
 }

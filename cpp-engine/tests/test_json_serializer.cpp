@@ -177,42 +177,20 @@ TEST(JsonSerializer, HistogramKeepsFiniteBinsForOppositeFloatExtremes) {
 }
 
 
-TEST(JsonSerializer, TimeseriesAlwaysCarriesTheMissingDataSeries) {
-    TimeseriesOutput timeseries;
-    timeseries.position_count = {1, 1};
-    const Json::Value empty = timeseries_to_json(timeseries);
-    ASSERT_TRUE(empty.isMember("frozenGross"));
-    ASSERT_TRUE(empty.isMember("settledGross"));
-    EXPECT_TRUE(empty["frozenGross"].isArray());
-    EXPECT_TRUE(empty["settledGross"].isArray());
-    EXPECT_TRUE(empty["frozenGross"].empty());
-    EXPECT_TRUE(empty["settledGross"].empty());
-
-    timeseries.frozen_gross = {0.25, 0.0};
-    timeseries.settled_gross = {0.0, 0.5};
-    const Json::Value json = timeseries_to_json(timeseries);
-    ASSERT_EQ(json["frozenGross"].size(), 2u);
-    EXPECT_DOUBLE_EQ(json["frozenGross"][0].asDouble(), 0.25);
-    EXPECT_DOUBLE_EQ(json["frozenGross"][1].asDouble(), 0.0);
-    ASSERT_EQ(json["settledGross"].size(), 2u);
-    EXPECT_DOUBLE_EQ(json["settledGross"][0].asDouble(), 0.0);
-    EXPECT_DOUBLE_EQ(json["settledGross"][1].asDouble(), 0.5);
-}
-
-TEST(JsonSerializer, TimeseriesSeriesFollowTheTradingSpanOffset) {
+TEST(JsonSerializer, TimeseriesCarriesFrozenGrossAcrossTheTradingSpan) {
     const std::vector<int64_t> timestamps = {0, 86400000, 172800000};
     const std::vector<double> ret(3, 0.0), turnover(3, 0.0), max_weight(3, 0.0);
     const std::vector<int> position_count(3, 0);
     const std::vector<double> frozen = {9.0, 0.25, 0.5};
-    const std::vector<double> settled = {9.0, 0.0, 0.75};
     const auto series = compute_timeseries(timestamps, ret, turnover, max_weight,
-                                           position_count, 0.0005, 1, &frozen, &settled);
-    ASSERT_EQ(series.frozen_gross.size(), 2u);   // the warmup bar is dropped with the rest
+                                           position_count, 0.0005, 1, &frozen);
+    ASSERT_EQ(series.frozen_gross.size(), 2u);
     EXPECT_DOUBLE_EQ(series.frozen_gross[0], 0.25);
     EXPECT_DOUBLE_EQ(series.frozen_gross[1], 0.5);
-    ASSERT_EQ(series.settled_gross.size(), 2u);
-    EXPECT_DOUBLE_EQ(series.settled_gross[0], 0.0);
-    EXPECT_DOUBLE_EQ(series.settled_gross[1], 0.75);
+    const Json::Value json = timeseries_to_json(series);
+    ASSERT_EQ(json["frozenGross"].size(), 2u);
+    EXPECT_DOUBLE_EQ(json["frozenGross"][0].asDouble(), 0.25);
+    EXPECT_DOUBLE_EQ(json["frozenGross"][1].asDouble(), 0.5);
     EXPECT_EQ(series.timestamps.size(), series.frozen_gross.size());
 }
 

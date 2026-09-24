@@ -1,10 +1,8 @@
 #include "data/config_loader.h"
 #include "data/data_panel.h"
 #include <json/json.h>
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <ctime>
 #include <iostream>
 #include <stdexcept>
 #include <sys/resource.h>
@@ -38,47 +36,7 @@ int main(int argc, char** argv) {
                     result["values"][field].append(std::isfinite(row[n]) ? Json::Value(row[n]) : Json::Value(Json::nullValue));
             }
         }
-        // Delisting/settlement schedule derived from the configured events file.
-        Json::Value events;
-        events["panelSymbols"] = Json::UInt64(panel.settlement_bar.size());
-        if (!panel.settlement_bar.empty()) {
-            unsigned scheduled = 0, retired_before_start = 0, absent = 0, overrides = 0;
-            std::vector<unsigned> settling;
-            for (unsigned n = 0; n < panel.N; ++n) {
-                const int32_t bar = panel.settlement_bar[n];
-                if (bar < 0) ++absent;
-                else {
-                    ++scheduled;
-                    if (bar == 0) ++retired_before_start;
-                    settling.push_back(n);
-                }
-                if (n < panel.settlement_return.size() && std::isfinite(panel.settlement_return[n])) ++overrides;
-            }
-            std::sort(settling.begin(), settling.end(), [&](unsigned a, unsigned b) {
-                return panel.settlement_bar[a] != panel.settlement_bar[b]
-                    ? panel.settlement_bar[a] < panel.settlement_bar[b] : a < b;
-            });
-            events["settlementSymbols"] = scheduled;
-            events["retiredBeforeStart"] = retired_before_start;
-            events["noSettlementInPanel"] = absent;
-            events["explicitReturns"] = overrides;
-            for (size_t i = 0; i < settling.size() && i < 3; ++i) {
-                const unsigned n = settling[i];
-                const int32_t bar = panel.settlement_bar[n];
-                Json::Value entry;
-                entry["symbol"] = panel.symbols[n];
-                entry["bar"] = bar;
-                const std::time_t seconds = static_cast<std::time_t>(panel.timestamps[bar] / 1000);
-                std::tm utc{};
-                char formatted[32] = {0};
-                if (gmtime_r(&seconds, &utc)) std::strftime(formatted, sizeof(formatted), "%Y-%m-%d", &utc);
-                entry["settlementDate"] = formatted;
-                if (n < panel.settlement_return.size() && std::isfinite(panel.settlement_return[n]))
-                    entry["explicitReturn"] = panel.settlement_return[n];
-                events["firstSettlements"].append(entry);
-            }
-        }
-        result["events"] = events;
+        result["moveEvents"] = Json::UInt64(panel.move_events.size());
         if (!summary) {
             for (auto timestamp : panel.timestamps) result["timestamps"].append(Json::Int64(timestamp));
             for (const auto& symbol : panel.symbols) result["symbols"].append(symbol);

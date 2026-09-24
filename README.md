@@ -28,7 +28,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 - `base:` 블록(가격 캐시 + 그룹 패널 디렉토리)을 주면 기본 필드 `open high low close volume vwap cap sector industry`가 설정에 나열하지 않아도 시작 시 전부 읽힌다. 파일이 하나라도 없거나 그룹 패널이 가격 달력을 덮지 못하면 기동을 거부한다.
 - 기본은 종가 체결, D1(mode=1), 편도 비용 5bp다. D0/D1과 비용·연환산 설정은 명시된 값으로 계산한다. 기본 연환산은 365이며 주식 예제는 252다.
 - 유니버스는 가격과 별도 마스크다. 신호 날짜에 적용하고 실행 모드의 지연을 함께 받는다.
-- 결측 종가는 `backtest.missing_close_policy`(기본 `carry`)로 처리한다: 보유분은 마지막 유효 종가로 동결(체결·비용·손익 없음)했다가 호가 재개 시 누적 수익을 인식하고, 호가 없는 종목의 주문은 체결하지 않는다. `error`는 기존 즉시 실패 동작이다. 상폐는 `events:` 파일의 명시 종료일 이후 호가가 끊긴 첫 bar에 정산하며, 수익률은 그 bar에서 딜 조건(주당 현금 + 교환비×인수사 종가)으로 엔진이 계산한다(계산 불가 시 파일 수익률 > `default_delisting_return`, 기본 0은 가정). 주식 몫만 인수사 보유 가중치로 승계하고 현금 몫은 실현한다. 캐시 종가는 이후 분할까지 재작성된 기준이므로 딜 조건은 생성기가 캐시 단위로 환산한 `*Cache` 컬럼을 쓰고, 로더가 파일의 인수사 캐시 종가를 패널과 대조해 캐시 재구축 뒤 낡은 파일이면 기동을 거부한다. 이벤트 파일은 `cpp-engine/tools/data/{refresh_master.py,build_events.py}`로 xfeed에서 만든다(`data/events/`). 결과의 `missingData`에 동결·정산·승계 건수를 보고한다. 자세한 규칙은 [데이터 예제](cpp-engine/examples/datasets/README.md)를 본다.
+- 현재 thin-v1 캐시는 `base.cache/manifest.json`으로 판별한다. `close`는 조정 전 가격, 신호용 `returns`는 분할조정 종가 수익률이며, 보유 손익은 캐시의 `returns_total`과 `events.parquet`의 position 이동으로 처리한다. `universe.name`으로 구간형 유니버스를 고른다. thin 설정에서는 최상위 `events:`와 `backtest.corporate_actions:`를 쓰지 않는다. [thin 예제와 전환 상태](cpp-engine/examples/datasets/README.md)를 본다.
+- 일반 nonthin long/wide 데이터 설정도 계속 읽는다. 이 경로의 XML `returns`는 종가 변화율에서 파생된다. 기업행동 손익을 포함한 thin `returns_total`은 제공되지 않으며, 기존 최상위 `events:`·`backtest.corporate_actions:` 설정은 현재 로더가 거부한다. 결측 종가는 `backtest.missing_close_policy`(기본 `carry`)가 동결하고 시세 재개 시 누적 움직임을 인식한다. 자세한 규칙은 [데이터 예제](cpp-engine/examples/datasets/README.md)에 있다.
 - `avgBet`은 평균 보유 종목 수, `minBet`은 기간 중 최소 보유 종목 수다. 누적 손익과 drawdown은 단리(additive) 기준이다.
 - combined의 기본은 각 알파를 정규화한 동일 비중 결합 후 최종 포트폴리오 정규화다. 기존 raw 합산은 `combined_mode: raw`로 선택한다.
 

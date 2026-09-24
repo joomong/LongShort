@@ -28,16 +28,10 @@ namespace fs = std::filesystem;
 
 // Global shared state (loaded once at startup)
 static BacktestConfig g_config;
-static Json::Value g_symbol_labels;  // optional {symbol: label} from backtest.symbol_labels_path
+static Json::Value g_symbol_labels;  // optional {panel symbol: display label}
 static DataPanel g_data;
 static fs::path g_alphas_dir;
 static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
-static std::size_t g_events_loaded = 0;
-static std::size_t g_settlement_symbols = 0;
-static std::size_t g_successor_events = 0;
-static UnpricedChildPolicy g_unpriced_child = UnpricedChildPolicy::Pending;
-static UnresolvedPolicy g_unresolved_policy = UnresolvedPolicy::Warn;   // backtest.corporate_actions.unresolved_policy
-static constexpr std::size_t kUnconfirmedItemsCap = 10000;   // corporateActions.unconfirmed.items listed per result
 static BorrowCostModel g_borrow;   // backtest.costs.borrow, loaded once with the data
 
 static bool parse_missing_close_policy(const std::string& name, MissingClosePolicy* out)
@@ -50,27 +44,6 @@ static bool parse_missing_close_policy(const std::string& name, MissingClosePoli
 static const char* missing_close_policy_name(MissingClosePolicy policy)
 {
     return policy == MissingClosePolicy::Error ? "error" : "carry";
-}
-
-static const char* unpriced_child_name(UnpricedChildPolicy policy)
-{
-    return policy == UnpricedChildPolicy::Drop ? "drop" : "pending";
-}
-
-static const char* unresolved_policy_name(UnresolvedPolicy policy)
-{
-    return policy == UnresolvedPolicy::Strict ? "strict" : "warn";
-}
-
-static const char* unconfirmed_kind_name(UnconfirmedKind kind)
-{
-    switch (kind) {
-        case UnconfirmedKind::UnresolvedLeg: return "unresolved_leg";
-        case UnconfirmedKind::DefaultSettlement: return "default_settlement";
-        case UnconfirmedKind::EstimateValue: return "estimate_value";
-        case UnconfirmedKind::PendingDropped: return "pending_dropped";
-    }
-    return "unknown";
 }
 
 static unsigned parse_env_uint(const char* name, unsigned def, unsigned min_v, unsigned max_v)
@@ -243,10 +216,6 @@ struct RunOptions {
     std::vector<std::size_t> signal_symbol_subset;  // non-empty: full series for these columns only
     std::string combined_mode;
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
-    double default_delisting_return = 0.0;
-    unsigned stale_quote_settle_bars = 0;
-    bool settlement_log = false;
-    bool distribution_log = false;
 };
 
 static RunOptions parse_run_options(const Json::Value& body) {
@@ -301,17 +270,10 @@ static RunOptions parse_run_options(const Json::Value& body) {
     if (body.isMember("missingClose") &&
         !parse_missing_close_policy(body["missingClose"].asString(), &options.missing_close_policy))
         throw std::invalid_argument("missingClose must be 'carry' or 'error'");
-    const Json::Value delisting_return =
-        body.get("defaultDelistingReturn", g_config.default_delisting_return);
-    if (!delisting_return.isNumeric() || !std::isfinite(delisting_return.asDouble()) ||
-        delisting_return.asDouble() < -1.0 || delisting_return.asDouble() > 1.0)
-        throw std::invalid_argument(
-            "defaultDelistingReturn must be a total return in [-1, 1]");
-    options.default_delisting_return = delisting_return.asDouble();
-    options.stale_quote_settle_bars =
-        parse_uint_option(body, "staleQuoteSettleBars", g_config.stale_quote_settle_bars);
-    options.settlement_log = body.get("settlementLog", false).asBool();
-    options.distribution_log = body.get("distributionLog", false).asBool();
+    for (const char* key : {"defaultDelistingReturn", "staleQuoteSettleBars",
+                            "settlementLog", "distributionLog"})
+        if (body.isMember(key))
+            throw std::invalid_argument(std::string(key) + " is no longer supported; use a thin-v1 cache");
     return options;
 }
 
@@ -324,16 +286,7 @@ static SimulatorConfig simulator_config(const RunOptions& options, bool collect)
     config.sim_start_index = options.sim_start_index;
     config.collect_signals = collect;
     config.missing_close_policy = options.missing_close_policy;
-    config.default_delisting_return = options.default_delisting_return;
-    config.stale_quote_settle_bars = options.stale_quote_settle_bars;
-    config.collect_settlements = options.settlement_log;
-    // Ledger handling is fixed at startup with the data; only the log is per request.
-    config.apply_dividends = g_config.corporate_actions.apply_dividends;
-    config.apply_distributions = g_config.corporate_actions.apply_distributions;
-    config.unpriced_child = g_unpriced_child;
-    config.collect_distributions = options.distribution_log;
     config.borrow = g_borrow.enabled() ? &g_borrow : nullptr;
-    config.unresolved_policy = g_unresolved_policy;
     return config;
 }
 
@@ -350,25 +303,13 @@ static FullMetricsResult full_metrics(const SimulatorOutput& output, const RunOp
     const std::size_t first_metric_bar = options.mode == 1
         ? std::max<unsigned>(options.sim_start_index, 1) : options.sim_start_index;
     std::vector<double> frozen_gross(output.missing_data.size());
-    std::vector<double> settled_gross(output.missing_data.size());
-    for (std::size_t di = 0; di < output.missing_data.size(); ++di) {
+    for (std::size_t di = 0; di < output.missing_data.size(); ++di)
         frozen_gross[di] = output.missing_data[di].frozen_gross;
-        settled_gross[di] = output.missing_data[di].settled_gross;
-    }
-    std::vector<double> dividend_pnl(output.corporate_actions.size());
-    std::vector<double> distribution_pnl(output.corporate_actions.size());
-    std::vector<double> unconfirmed_weight(output.corporate_actions.size());
-    for (std::size_t di = 0; di < output.corporate_actions.size(); ++di) {
-        dividend_pnl[di] = output.corporate_actions[di].dividend_pnl;
-        distribution_pnl[di] = output.corporate_actions[di].distribution_pnl;
-        unconfirmed_weight[di] = output.corporate_actions[di].unconfirmed_abs_weight;
-    }
     return compute_full_metrics(
         output.timestamps, output.ret, output.turnover, output.max_weight,
         output.long_weight, output.short_weight, output.position_count,
         options.is_ms, options.os_ms, g_config.transaction_fee_rate,
-        g_config.bars_per_year, first_metric_bar, &frozen_gross, &settled_gross,
-        &dividend_pnl, &distribution_pnl, &output.borrow_cost, &unconfirmed_weight);
+        g_config.bars_per_year, first_metric_bar, &frozen_gross, &output.borrow_cost);
 }
 
 // Cost modules: what was charged and, when asked, what was not (P9: a run without
@@ -391,204 +332,39 @@ static Json::Value costs_payload(const SimulatorOutput& output) {
     return payload;
 }
 
-// Trading-period totals; the terminal frozen gross exposes holdings that never
-// found a closing quote. Warmup bars hold no position and contribute nothing.
+// Missing quotes freeze held weights; thin ending moves retire their sources.
 static Json::Value missing_data_payload(const SimulatorOutput& output) {
     MissingDataDiagnostics total;
-    // Warmup rows hold no position, so only their retirements contribute.
-    for (std::size_t di = 0; di < output.missing_data.size(); ++di) {
-        const auto& bar = output.missing_data[di];
+    for (const auto& bar : output.missing_data) {
         total.retirement_count += bar.retirement_count;
         total.missing_held_count += bar.missing_held_count;
         total.blocked_order_count += bar.blocked_order_count;
         total.frozen_gross += bar.frozen_gross;
         total.blocked_trade_weight += bar.blocked_trade_weight;
         total.resumed_holding_count += bar.resumed_holding_count;
-        total.delisting_count += bar.delisting_count;
-        total.delisting_pnl += bar.delisting_pnl;
-        total.settled_gross += bar.settled_gross;
-        total.default_delisting_count += bar.default_delisting_count;
-        total.default_delisting_gross += bar.default_delisting_gross;
-        total.stale_settlement_count += bar.stale_settlement_count;
         total.missing_entry_count += bar.missing_entry_count;
-        total.pending_delisting_entry_count += bar.pending_delisting_entry_count;
-        total.post_end_quote_bars += bar.post_end_quote_bars;
-        total.pending_settlement_count += bar.pending_settlement_count;
         total.successor_conversions += bar.successor_conversions;
         total.converted_gross += bar.converted_gross;
-        total.computed_settlement_count += bar.computed_settlement_count;
     }
     Json::Value payload;
     payload["missingHeldBars"] = total.missing_held_count;
-    // Asset-bar weighted frozen exposure over the whole run, not a bar count.
     payload["frozenGrossSum"] = total.frozen_gross;
     payload["retirements"] = total.retirement_count;
     payload["blockedOrders"] = total.blocked_order_count;
     payload["blockedTradeWeight"] = total.blocked_trade_weight;
     payload["missingEntries"] = total.missing_entry_count;
     payload["resumedHoldings"] = total.resumed_holding_count;
-    payload["delistings"] = total.delisting_count;
-    payload["delistingPnl"] = total.delisting_pnl;
-    payload["settledGross"] = total.settled_gross;
-    payload["defaultDelistings"] = total.default_delisting_count;
-    payload["defaultDelistingGross"] = total.default_delisting_gross;
-    payload["staleSettlements"] = total.stale_settlement_count;
-    payload["cancelledDelistingEntries"] = total.pending_delisting_entry_count;
-    // A security still quoting after its end date defers its settlement.
-    payload["postEndDateQuoteBars"] = total.post_end_quote_bars;
-    payload["pendingSettlements"] = total.pending_settlement_count;
-    // Exposure handed to a surviving security instead of being cashed out.
     payload["successorConversions"] = total.successor_conversions;
     payload["convertedGross"] = total.converted_gross;
-    payload["computedSettlementReturns"] = total.computed_settlement_count;
     payload["terminalFrozenGross"] = output.missing_data.empty()
         ? 0.0 : output.missing_data.back().frozen_gross;
     return payload;
 }
 
-// Trading-period totals of the corporate-action legs; pending legs are a state,
-// so the terminal count exposes the ones that never found a child quote.
-static Json::Value corporate_actions_payload(const SimulatorOutput& output) {
-    CorporateActionDiagnostics total;
-    unsigned pending_bars = 0;
-    for (const auto& bar : output.corporate_actions) {
-        total.dividend_count += bar.dividend_count;
-        total.dividend_pnl += bar.dividend_pnl;
-        total.distribution_count += bar.distribution_count;
-        total.distribution_pnl += bar.distribution_pnl;
-        total.child_positions_created += bar.child_positions_created;
-        total.distribution_estimated += bar.distribution_estimated;
-        total.distribution_unpriced += bar.distribution_unpriced;
-        total.distribution_value_only += bar.distribution_value_only;
-        total.legs_unresolved += bar.legs_unresolved;
-        total.rights_expired += bar.rights_expired;
-        total.rights_expired_held += bar.rights_expired_held;
-        total.rights_expired_gross += bar.rights_expired_gross;
-        total.legs_on_settlement_bar += bar.legs_on_settlement_bar;
-        total.legs_deferred_to_events += bar.legs_deferred_to_events;
-        total.dividend_estimated += bar.dividend_estimated;
-        total.unconfirmed_count += bar.unconfirmed_count;
-        total.unconfirmed_abs_weight += bar.unconfirmed_abs_weight;
-        pending_bars += bar.distribution_pending;
-    }
-    Json::Value payload;
-    payload["dividends"] = total.dividend_count;
-    payload["dividendPnl"] = total.dividend_pnl;
-    payload["distributions"] = total.distribution_count;
-    payload["distributionPnl"] = total.distribution_pnl;
-    payload["childPositionsCreated"] = total.child_positions_created;
-    // Child weights whose value came from a ledger estimate rather than a quote.
-    payload["distributionsEstimated"] = total.distribution_estimated;
-    payload["distributionsUnpriced"] = total.distribution_unpriced;
-    // Legs whose child is not in the panel but whose ledger value was booked as P&L (no position).
-    payload["distributionsValueOnly"] = total.distribution_value_only;
-    // Legs on held parents the ledger left unresolved: nothing was booked for them.
-    payload["legsUnresolved"] = total.legs_unresolved;
-    // Rights that lapsed: pending legs closed at 0, and held rights settled at -1.
-    payload["rightsExpired"] = total.rights_expired;
-    payload["rightsExpiredHeld"] = total.rights_expired_held;
-    payload["rightsExpiredGross"] = total.rights_expired_gross;
-    // Legs booked on their parent's settlement bar against the pre-settlement
-    // exposure, and the ones left to the events row to avoid paying twice.
-    payload["legsOnSettlementBar"] = total.legs_on_settlement_bar;
-    payload["legsDeferredToEvents"] = total.legs_deferred_to_events;
-    // Leg-bar weighted count of legs still waiting for a child quote, not a leg count.
-    payload["distributionPendingBars"] = pending_bars;
-    payload["terminalDistributionPending"] = output.corporate_actions.empty()
-        ? 0u : output.corporate_actions.back().distribution_pending;
-    // Cash legs booked from an amount the ledger flagged as an estimate.
-    payload["dividendsEstimated"] = total.dividend_estimated;
-    // Unconfirmed P&L on held positions: every record is a (symbol, bar) the inputs
-    // could not confirm; the list is always present so a run can be audited without
-    // a second request. pnlUnconfirmed is the one-bit summary for callers.
-    Json::Value unconfirmed;
-    unconfirmed["count"] = total.unconfirmed_count;
-    unconfirmed["sumAbsWeight"] = total.unconfirmed_abs_weight;
-    Json::Value by_kind;
-    for (UnconfirmedKind kind : {UnconfirmedKind::UnresolvedLeg, UnconfirmedKind::DefaultSettlement,
-                                 UnconfirmedKind::EstimateValue, UnconfirmedKind::PendingDropped})
-        by_kind[unconfirmed_kind_name(kind)] = 0u;
-    // The list is bounded so a run that held every delisting cannot flood the response:
-    // the first kUnconfirmedItemsCap records (bar order) are listed, the rest counted.
-    Json::Value items(Json::arrayValue);
-    for (const auto& record : output.unconfirmed) {
-        by_kind[unconfirmed_kind_name(record.kind)] = by_kind[unconfirmed_kind_name(record.kind)].asUInt() + 1u;
-        if (items.size() >= kUnconfirmedItemsCap) continue;
-        Json::Value item;
-        item["symbol"] = g_data.symbols.at(record.asset);
-        item["date"] = iso_date_of(g_data.timestamps.at(record.bar));
-        item["bar"] = record.bar;   // panel bar index (0-based over the full panel, warmup included)
-        item["weightBefore"] = record.weight_before;
-        item["kind"] = unconfirmed_kind_name(record.kind);
-        item["detail"] = record.detail;
-        items.append(std::move(item));
-    }
-    unconfirmed["byKind"] = by_kind;
-    unconfirmed["itemsTruncated"] = output.unconfirmed.size() > kUnconfirmedItemsCap;
-    unconfirmed["itemsOmitted"] = static_cast<Json::UInt64>(
-        output.unconfirmed.size() > kUnconfirmedItemsCap ? output.unconfirmed.size() - kUnconfirmedItemsCap : 0);
-    unconfirmed["items"] = std::move(items);
-    payload["unconfirmed"] = std::move(unconfirmed);
-    payload["pnlUnconfirmed"] = total.unconfirmed_count > 0;
-    return payload;
-}
-
-// Opt-in ledgers of the settlements that actually moved money and of the stock
-// legs the run resolved. Held settlements only; the unheld retirements are
-// reported as a count beside it.
-static Json::Value diagnostics_payload(const SimulatorOutput& output, const RunOptions& options) {
+static Json::Value diagnostics_payload(const SimulatorOutput& output, const RunOptions&) {
     Json::Value payload;
     payload["missingData"] = missing_data_payload(output);
-    payload["corporateActions"] = corporate_actions_payload(output);
     payload["costs"] = costs_payload(output);
-    if (options.distribution_log) {
-        Json::Value entries(Json::arrayValue);
-        for (const auto& record : output.distributions) {
-            Json::Value entry;
-            entry["parent"] = g_data.symbols.at(record.parent);
-            entry["time"] = iso_date_of(g_data.timestamps.at(record.bar));
-            entry["bar"] = record.bar;
-            entry["exDate"] = iso_date_of(g_data.timestamps.at(record.ex_bar));
-            if (record.child >= 0) entry["child"] = g_data.symbols.at(record.child);
-            else entry["child"] = Json::Value(Json::nullValue);
-            entry["parentWeight"] = record.parent_weight;
-            entry["childWeight"] = record.child_weight;
-            entry["cashShare"] = record.cash_share;
-            entry["source"] = record.source == DistributionSource::ChildClose ? "childClose"
-                : record.source == DistributionSource::LedgerValue ? "ledgerValue"
-                : record.source == DistributionSource::FirstQuote ? "firstQuote"
-                : record.source == DistributionSource::Expired ? "expired"
-                : record.source == DistributionSource::LedgerValueCash ? "ledgerValueCash" : "unpriced";
-            entry["estimate"] = record.estimate;
-            entry["onSettlementBar"] = record.on_settlement_bar;
-            entry["valueSource"] = record.value_source;
-            entry["eventType"] = record.event_type;
-            entries.append(std::move(entry));
-        }
-        payload["distributionLog"] = std::move(entries);
-    }
-    if (!options.settlement_log) return payload;
-    Json::Value entries(Json::arrayValue);
-    for (const auto& record : output.settlements) {
-        Json::Value entry;
-        entry["symbol"] = g_data.symbols.at(record.asset);
-        entry["time"] = iso_date_of(g_data.timestamps.at(record.bar));
-        entry["bar"] = record.bar;
-        entry["exposure"] = record.exposure;
-        entry["return"] = record.settlement_return;
-        entry["source"] = record.source == SettlementSource::Computed ? "computed"
-            : (record.source == SettlementSource::Explicit ? "explicit" : "default");
-        entry["cashShare"] = record.cash_share;
-        entry["stockShare"] = record.stock_share;
-        if (record.successor >= 0) entry["successor"] = g_data.symbols.at(record.successor);
-        else entry["successor"] = Json::Value(Json::nullValue);
-        entry["transferred"] = record.transferred;
-        entries.append(std::move(entry));
-    }
-    unsigned unheld = 0;
-    for (const auto& bar : output.missing_data) unheld += bar.unheld_settlement_count;
-    payload["settlementLog"] = std::move(entries);
-    payload["settlementLogUnheld"] = unheld;
     return payload;
 }
 
@@ -604,9 +380,7 @@ static Json::Value metrics_payload(const FullMetricsResult& metrics) {
 }
 
 static void copy_top_metrics(Json::Value& response, const Json::Value& metrics) {
-    for (const char* key : {"yearly", "timeseries", "isStartIndex", "osStartIndex", "missingData",
-                            "settlementLog", "settlementLogUnheld", "corporateActions",
-                            "distributionLog", "costs"})
+    for (const char* key : {"yearly", "timeseries", "isStartIndex", "osStartIndex", "missingData", "costs"})
         if (metrics.isMember(key)) response[key] = metrics[key];
 }
 
@@ -665,6 +439,11 @@ int main(int argc, char* argv[])
             for (const auto& sym : g_data.symbols)
                 if (all.isMember(sym)) { g_symbol_labels[sym] = all[sym]; ++matched; }
             std::cout << "Symbol labels: " << matched << "/" << g_data.N << " panel symbols labeled" << std::endl;
+        } else if (g_config.base_thin) {
+            const auto labels = parquet_reader::load_thin_symbol_labels(g_config, g_data.symbols);
+            for (const auto& [id, label] : labels) g_symbol_labels[id] = label;
+            std::cout << "Symbol labels: " << labels.size() << "/" << g_data.N
+                      << " panel symbols labeled from thin master" << std::endl;
         }
     } catch (const std::exception& error) {
         std::cerr << "Cannot start: " << error.what() << std::endl;
@@ -677,47 +456,6 @@ int main(int argc, char* argv[])
                   << g_config.missing_close_policy << std::endl;
         return 1;
     }
-    // config_loader accepts only the two spellings, so a plain mapping suffices here.
-    g_unpriced_child = g_config.corporate_actions.unpriced_child == "drop"
-        ? UnpricedChildPolicy::Drop : UnpricedChildPolicy::Pending;
-    g_unresolved_policy = g_config.corporate_actions.unresolved_policy == "strict"
-        ? UnresolvedPolicy::Strict : UnresolvedPolicy::Warn;
-    // eventsLoaded counts the panel symbols that matched a row in the events file,
-    // which is exactly what the three guard buckets partition.
-    g_events_loaded = g_data.events_rows_matched;
-    for (unsigned ii = 0; ii < g_data.N; ++ii) {
-        if (ii < g_data.settlement_bar.size() && g_data.settlement_bar[ii] >= 0)
-            ++g_settlement_symbols;
-        if (ii < g_data.settlement_successor.size() && g_data.settlement_successor[ii] >= 0)
-            ++g_successor_events;
-    }
-    std::cout << "Settlement events: " << g_events_loaded << " rows matched, "
-              << g_settlement_symbols << " opening inside the panel, "
-              << g_successor_events << " with a successor; price guard "
-              << g_data.events_price_checks << " checked / "
-              << g_data.events_price_checks_out_of_range << " out of range / "
-              << g_data.events_price_checks_not_evaluable << " not evaluable" << std::endl;
-    if (g_data.corporate_actions_loaded)
-        std::cout << "Corporate actions: " << g_data.corporate_action_rows << " ledger rows, "
-                  << g_data.corporate_action_rows_matched << " on panel symbols ("
-                  << g_data.corporate_action_rows_quantity << " quantity, "
-                  << g_data.corporate_action_rows_unresolved << " unresolved), "
-                  << g_data.corporate_action_legs << " legs inside the panel ("
-                  << g_data.corporate_action_legs_estimated << " estimated, "
-                  << g_data.corporate_action_legs_unbookable << " without amount/child, "
-                  << g_data.corporate_action_legs_value_only << " value-only (child outside the panel), "
-                  << g_data.corporate_action_legs_rights << " rights"
-                  << (g_data.corporate_action_rights_terms_loaded
-                          ? " with terms, " + std::to_string(g_data.corporate_action_rights_without_expiry) + " without expiry, "
-                          : " without terms columns, ")
-                  << g_data.corporate_action_unpriced_children << " with an unpriced child, "
-                  << g_data.corporate_action_legs_after_parent_end << " inside the parent's settlement window), "
-                  << g_data.corporate_action_out_of_range << " out of range; price guard "
-                  << g_data.corporate_action_price_checks << " checked / "
-                  << g_data.corporate_action_price_checks_not_evaluable << " not evaluable; unresolved_policy "
-                  << unresolved_policy_name(g_unresolved_policy)
-                  << std::endl;
-
     // Alphas directory (relative to config.yaml)
     g_alphas_dir = cfg_dir / "alphas";
     fs::create_directories(g_alphas_dir);
@@ -798,53 +536,7 @@ int main(int argc, char* argv[])
             json["combinedMode"] = g_config.combined_mode;
             json["mode"] = g_config.mode;
             json["missingClosePolicy"] = missing_close_policy_name(g_missing_close_policy);
-            json["defaultDelistingReturn"] = g_config.default_delisting_return;
-            json["staleQuoteSettleBars"] = g_config.stale_quote_settle_bars;
             json["thinLayout"] = g_data.thin_layout;
-            // eventsLoaded: panel symbols matched to a row in the events file.
-            // settlementSymbols: of those, the ones whose settlement opens inside
-            // this panel (an end date before the last bar). The three guard counts
-            // partition eventsLoaded, one bucket per matched row.
-            json["eventsLoaded"] = static_cast<Json::UInt64>(g_events_loaded);
-            json["settlementSymbols"] = static_cast<Json::UInt64>(g_settlement_symbols);
-            json["successorEvents"] = static_cast<Json::UInt64>(g_successor_events);
-            json["eventsPriceChecks"] = static_cast<Json::UInt64>(g_data.events_price_checks);
-            json["eventsPriceChecksOutOfRange"] =
-                static_cast<Json::UInt64>(g_data.events_price_checks_out_of_range);
-            json["eventsPriceChecksNotEvaluable"] =
-                static_cast<Json::UInt64>(g_data.events_price_checks_not_evaluable);
-            // Corporate-action ledger report: rows in the file, rows on panel
-            // symbols, legs scheduled inside the panel and the guard partition
-            // of those legs (checked + notEvaluable = legs).
-            Json::Value actions;
-            actions["loaded"] = g_data.corporate_actions_loaded;
-            actions["rows"] = static_cast<Json::UInt64>(g_data.corporate_action_rows);
-            actions["rowsMatched"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_matched);
-            actions["rowsQuantity"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_quantity);
-            actions["rowsUnresolved"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_unresolved);
-            actions["legs"] = static_cast<Json::UInt64>(g_data.corporate_action_legs);
-            actions["legsEstimated"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_estimated);
-            actions["legsUnbookable"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_unbookable);
-            actions["legsValueOnly"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_value_only);
-            actions["legsRights"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_rights);
-            actions["rightsTermsLoaded"] = g_data.corporate_action_rights_terms_loaded;
-            actions["rightsWithoutExpiry"] =
-                static_cast<Json::UInt64>(g_data.corporate_action_rights_without_expiry);
-            actions["autoExercise"] = g_config.corporate_actions.auto_exercise;   // always false: refused otherwise
-            actions["legsAfterParentEnd"] =
-                static_cast<Json::UInt64>(g_data.corporate_action_legs_after_parent_end);
-            actions["legsOutOfRange"] = static_cast<Json::UInt64>(g_data.corporate_action_out_of_range);
-            actions["unpricedChildren"] =
-                static_cast<Json::UInt64>(g_data.corporate_action_unpriced_children);
-            actions["priceChecks"] = static_cast<Json::UInt64>(g_data.corporate_action_price_checks);
-            actions["priceChecksNotEvaluable"] =
-                static_cast<Json::UInt64>(g_data.corporate_action_price_checks_not_evaluable);
-            actions["applyDividends"] = g_config.corporate_actions.apply_dividends;
-            actions["applyDistributions"] = g_config.corporate_actions.apply_distributions;
-            actions["unpricedChild"] = unpriced_child_name(g_unpriced_child);
-            actions["staleCheck"] = g_config.corporate_actions.stale_check;
-            actions["unresolvedPolicy"] = unresolved_policy_name(g_unresolved_policy);
-            json["corporateActions"] = actions;
             // Cost modules: the borrow block as configured plus the rate table's coverage.
             Json::Value borrow;
             borrow["enabled"] = g_borrow.enabled();

@@ -6,6 +6,7 @@
 #include "compiler/expr_parser.h"
 #include "data/config_loader.h"
 #include "data/data_panel.h"
+#include "data/parquet_reader.h"
 #include <arrow/api.h>
 #include <arrow/io/file.h>
 #include <parquet/arrow/writer.h>
@@ -49,6 +50,12 @@ std::shared_ptr<arrow::Array> stamps(const std::vector<std::optional<int64_t>>& 
 std::shared_ptr<arrow::Array> strings(const std::vector<std::string>& input) {
     arrow::StringBuilder builder;
     for (const auto& value : input) if (!builder.Append(value).ok()) throw std::runtime_error("append");
+    return builder.Finish().ValueOrDie();
+}
+std::shared_ptr<arrow::Array> nullable_strings(const std::vector<std::optional<std::string>>& input) {
+    arrow::StringBuilder builder;
+    for (const auto& value : input)
+        if (!(value ? builder.Append(*value) : builder.AppendNull()).ok()) throw std::runtime_error("append");
     return builder.Finish().ValueOrDie();
 }
 std::shared_ptr<arrow::Array> bools(const std::vector<bool>& input) {
@@ -136,6 +143,23 @@ unsigned index_of(const DataPanel& panel, const std::string& symbol) {
     if (found == panel.symbols.end()) throw std::runtime_error("symbol not loaded: " + symbol);
     return static_cast<unsigned>(found - panel.symbols.begin());
 }
+}
+
+TEST(ThinLoader, LabelsPanelSymbolsFromThinMaster) {
+    ThinCache cache;
+    cache.write("cache/master.parquet", {"tradingItemId", "symbol", "companyName"},
+                {ids({101, 102, 103, 999}),
+                 nullable_strings({" AAA ", std::nullopt, " ", "OTHER"}),
+                 nullable_strings({"Alpha Corp", "Beta Corp", std::nullopt, "Unselected Corp"})});
+    const auto config = BacktestConfig::from_yaml(cache.config(top500));
+    ASSERT_TRUE(config.base_thin);
+    const auto labels = parquet_reader::load_thin_symbol_labels(
+        config, {"101", "102", "103", "104"});
+    EXPECT_EQ(labels.size(), 2u);
+    EXPECT_EQ(labels.at("101"), "AAA");
+    EXPECT_EQ(labels.at("102"), "Beta Corp");
+    EXPECT_EQ(labels.count("103"), 0u);
+    EXPECT_EQ(labels.count("999"), 0u);
 }
 
 TEST(ThinLoader, DetectsLayoutAndLoadsRawPricesAndFactors) {
@@ -239,20 +263,8 @@ TEST(ThinLoader, ReturnsExpressionUsesTheFieldOnThinPanels) {
     EXPECT_GT(owned2.size(), 3u);
 }
 
-TEST(ThinLoader, RefusesEventsCorporateActionsAndMissingUniverseName) {
+TEST(ThinLoader, MissingUniverseNameIsRejected) {
     ThinCache cache;
-    try {
-        BacktestConfig::from_yaml(cache.config(top500, "events:\n  path: x.parquet\n"));
-        FAIL() << "events accepted with a thin cache";
-    } catch (const std::runtime_error& error) {
-        EXPECT_NE(std::string(error.what()).find("thin-v1"), std::string::npos);
-    }
-    try {
-        BacktestConfig::from_yaml(cache.config(top500, "", "  corporate_actions:\n    path: x.parquet\n"));
-        FAIL() << "corporate_actions accepted with a thin cache";
-    } catch (const std::runtime_error& error) {
-        EXPECT_NE(std::string(error.what()).find("thin-v1"), std::string::npos);
-    }
     const auto config = BacktestConfig::from_yaml(cache.config("universe:\n  path: universe.parquet\n"));
     try {
         DataPanel::load(config);

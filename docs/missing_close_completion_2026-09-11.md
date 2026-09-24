@@ -1,5 +1,7 @@
 # 결측 종가·상폐 회계 구현 완료 기록 — 2026-09-11
 
+> 역사 기록: 아래 Phase 1의 사건별 C++ 정산과 run_top500_missing_close.py 실행 절차는 thin-v1 경로로 교체되어 현재 실행 명령이 아니다. 검증 자료와 당시 수치는 재현 근거로 보존한다.
+
 기준: HEAD `2e77af1` 위의 미커밋 변경(24개 파일 수정, 신규 6개). 리드(Claude)가 engine·data·oracle 3역할 + 독립 리뷰어를 오케스트레이션함. 계약 원문은 [missing_data_validation_2026-09-11.md](missing_data_validation_2026-09-11.md), 구현 브리프·담당별 보고·리뷰·실행 증거는 [missing_close_2026-09-11/](missing_close_2026-09-11/)에 있음.
 
 ## 1. 요약
