@@ -1,0 +1,17 @@
+=== Top500 ===
+OK    afl_963_zscore R=-1 0.175s 
+
+/tmp/claude-1008/-home-jgo/3bd99f3c-b437-4ac4-934f-711593113d11/scratchpad/live/p2e_Top500/report.md
+10 runs, 0 not OK -> exit 0
+=== Top1000 ===
+OK    afl_963_zscore R=-1 0.392s 
+
+/tmp/claude-1008/-home-jgo/3bd99f3c-b437-4ac4-934f-711593113d11/scratchpad/live/p2e_Top1000/report.md
+10 runs, 0 not OK -> exit 0
+=== ALL ===
+OK    afl_963_zscore R=-1 0.977s 
+
+/tmp/claude-1008/-home-jgo/3bd99f3c-b437-4ac4-934f-711593113d11/scratchpad/live/p2e_ALL/report.md
+10 runs, 0 not OK -> exit 0
+=== done Mon Sep 14 10:57:58 AM KST 2026 ===
+harness exit: 0

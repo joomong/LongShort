@@ -11,13 +11,11 @@ import {
   toMultiSeriesData,
   toAlignedData,
   buildUPlotAxes,
-  fmtMonth,
-  fmtDate,
-  getDPR,
-  TOOLTIP_STYLE,
 } from '@/lib/uplotUtils';
+import { chartInteraction } from '@/lib/chartInteraction';
 import { useContainerSize, useUPlot } from '@/lib/uplotAdapters';
 import type { BacktestAlphaResult } from '@/types';
+import { REPORT_BOOK_DOLLARS, MILLION_DOLLARS } from '@/lib/reportUnits';
 
 export type DetailMetricKey = 'pnl' | 'turnover' | 'nonZero' | 'maxWeight' | 'mdd' | 'minBet';
 
@@ -38,7 +36,9 @@ interface IsOsSeriesPoint {
   osValue?: number;
 }
 
-const DEFAULT_CAPITAL = 100000;
+// Use the same period colors and line weight across every detail metric.
+const PERIOD_IS_COLOR = '#df8e13';
+const PERIOD_OS_COLOR = '#258249';
 
 export function seriesToChartData(
   series: Record<string, number | null> | null | undefined
@@ -148,7 +148,7 @@ const FMT_MDD = (v: number) => `${v.toFixed(2)}%`;
 const FMT_MINBET = (v: number) => v.toFixed(4);
 const FMT_MAXWGT = (v: number) => `${v.toFixed(2)}%`;
 const FMT_NONZERO = (v: number) => `${v.toFixed(0)}`;
-const FMT_USD = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const FMT_USD = (v: number) => `$${(v / MILLION_DOLLARS).toFixed(2)}M`;
 
 const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: { pnlData: PnlSeriesPoint[]; osStartDate?: string }) {
   const theme = useThemeStore(s => s.theme);
@@ -156,7 +156,6 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
 
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useContainerSize(containerRef);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const uData = useMemo<uPlot.AlignedData>(() => {
     const len = pnlData.length;
@@ -174,33 +173,44 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
   const osUnix = useMemo(() => osStartDate ? dateStrToUnix(osStartDate) : null, [osStartDate]);
 
   const opts = useMemo<uPlot.Options | null>(() => {
-    if (size.width === 0 || size.height === 0) return null;
     const [axisX, axisY] = buildUPlotAxes(colors);
+    // Both cumulative curves stay continuous; only their color changes at OS.
+    // Net/Gross use solid/dashed strokes, IS/OS use amber/green.
+    const periodStroke = (u: uPlot) => {
+      if (osUnix === null) return PERIOD_IS_COLOR;
+      const split = u.valToPos(osUnix, 'x', true);
+      const { left, width } = u.bbox;
+      if (split <= left) return PERIOD_OS_COLOR;
+      if (split >= left + width || width <= 0) return PERIOD_IS_COLOR;
+      const gradient = u.ctx.createLinearGradient(left, 0, left + width, 0);
+      const fraction = (split - left) / width;
+      gradient.addColorStop(0, PERIOD_IS_COLOR);
+      gradient.addColorStop(fraction, PERIOD_IS_COLOR);
+      gradient.addColorStop(fraction, PERIOD_OS_COLOR);
+      gradient.addColorStop(1, PERIOD_OS_COLOR);
+      return gradient;
+    };
     return {
-      width: size.width,
-      height: size.height,
+      width: 1,
+      height: 1,
       padding: [8, 10, 0, 0],
       cursor: {
         y: false,
-        drag: { x: true, y: false, dist: 10 },
+        drag: { x: false, y: false },
       },
       legend: { show: false },
+      plugins: [chartInteraction(FMT_USD, false)],
       scales: { x: { time: true }, y: { auto: true } },
       axes: [
-        { ...axisX, values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth), gap: 5, size: 40 },
-        { ...axisY, show: false },
+        { ...axisX, gap: 5, size: 40 },
+        { ...axisY, show: true, size: 70, values: (_u, values) => values.map(v => (v / MILLION_DOLLARS).toLocaleString(undefined, { maximumFractionDigits: 2 })) },
       ],
       series: [
         {},
-        { stroke: '#4af6c3', width: 2, label: 'Net' },
-        { stroke: '#ff9800', width: 1.5, label: 'Gross', dash: [4, 3] },
+        { stroke: periodStroke, width: 2, label: 'Net', points: { show: false } },
+        { stroke: periodStroke, width: 2, label: 'Gross', dash: [4, 3], points: { show: false } },
       ],
       hooks: {
-        init: [(u: uPlot) => {
-          u.over.addEventListener('dblclick', () => {
-            u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
-          });
-        }],
         draw: [
           (u: uPlot) => {
             if (osUnix == null) return;
@@ -224,54 +234,37 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
             ctx.restore();
           },
         ],
-        setCursor: [(u: uPlot) => {
-          const tt = tooltipRef.current;
-          if (!tt) return;
-          const { idx, left, top } = u.cursor;
-          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
-          const netVal = u.data[1][idx] as number | null;
-          const grossVal = u.data[2][idx] as number | null;
-          if (netVal == null && grossVal == null) { tt.style.display = 'none'; return; }
-          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
-          if (netVal != null) html += `<div><span style="color:#4af6c3">Net:</span> ${FMT_USD(netVal)}</div>`;
-          if (grossVal != null) html += `<div><span style="color:#ff9800">Gross:</span> ${FMT_USD(grossVal)}</div>`;
-          tt.innerHTML = html;
-          tt.style.display = 'block';
-          const dpr = getDPR();
-          const bL = u.bbox.left / dpr;
-          const bT = u.bbox.top / dpr;
-          let x = left + bL + 15;
-          const ttMaxW = 150;
-          if (x + ttMaxW > size.width) {
-            x = left + bL - ttMaxW - 15;
-          }
-          tt.style.left = `${x}px`;
-          tt.style.top = `${(top ?? 0) + bT - 10}px`;
-        }],
       },
     };
-  }, [size.width, size.height, colors, osUnix]);
+  }, [colors, osUnix]);
 
-  useUPlot(containerRef, opts, uData, size);
+  useUPlot(containerRef, opts, uData, size, pnlData);
 
   if (pnlData.length === 0) {
     return (
-      <div className="h-full flex flex-col">
-        <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
+      <div className="h-full min-h-0 min-w-0 flex flex-col">
+        <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
+        <span>PnL ($M)</span>
+        <span className="text-foreground-secondary">━ Net</span>
+        <span className="text-foreground-secondary">┄ Gross</span>
+        <span style={{ color: PERIOD_IS_COLOR }}>━ IS</span>
+        {osUnix !== null ? <span style={{ color: PERIOD_OS_COLOR }}>━ OS</span> : null}
+      </div>
         <div className="flex-1 bg-chart-background" />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col relative">
-      <div className="px-3 py-2"><span className="text-xs text-foreground-muted">PnL ($)</span></div>
-      <div ref={containerRef} className="flex-1 relative" />
-      <div
-        ref={tooltipRef}
-        suppressHydrationWarning
-        style={{ ...TOOLTIP_STYLE, backgroundColor: colors.backgroundElevated, border: `1px solid ${colors.chartGrid}`, color: colors.chartText }}
-      />
+    <div className="h-full min-h-0 min-w-0 flex flex-col relative">
+      <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
+        <span>PnL ($M)</span>
+        <span className="text-foreground-secondary">━ Net</span>
+        <span className="text-foreground-secondary">┄ Gross</span>
+        <span style={{ color: PERIOD_IS_COLOR }}>━ IS</span>
+        {osUnix !== null ? <span style={{ color: PERIOD_OS_COLOR }}>━ OS</span> : null}
+      </div>
+      <div ref={containerRef} className="flex-1 min-h-0 min-w-0 relative" />
     </div>
   );
 });
@@ -303,7 +296,6 @@ const BigChart = React.memo(function BigChart({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useContainerSize(containerRef);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const uData = useMemo<uPlot.AlignedData>(() => {
     if (hasOs && mergedData) {
@@ -313,84 +305,50 @@ const BigChart = React.memo(function BigChart({
   }, [data, mergedData, hasOs]);
 
   const opts = useMemo<uPlot.Options | null>(() => {
-    if (size.width === 0 || size.height === 0) return null;
     const [axisX, axisY] = buildUPlotAxes(colors);
     const seriesDefs: uPlot.Series[] = hasOs
-      ? [{}, { stroke: color, width: 2, label: 'IS' }, { stroke: osColor ?? '#ff9800', width: 2, label: 'OS' }]
+      ? [{}, { stroke: color, width: 2, label: 'IS' }, { stroke: osColor ?? PERIOD_OS_COLOR, width: 2, label: 'OS' }]
       : [{}, { stroke: color, width: 2, label: title }];
 
     return {
-      width: size.width,
-      height: size.height,
+      width: 1,
+      height: 1,
       padding: [8, 10, 0, 0],
-      cursor: { y: false, drag: { x: true, y: false, dist: 10 } },
+      cursor: { y: false, drag: { x: false, y: false } },
       legend: { show: false },
+      plugins: [chartInteraction(fmt, false)],
       scales: { x: { time: true }, y: { auto: true } },
       axes: [
-        { ...axisX, values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth), gap: 5, size: 40 },
-        { ...axisY, show: false },
+        { ...axisX, gap: 5, size: 40 },
+        { ...axisY, show: true, size: 70 },
       ],
       series: seriesDefs,
       hooks: {
-        init: [(u: uPlot) => {
-          u.over.addEventListener('dblclick', () => {
-            u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
-          });
-        }],
-        setCursor: [(u: uPlot) => {
-          const tt = tooltipRef.current;
-          if (!tt) return;
-          const { idx, left, top } = u.cursor;
-          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
-          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
-          if (hasOs) {
-            const isV = u.data[1][idx] as number | null;
-            const osV = u.data[2][idx] as number | null;
-            if (isV == null && osV == null) { tt.style.display = 'none'; return; }
-            if (isV != null) html += `<div><span style="color:${color}">IS:</span> ${fmt(isV)}</div>`;
-            if (osV != null) html += `<div><span style="color:${osColor ?? '#ff9800'}">OS:</span> ${fmt(osV)}</div>`;
-          } else {
-            const v = u.data[1][idx] as number | null;
-            if (v == null) { tt.style.display = 'none'; return; }
-            html += `<div>${fmt(v)}</div>`;
-          }
-          tt.innerHTML = html;
-          tt.style.display = 'block';
-          const dpr = getDPR();
-          const bL = u.bbox.left / dpr;
-          const bT = u.bbox.top / dpr;
-          let x = left + bL + 15;
-          const ttMaxW = 150;
-          if (x + ttMaxW > size.width) {
-            x = left + bL - ttMaxW - 15;
-          }
-          tt.style.left = `${x}px`;
-          tt.style.top = `${(top ?? 0) + bT - 10}px`;
-        }],
       },
     };
-  }, [size.width, size.height, colors, color, osColor, hasOs, title, fmt]);
+  }, [colors, color, osColor, hasOs, title, fmt]);
 
-  useUPlot(containerRef, opts, uData, size);
+  useUPlot(containerRef, opts, uData, size, data);
 
   if (data.length === 0) {
     return (
-      <div className="h-full flex flex-col">
-        <div className="px-3 py-2"><span className="text-xs text-foreground-muted">{title}</span></div>
+      <div className="h-full min-h-0 min-w-0 flex flex-col">
+        <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
+        <span>{title}</span>
+        {hasOs ? <><span style={{ color }}>━ IS</span><span style={{ color: osColor }}>━ OS</span></> : null}
+      </div>
         <div className="flex-1 bg-chart-background" />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col relative">
-      <div className="px-3 py-2"><span className="text-xs text-foreground-muted">{title}</span></div>
-      <div ref={containerRef} className="flex-1 relative" />
-      <div
-        ref={tooltipRef}
-        suppressHydrationWarning
-        style={{ ...TOOLTIP_STYLE, backgroundColor: colors.backgroundElevated, border: `1px solid ${colors.chartGrid}`, color: colors.chartText }}
-      />
+    <div className="h-full min-h-0 min-w-0 flex flex-col relative">
+      <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
+        <span>{title}</span>
+        {hasOs ? <><span style={{ color }}>━ IS</span><span style={{ color: osColor }}>━ OS</span></> : null}
+      </div>
+      <div ref={containerRef} className="flex-1 min-h-0 min-w-0 relative" />
     </div>
   );
 });
@@ -398,16 +356,14 @@ const BigChart = React.memo(function BigChart({
 export default function DetailTimeSeries({
   alpha,
   metric,
-  initialCapital,
 }: {
   alpha: BacktestAlphaResult;
   metric: DetailMetricKey;
-  initialCapital?: number;
 }) {
   const transactionFeeRate = useAlphaStore(
     (s) => s.config?.feeRate ?? 0.001
   );
-  const capital = initialCapital ?? DEFAULT_CAPITAL;
+  const capital = REPORT_BOOK_DOLLARS;
 
   const fullRetSeries = useMemo(() => ({
     ...alpha.isRetSeries,
@@ -480,9 +436,9 @@ export default function DetailTimeSeries({
       <BigChart
         title="Turnover (%)"
         data={turnoverData}
-        color="#0078ff"
+        color={PERIOD_IS_COLOR}
         osData={osTurnoverData}
-        osColor="#ff9800"
+        osColor={PERIOD_OS_COLOR}
         formatValue={FMT_TURNOVER}
       />
     );
@@ -493,9 +449,9 @@ export default function DetailTimeSeries({
       <BigChart
         title="MDD (%)"
         data={isMddData}
-        color="#ff433d"
+        color={PERIOD_IS_COLOR}
         osData={osMddData}
-        osColor="#ff9800"
+        osColor={PERIOD_OS_COLOR}
         formatValue={FMT_MDD}
       />
     );
@@ -506,9 +462,9 @@ export default function DetailTimeSeries({
       <BigChart
         title="Min Bet"
         data={minBetData}
-        color="#0078ff"
+        color={PERIOD_IS_COLOR}
         osData={osMinBetData}
-        osColor="#ff9800"
+        osColor={PERIOD_OS_COLOR}
         formatValue={FMT_MINBET}
       />
     );
@@ -519,9 +475,9 @@ export default function DetailTimeSeries({
       <BigChart
         title="Max Weight"
         data={maxWeightData}
-        color="#0078ff"
+        color={PERIOD_IS_COLOR}
         osData={osMaxWeightData}
-        osColor="#ff9800"
+        osColor={PERIOD_OS_COLOR}
         formatValue={FMT_MAXWGT}
       />
     );
@@ -531,9 +487,9 @@ export default function DetailTimeSeries({
     <BigChart
       title="Non-zero Position"
       data={nonZeroData}
-      color="#0078ff"
+      color={PERIOD_IS_COLOR}
       osData={osNonZeroData}
-      osColor="#ff9800"
+      osColor={PERIOD_OS_COLOR}
       formatValue={FMT_NONZERO}
     />
   );

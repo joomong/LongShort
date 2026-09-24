@@ -50,6 +50,7 @@ interface AlphaState {
   selectedAlphaIndices: number[];
   selectedAlphaIndexSet: Set<number>; // O(1) .has() lookup (js-set-map-lookups)
   toggleAlphaSelection: (index: number) => void;
+  toggleAllAlphaSelection: () => void;
   clearAlphaSelection: () => void;
 
   // Modal States
@@ -151,7 +152,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
       const preserveDetail = state.gaProgress && state.viewMode === 'detail';
       const selectedAlphaIndex = preserveDetail && state.selectedAlphaIndex !== null &&
         (state.selectedAlphaIndex === -1 ? !!result?.combined : !!result?.alphas[state.selectedAlphaIndex])
-        ? state.selectedAlphaIndex : null;
+        ? state.selectedAlphaIndex : isMulti ? (result?.combined ? -1 : 0) : null;
       const selectedSignalAlphaIndex = selectedAlphaIndex ?? (result?.combined ? -1 : result?.alphas.length ? 0 : null);
       return {
         result,
@@ -184,7 +185,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
     const signalCacheOrder = [...state.signalCacheOrder.filter(item => item !== index), index];
     while (signalCacheOrder.length > MAX_CACHED_SIGNAL_ALPHAS) {
       const evicted = signalCacheOrder.shift()!;
-      alphas[evicted] = { ...alphas[evicted], heatmap: undefined, signalRange: undefined, distribution: undefined };
+      alphas[evicted] = { ...alphas[evicted], heatmap: undefined, signalRange: undefined, distribution: undefined, distributionBins: undefined, distributionRange: undefined, distributionExamples: undefined, signalDistributionLog: undefined };
     }
     return {
       signalCacheOrder,
@@ -232,6 +233,12 @@ export const useAlphaStore = create<AlphaState>((set) => ({
         : [...state.selectedAlphaIndices, index];
       return { selectedAlphaIndices, selectedAlphaIndexSet: new Set(selectedAlphaIndices) };
     }),
+  toggleAllAlphaSelection: () => set((state) => {
+    const indices = state.result?.alphas.map((_, index) => index) ?? [];
+    const allSelected = indices.length > 0 && indices.every(index => state.selectedAlphaIndexSet.has(index));
+    const selectedAlphaIndices = allSelected ? [] : indices;
+    return { selectedAlphaIndices, selectedAlphaIndexSet: new Set(selectedAlphaIndices) };
+  }),
   clearAlphaSelection: () => set({ selectedAlphaIndices: [], selectedAlphaIndexSet: new Set() }),
 
   // Modal States

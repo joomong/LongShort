@@ -10,7 +10,13 @@ TimeseriesOutput compute_timeseries(
     const std::vector<double>& max_weight,
     const std::vector<int>& position_count,
     double fee_rate,
-    std::size_t start_index)
+    std::size_t start_index,
+    const std::vector<double>* frozen_gross,
+    const std::vector<double>* settled_gross,
+    const std::vector<double>* dividend_pnl,
+    const std::vector<double>* distribution_pnl,
+    const std::vector<double>* borrow_cost,
+    const std::vector<double>* unconfirmed_weight)
 {
     TimeseriesOutput out;
 
@@ -31,6 +37,12 @@ TimeseriesOutput compute_timeseries(
     out.position_count.reserve(n);
     out.max_weight_pct.reserve(n);
     out.drawdown.reserve(n);
+    if (frozen_gross != nullptr) out.frozen_gross.reserve(n);
+    if (settled_gross != nullptr) out.settled_gross.reserve(n);
+    if (dividend_pnl != nullptr) out.dividend_pnl.reserve(n);
+    if (distribution_pnl != nullptr) out.distribution_pnl.reserve(n);
+    if (borrow_cost != nullptr) out.borrow_cost.reserve(n);
+    if (unconfirmed_weight != nullptr) out.unconfirmed_weight.reserve(n);
 
     double cp_net = 0.0;
     double cp_gross = 0.0;
@@ -45,8 +57,10 @@ TimeseriesOutput compute_timeseries(
         // Net cumulative PnL (additive)
         cp_net += r;
 
-        // Gross cumulative PnL: restore fee to get gross return
+        // Gross cumulative PnL: restore fee (and any financing) to get gross return
+        const double borrow = borrow_cost != nullptr && i < borrow_cost->size() ? (*borrow_cost)[i] : 0.0;
         double r_gross = r + tvr * fee_rate;
+        if (borrow != 0.0) r_gross += borrow;
         cp_gross += r_gross;
 
         // Drawdown (additive: peak - current)
@@ -60,6 +74,18 @@ TimeseriesOutput compute_timeseries(
         out.position_count.push_back(nz);
         out.max_weight_pct.push_back(mw * 100.0);
         out.drawdown.push_back(dd);
+        // Bars outside a supplied series keep the neutral zero exposure.
+        if (frozen_gross != nullptr)
+            out.frozen_gross.push_back(i < frozen_gross->size() ? (*frozen_gross)[i] : 0.0);
+        if (settled_gross != nullptr)
+            out.settled_gross.push_back(i < settled_gross->size() ? (*settled_gross)[i] : 0.0);
+        if (dividend_pnl != nullptr)
+            out.dividend_pnl.push_back(i < dividend_pnl->size() ? (*dividend_pnl)[i] : 0.0);
+        if (distribution_pnl != nullptr)
+            out.distribution_pnl.push_back(i < distribution_pnl->size() ? (*distribution_pnl)[i] : 0.0);
+        if (borrow_cost != nullptr) out.borrow_cost.push_back(borrow);
+        if (unconfirmed_weight != nullptr)
+            out.unconfirmed_weight.push_back(i < unconfirmed_weight->size() ? (*unconfirmed_weight)[i] : 0.0);
     }
 
     return out;

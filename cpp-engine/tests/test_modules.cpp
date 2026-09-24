@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include <random>
 #include <vector>
 #include <limits>
 #include "signal_vector.h"
@@ -13,6 +14,7 @@
 #include "modules/Decay.h"
 #include "modules/Rank.h"
 #include "modules/Zscore.h"
+#include "modules/Neutralize.h"
 #include "modules/Ops.h"
 #include "modules/Constant.h"
 
@@ -325,4 +327,180 @@ TEST(Modules, CrossSectionZscoreExcludesExitedSymbolBeforeComputingMoments) {
     zscore.calculate(1, signal);
     for (float value : values) EXPECT_TRUE(std::isnan(value));
     EXPECT_EQ(panel.universe_mask, (std::vector<uint8_t>{1,0,1, 1,0,0}));
+}
+
+// ======== MNeutralize (cross-sectional group demean) ========
+
+// Group codes live in the panel field named by `column_name`, one row per date.
+static DataPanel make_group_panel(unsigned T, unsigned N, std::vector<float> codes) {
+    DataPanel dp;
+    dp.T = T;
+    dp.N = N;
+    dp.arrays["sector"] = std::move(codes);
+    return dp;
+}
+
+static void init_neutralize(MNeutralize& mod, const DataPanel& panel, unsigned N) {
+    mod.panel = &panel;
+    mod.group = "sector";
+    mod.column_name = "sector";
+    mod.numAssets = N;
+    mod.init();
+}
+
+TEST(MNeutralize, DemeansWithinEachGroup) {
+    auto dp = make_group_panel(1, 5, {1, 1, 1, 2, 2});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 5);
+
+    std::vector<float> buf = {1.0f, 2.0f, 3.0f, 10.0f, 20.0f};
+    SignalVector sv{buf.data(), 5};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], 0.0f, 1e-6f);
+    EXPECT_NEAR(buf[2], 1.0f, 1e-6f);
+    EXPECT_NEAR(buf[3], -5.0f, 1e-6f);
+    EXPECT_NEAR(buf[4], 5.0f, 1e-6f);
+}
+
+TEST(MNeutralize, UnclassifiedSymbolIsNaNAndExcludedFromTheMean) {
+    auto dp = make_group_panel(1, 3, {1, 1, NaN});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {1.0f, 3.0f, 100.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], 1.0f, 1e-6f);
+    EXPECT_TRUE(std::isnan(buf[2]));
+}
+
+TEST(MNeutralize, NegativeGroupCodeIsUnclassified) {
+    // Team `cs_group_neut` casts NaN codes to a negative int, so a finite
+    // negative code means the same thing as a missing one.
+    auto dp = make_group_panel(1, 3, {1, 1, -1});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {1.0f, 3.0f, 100.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], 1.0f, 1e-6f);
+    EXPECT_TRUE(std::isnan(buf[2]));
+}
+
+TEST(MNeutralize, NaNSignalStaysNaNAndLeavesTheMeanAlone) {
+    auto dp = make_group_panel(1, 3, {1, 1, 1});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {1.0f, NaN, 3.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_TRUE(std::isnan(buf[1]));
+    EXPECT_NEAR(buf[2], 1.0f, 1e-6f);
+}
+
+TEST(MNeutralize, SingletonGroupBecomesZero) {
+    auto dp = make_group_panel(1, 3, {2, 1, 1});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {7.0f, 1.0f, 3.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], 0.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[2], 1.0f, 1e-6f);
+}
+
+TEST(MNeutralize, ExcludedUniverseSymbolDoesNotEnterTheGroupMean) {
+    auto dp = make_group_panel(1, 3, {1, 1, 1});
+    dp.universe_mask = {1, 1, 0};
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {1.0f, 3.0f, 1000.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], 1.0f, 1e-6f);
+    EXPECT_TRUE(std::isnan(buf[2]));
+    EXPECT_EQ(dp.universe_mask, (std::vector<uint8_t>{1, 1, 0}));
+}
+
+TEST(MNeutralize, AllNaNRowStaysNaN) {
+    auto dp = make_group_panel(1, 2, {1, 1});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 2);
+
+    std::vector<float> buf = {NaN, NaN};
+    SignalVector sv{buf.data(), 2};
+    mod.calculate(0, sv);
+
+    EXPECT_TRUE(std::isnan(buf[0]));
+    EXPECT_TRUE(std::isnan(buf[1]));
+}
+
+TEST(MNeutralize, UsesTheGroupRowOfTheRequestedDate) {
+    // Day 0: {A,B} | {C}.  Day 1: {A} | {B,C}.
+    auto dp = make_group_panel(2, 3, {1, 1, 2,
+                                      1, 2, 2});
+    MNeutralize mod;
+    init_neutralize(mod, dp, 3);
+
+    std::vector<float> buf = {1.0f, 3.0f, 8.0f};
+    SignalVector sv{buf.data(), 3};
+    mod.calculate(0, sv);
+    EXPECT_NEAR(buf[0], -1.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], 1.0f, 1e-6f);
+    EXPECT_NEAR(buf[2], 0.0f, 1e-6f);
+
+    buf = {1.0f, 3.0f, 8.0f};
+    sv.data = buf.data();
+    mod.calculate(1, sv);
+    EXPECT_NEAR(buf[0], 0.0f, 1e-6f);
+    EXPECT_NEAR(buf[1], -2.5f, 1e-6f);
+    EXPECT_NEAR(buf[2], 2.5f, 1e-6f);
+}
+
+TEST(MNeutralize, EveryGroupSumsToZeroOnAWideRow) {
+    constexpr unsigned N = 200;
+    constexpr int kGroups = 11;
+    std::mt19937 rng(20260916u);
+    std::uniform_real_distribution<float> value_dist(-5.0f, 5.0f);
+
+    std::vector<float> codes(N);
+    for (unsigned n = 0; n < N; ++n)
+        codes[n] = static_cast<float>(1 + static_cast<int>(n) % kGroups);
+    auto dp = make_group_panel(1, N, codes);
+    MNeutralize mod;
+    init_neutralize(mod, dp, N);
+
+    std::vector<float> buf(N);
+    for (unsigned n = 0; n < N; ++n) buf[n] = value_dist(rng);
+    SignalVector sv{buf.data(), N};
+    mod.calculate(0, sv);
+
+    std::vector<double> sums(kGroups, 0.0);
+    std::vector<int> counts(kGroups, 0);
+    for (unsigned n = 0; n < N; ++n) {
+        ASSERT_TRUE(std::isfinite(buf[n])) << "n=" << n;
+        const int g = static_cast<int>(codes[n]) - 1;
+        sums[g] += buf[n];
+        ++counts[g];
+    }
+    for (int g = 0; g < kGroups; ++g) {
+        EXPECT_GT(counts[g], 1);
+        EXPECT_LT(std::fabs(sums[g]), 1e-5) << "group " << (g + 1);
+    }
 }

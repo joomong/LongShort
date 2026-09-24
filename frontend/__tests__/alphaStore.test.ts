@@ -1,3 +1,4 @@
+import { singleAlphaMetricFixture, multiAlphaMetricFixture } from './metricFixtures';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAlphaStore } from '@/store/alphaStore';
 
@@ -109,6 +110,42 @@ describe('selectedAlphaIndices', () => {
 
     useAlphaStore.getState().setResult(null);
 
+    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([]);
+    expect(useAlphaStore.getState().selectedAlphaIndexSet.size).toBe(0);
+  });
+});
+
+
+describe('initial result view', () => {
+  it('opens the top combined batch immediately for multiple alphas', () => {
+    const combined = { ...multiAlphaMetricFixture.alphas[0], name: 'combined' };
+    useAlphaStore.getState().setResult({ ...multiAlphaMetricFixture, combined });
+    expect(useAlphaStore.getState()).toMatchObject({ viewMode: 'detail', selectedAlphaIndex: -1 });
+  });
+  it('falls back to the first alpha if no combined batch is returned', () => {
+    useAlphaStore.getState().setResult(multiAlphaMetricFixture);
+    expect(useAlphaStore.getState()).toMatchObject({ viewMode: 'detail', selectedAlphaIndex: 0 });
+  });
+  it('keeps single-run signal analysis and clears detail on reset', () => {
+    useAlphaStore.getState().setResult(multiAlphaMetricFixture);
+    useAlphaStore.getState().setResult(singleAlphaMetricFixture);
+    expect(useAlphaStore.getState()).toMatchObject({ viewMode: 'single', selectedAlphaIndex: null });
+    useAlphaStore.getState().setResult(null);
+    expect(useAlphaStore.getState()).toMatchObject({ viewMode: 'single', selectedAlphaIndex: null, result: null });
+  });
+});
+
+
+describe('batch selection', () => {
+  it('fills a partial selection, then clears all without changing the detail', () => {
+    useAlphaStore.getState().setResult(multiAlphaMetricFixture);
+    useAlphaStore.getState().toggleAlphaSelection(1);
+    const selectedDetail = useAlphaStore.getState().selectedAlphaIndex;
+    useAlphaStore.getState().toggleAllAlphaSelection();
+    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([0, 1]);
+    expect(useAlphaStore.getState().selectedAlphaIndexSet).toEqual(new Set([0, 1]));
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBe(selectedDetail);
+    useAlphaStore.getState().toggleAllAlphaSelection();
     expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([]);
     expect(useAlphaStore.getState().selectedAlphaIndexSet.size).toBe(0);
   });

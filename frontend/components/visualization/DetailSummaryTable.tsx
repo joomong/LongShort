@@ -2,14 +2,14 @@
 
 import React from 'react';
 import type { BacktestAlphaResult } from '@/types';
-import { getSignCellColor, getMetricCellColor } from '@/lib/metricColors';
+import { REPORT_BOOK_M } from '@/lib/reportUnits';
 
 export default function DetailSummaryTable({ alpha }: { alpha: BacktestAlphaResult }) {
   const yearly = alpha.yearly;
 
   if (!yearly || yearly.length === 0) {
     return (
-      <div className="border-t border-border px-3 py-3 text-sm text-foreground-muted">
+      <div className="border-t border-border px-3 py-3 text-sm text-data-color">
         No yearly summary (missing yearly data from engine)
       </div>
     );
@@ -17,37 +17,39 @@ export default function DetailSummaryTable({ alpha }: { alpha: BacktestAlphaResu
 
   return (
     <div>
-      <div className="px-3 py-2 text-[11px] text-foreground-muted border-b border-border">
-        Yearly Table
-      </div>
-
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+        <table aria-label="Yearly performance" className="w-full text-[11px] font-sans border-collapse whitespace-nowrap text-data-color">
           <thead>
-            <tr className="text-xs uppercase tracking-wider font-medium text-foreground-secondary border-b border-border-strong">
-              <th className="text-left px-3 py-1.5">Year</th>
-              <th className="text-right px-3 py-1.5">Long SM</th>
-              <th className="text-right px-3 py-1.5">Short SM</th>
-              <th className="text-right px-3 py-1.5">PnL</th>
-              <th className="text-right px-3 py-1.5">Ann.Net</th>
-              <th className="text-right px-3 py-1.5">Sharpe(f)</th>
-              <th className="text-right px-3 py-1.5">Max DD</th>
-              <th className="text-right px-3 py-1.5">Daily TVR</th>
-              <th className="text-right px-3 py-1.5">Margin</th>
+            <tr className="text-[10px] font-semibold text-data-color">
+              <th className="text-left px-1.5 py-0.5">year</th>
+              <th className="text-right px-1.5 py-0.5">long $M</th>
+              <th className="text-right px-1.5 py-0.5">short $M</th>
+              <th className="text-right px-1.5 py-0.5" title="Fixed $20 million reporting book">bks $M</th>
+              <th className="text-right px-1.5 py-0.5">pnl $M</th>
+              <th className="text-right px-1.5 py-0.5">ann.ret</th>
+              <th className="text-right px-1.5 py-0.5">sharpe[f]</th>
+              <th className="text-right px-1.5 py-0.5">max.dd</th>
+              <th className="text-right px-1.5 py-0.5" title="Bars with positive return / valid return bars">win/lose</th>
+              <th className="text-right px-1.5 py-0.5">daily tvr</th>
+              <th className="text-right px-1.5 py-0.5">margin</th>
+              <th className="text-right px-1.5 py-0.5">fitness</th>
             </tr>
           </thead>
           <tbody>
-            {yearly.map((r) => (
-              <tr key={r.year} className="border-b border-border/40 last:border-b-0 hover:bg-row-hover">
-                <td className="px-3 py-1.5 font-mono tabular-nums text-foreground-muted">{r.year}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{(r.longSM * 100).toFixed(1)}%</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{(r.shortSM * 100).toFixed(1)}%</td>
-                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getSignCellColor(r.pnl)}`}>{r.pnl >= 0 ? '+' : ''}{r.pnl.toFixed(1)}%</td>
-                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getSignCellColor(r.annRet)}`}>{r.annRet >= 0 ? '+' : ''}{r.annRet.toFixed(1)}%</td>
-                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getMetricCellColor('sharpe', r.sharpe)}`}>{r.sharpe.toFixed(2)}</td>
-                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${getMetricCellColor('mdd', r.maxDD)}`}>{r.maxDD.toFixed(1)}%</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{(r.dailyTvr * 100).toFixed(1)}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums text-data-color">{r.margin.toFixed(4)}</td>
+            {[...yearly].sort((a, b) => b.year - a.year).map((r) => (
+              <tr key={r.year} className="hover:bg-row-hover">
+                <td className="px-1.5 py-0.5 font-sans tabular-nums text-data-color">{r.year}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{(r.longSM * REPORT_BOOK_M).toFixed(2)}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{(-Math.abs(r.shortSM) * REPORT_BOOK_M).toFixed(2)}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{REPORT_BOOK_M.toFixed(1)}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{(r.pnl / 100 * REPORT_BOOK_M).toFixed(2)}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{r.annRet.toFixed(2)}%</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{r.sharpe.toFixed(3)}<span title="Bracketed metric definition not yet specified">[—]</span></td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{r.maxDD.toFixed(2)}%</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{typeof r.winLose === 'number' && Number.isFinite(r.winLose) ? `${r.winLose.toFixed(2)}%` : '—'}</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{(r.dailyTvr * 100).toFixed(2)}%</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color">{(r.margin * 10000).toFixed(2)} bps</td>
+                <td className="px-1.5 py-0.5 text-right font-sans tabular-nums text-data-color" title="Fitness definition not yet specified">—</td>
               </tr>
             ))}
           </tbody>

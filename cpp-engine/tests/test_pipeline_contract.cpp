@@ -263,3 +263,69 @@ TEST(PipelineContract, VeryDeepPipelineCompilesAndRuns)
     }
     EXPECT_GT(finite_count, 0u);
 }
+
+TEST(PipelineContract, NeutralizeLeavesEveryGroupSumAtZeroInsideTheUniverse)
+{
+    constexpr unsigned T = 12;
+    constexpr unsigned N = 6;
+    auto dp = make_panel(T, N);
+
+    // Static sector codes: {0,1,2} and {3,4,5}. SYM5 is unclassified.
+    const std::vector<float> codes = {1.0f, 1.0f, 1.0f, 2.0f, 2.0f,
+                                      std::numeric_limits<float>::quiet_NaN()};
+    auto& sector = dp.arrays["sector"];
+    sector.resize(static_cast<size_t>(T) * N);
+    for (unsigned t = 0; t < T; ++t)
+        for (unsigned n = 0; n < N; ++n)
+            sector[static_cast<size_t>(t) * N + n] = codes[n];
+
+    // SYM2 leaves the universe halfway through.
+    dp.universe_mask.assign(static_cast<size_t>(T) * N, 1);
+    for (unsigned t = T / 2; t < T; ++t)
+        dp.universe_mask[static_cast<size_t>(t) * N + 2] = 0;
+
+    const std::string xml = R"(<data expr="close"/><rank/><neutralize group="sector"/>)";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+
+    for (int mode : {0, 1}) {
+        SCOPED_TRACE("mode=" + std::to_string(mode));
+        auto fresh = compile_xml(xml, &dp);
+        ASSERT_EQ(fresh.size(), 1u);
+
+        SimulatorConfig cfg;
+        cfg.T = dp.T;
+        cfg.N = dp.N;
+        cfg.fee_rate = 0.0005;
+        cfg.mode = mode;
+        cfg.collect_signals = true;
+
+        Simulator sim(dp, cfg);
+        auto out = sim.run(fresh[0].pipeline);
+        ASSERT_EQ(out.signals.size(), dp.T);
+
+        size_t finite_count = 0;
+        for (unsigned t = 0; t < dp.T; ++t) {
+            const auto& row = out.signals[t];
+            ASSERT_EQ(row.size(), dp.N);
+
+            // Out-of-mask and unclassified symbols never carry a value.
+            for (unsigned n = 0; n < dp.N; ++n) {
+                if (!dp.universe_mask[static_cast<size_t>(t) * dp.N + n] ||
+                    !std::isfinite(codes[n]))
+                    EXPECT_TRUE(std::isnan(row[n])) << "t=" << t << " n=" << n;
+            }
+
+            double sum_g1 = 0.0, sum_g2 = 0.0;
+            for (unsigned n = 0; n < dp.N; ++n) {
+                if (!std::isfinite(row[n]))
+                    continue;
+                ++finite_count;
+                (codes[n] == 1.0f ? sum_g1 : sum_g2) += row[n];
+            }
+            EXPECT_LT(std::fabs(sum_g1), 1e-6) << "t=" << t;
+            EXPECT_LT(std::fabs(sum_g2), 1e-6) << "t=" << t;
+        }
+        EXPECT_GT(finite_count, 0u);
+    }
+}

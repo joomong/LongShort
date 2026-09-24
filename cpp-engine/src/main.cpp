@@ -9,11 +9,13 @@
 #include <mutex>
 #include <algorithm>
 #include <limits>
+#include <cmath>
 #include "data/config_loader.h"
 #include "data/data_panel.h"
 #include "data/parquet_reader.h"
 #include "compiler/dag_builder.h"
 #include "engine/simulator.h"
+#include "engine/costs.h"
 #include "metrics/metrics_engine.h"
 #include "api/json_serializer.h"
 #include "api/combined_signals.h"
@@ -26,8 +28,50 @@ namespace fs = std::filesystem;
 
 // Global shared state (loaded once at startup)
 static BacktestConfig g_config;
+static Json::Value g_symbol_labels;  // optional {symbol: label} from backtest.symbol_labels_path
 static DataPanel g_data;
 static fs::path g_alphas_dir;
+static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
+static std::size_t g_events_loaded = 0;
+static std::size_t g_settlement_symbols = 0;
+static std::size_t g_successor_events = 0;
+static UnpricedChildPolicy g_unpriced_child = UnpricedChildPolicy::Pending;
+static UnresolvedPolicy g_unresolved_policy = UnresolvedPolicy::Warn;   // backtest.corporate_actions.unresolved_policy
+static constexpr std::size_t kUnconfirmedItemsCap = 10000;   // corporateActions.unconfirmed.items listed per result
+static BorrowCostModel g_borrow;   // backtest.costs.borrow, loaded once with the data
+
+static bool parse_missing_close_policy(const std::string& name, MissingClosePolicy* out)
+{
+    if (name == "carry") { *out = MissingClosePolicy::Carry; return true; }
+    if (name == "error") { *out = MissingClosePolicy::Error; return true; }
+    return false;
+}
+
+static const char* missing_close_policy_name(MissingClosePolicy policy)
+{
+    return policy == MissingClosePolicy::Error ? "error" : "carry";
+}
+
+static const char* unpriced_child_name(UnpricedChildPolicy policy)
+{
+    return policy == UnpricedChildPolicy::Drop ? "drop" : "pending";
+}
+
+static const char* unresolved_policy_name(UnresolvedPolicy policy)
+{
+    return policy == UnresolvedPolicy::Strict ? "strict" : "warn";
+}
+
+static const char* unconfirmed_kind_name(UnconfirmedKind kind)
+{
+    switch (kind) {
+        case UnconfirmedKind::UnresolvedLeg: return "unresolved_leg";
+        case UnconfirmedKind::DefaultSettlement: return "default_settlement";
+        case UnconfirmedKind::EstimateValue: return "estimate_value";
+        case UnconfirmedKind::PendingDropped: return "pending_dropped";
+    }
+    return "unknown";
+}
 
 static unsigned parse_env_uint(const char* name, unsigned def, unsigned min_v, unsigned max_v)
 {
@@ -42,6 +86,30 @@ static unsigned parse_env_uint(const char* name, unsigned def, unsigned min_v, u
     if (v < static_cast<long>(min_v) || v > static_cast<long>(max_v))
         return def;
     return static_cast<unsigned>(v);
+}
+
+// jsoncpp's own range error leaks an internal message, so bound the value first.
+static unsigned parse_uint_option(const Json::Value& body, const char* key, unsigned fallback)
+{
+    const Json::Value value = body.get(key, fallback);
+    const std::string limits =
+        std::string(key) + " must be an integer between 0 and 4294967295";
+    if (!value.isIntegral() || !value.isInt64())
+        throw std::invalid_argument(limits);
+    const Json::Int64 raw = value.asInt64();
+    if (raw < 0 || raw > static_cast<Json::Int64>(std::numeric_limits<unsigned>::max()))
+        throw std::invalid_argument(limits);
+    return static_cast<unsigned>(raw);
+}
+
+static std::string iso_date_of(int64_t epoch_ms)
+{
+    const time_t seconds = static_cast<time_t>(epoch_ms / 1000);
+    struct tm parts;
+    gmtime_r(&seconds, &parts);
+    char text[11];
+    strftime(text, sizeof(text), "%Y-%m-%d", &parts);
+    return text;
 }
 
 static bool parse_iso_date_ms(const std::string& s, int64_t* out_ms)
@@ -171,8 +239,14 @@ struct RunOptions {
     unsigned threads = 0;
     bool collect_signals = false;
     unsigned signal_top_k = 1;
-    std::size_t signal_max_cells = 250000;
+    std::size_t signal_max_cells = 4000000;
+    std::vector<std::size_t> signal_symbol_subset;  // non-empty: full series for these columns only
     std::string combined_mode;
+    MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
+    double default_delisting_return = 0.0;
+    unsigned stale_quote_settle_bars = 0;
+    bool settlement_log = false;
+    bool distribution_log = false;
 };
 
 static RunOptions parse_run_options(const Json::Value& body) {
@@ -199,16 +273,45 @@ static RunOptions parse_run_options(const Json::Value& body) {
     if (!requested_mode.isInt() || requested_mode.asInt() < 0 || requested_mode.asInt() > 1)
         throw std::invalid_argument("mode must be 0 (D0) or 1 (D1)");
     options.mode = requested_mode.asInt();
-    options.threads = body.get("threads", 0).asUInt();
+    options.threads = parse_uint_option(body, "threads", 0);
     options.collect_signals = body.get("collectSignals", false).asBool();
-    options.signal_top_k = std::clamp(body.get("collectSignalsTopK", 1).asUInt(), 1u, 5u);
-    const unsigned requested_cells = body.get("signalPlotMaxCells", 250000).asUInt();
+    options.signal_top_k = std::clamp(parse_uint_option(body, "collectSignalsTopK", 1), 1u, 5u);
+    const unsigned requested_cells = parse_uint_option(body, "signalPlotMaxCells", 4000000);
     if (requested_cells == 0)
         throw std::invalid_argument("signalPlotMaxCells must be positive");
-    options.signal_max_cells = std::min<unsigned>(requested_cells, 250000);
+    options.signal_max_cells = std::min<unsigned>(requested_cells, 8000000);
+    if (body.isMember("signalPlotSymbols")) {
+        const Json::Value& subset = body["signalPlotSymbols"];
+        if (!subset.isArray())
+            throw std::invalid_argument("signalPlotSymbols must be an array of panel symbols");
+        for (const Json::Value& item : subset) {
+            const std::string name = item.asString();
+            const auto it = std::find(g_data.symbols.begin(), g_data.symbols.end(), name);
+            if (it == g_data.symbols.end())
+                throw std::invalid_argument("signalPlotSymbols: unknown symbol " + name);
+            options.signal_symbol_subset.push_back(static_cast<std::size_t>(it - g_data.symbols.begin()));
+        }
+        if (options.signal_symbol_subset.empty())
+            throw std::invalid_argument("signalPlotSymbols must not be empty");
+    }
     options.combined_mode = body.get("combinedMode", g_config.combined_mode).asString();
     if (options.combined_mode != "normalized" && options.combined_mode != "raw")
         throw std::invalid_argument("combinedMode must be 'normalized' or 'raw'");
+    options.missing_close_policy = g_missing_close_policy;
+    if (body.isMember("missingClose") &&
+        !parse_missing_close_policy(body["missingClose"].asString(), &options.missing_close_policy))
+        throw std::invalid_argument("missingClose must be 'carry' or 'error'");
+    const Json::Value delisting_return =
+        body.get("defaultDelistingReturn", g_config.default_delisting_return);
+    if (!delisting_return.isNumeric() || !std::isfinite(delisting_return.asDouble()) ||
+        delisting_return.asDouble() < -1.0 || delisting_return.asDouble() > 1.0)
+        throw std::invalid_argument(
+            "defaultDelistingReturn must be a total return in [-1, 1]");
+    options.default_delisting_return = delisting_return.asDouble();
+    options.stale_quote_settle_bars =
+        parse_uint_option(body, "staleQuoteSettleBars", g_config.stale_quote_settle_bars);
+    options.settlement_log = body.get("settlementLog", false).asBool();
+    options.distribution_log = body.get("distributionLog", false).asBool();
     return options;
 }
 
@@ -220,6 +323,17 @@ static SimulatorConfig simulator_config(const RunOptions& options, bool collect)
     config.mode = options.mode;
     config.sim_start_index = options.sim_start_index;
     config.collect_signals = collect;
+    config.missing_close_policy = options.missing_close_policy;
+    config.default_delisting_return = options.default_delisting_return;
+    config.stale_quote_settle_bars = options.stale_quote_settle_bars;
+    config.collect_settlements = options.settlement_log;
+    // Ledger handling is fixed at startup with the data; only the log is per request.
+    config.apply_dividends = g_config.corporate_actions.apply_dividends;
+    config.apply_distributions = g_config.corporate_actions.apply_distributions;
+    config.unpriced_child = g_unpriced_child;
+    config.collect_distributions = options.distribution_log;
+    config.borrow = g_borrow.enabled() ? &g_borrow : nullptr;
+    config.unresolved_policy = g_unresolved_policy;
     return config;
 }
 
@@ -235,11 +349,247 @@ static FullMetricsResult full_metrics(const SimulatorOutput& output, const RunOp
     // Preserve the global D1 warmup convention when no earlier signal exists.
     const std::size_t first_metric_bar = options.mode == 1
         ? std::max<unsigned>(options.sim_start_index, 1) : options.sim_start_index;
+    std::vector<double> frozen_gross(output.missing_data.size());
+    std::vector<double> settled_gross(output.missing_data.size());
+    for (std::size_t di = 0; di < output.missing_data.size(); ++di) {
+        frozen_gross[di] = output.missing_data[di].frozen_gross;
+        settled_gross[di] = output.missing_data[di].settled_gross;
+    }
+    std::vector<double> dividend_pnl(output.corporate_actions.size());
+    std::vector<double> distribution_pnl(output.corporate_actions.size());
+    std::vector<double> unconfirmed_weight(output.corporate_actions.size());
+    for (std::size_t di = 0; di < output.corporate_actions.size(); ++di) {
+        dividend_pnl[di] = output.corporate_actions[di].dividend_pnl;
+        distribution_pnl[di] = output.corporate_actions[di].distribution_pnl;
+        unconfirmed_weight[di] = output.corporate_actions[di].unconfirmed_abs_weight;
+    }
     return compute_full_metrics(
         output.timestamps, output.ret, output.turnover, output.max_weight,
         output.long_weight, output.short_weight, output.position_count,
         options.is_ms, options.os_ms, g_config.transaction_fee_rate,
-        g_config.bars_per_year, first_metric_bar);
+        g_config.bars_per_year, first_metric_bar, &frozen_gross, &settled_gross,
+        &dividend_pnl, &distribution_pnl, &output.borrow_cost, &unconfirmed_weight);
+}
+
+// Cost modules: what was charged and, when asked, what was not (P9: a run without
+// financing must say so instead of looking free).
+static Json::Value costs_payload(const SimulatorOutput& output) {
+    double borrow = 0.0;
+    unsigned unrated = 0;
+    for (double cost : output.borrow_cost) borrow += cost;
+    for (unsigned count : output.borrow_unrated) unrated += count;
+    Json::Value payload;
+    payload["borrowEnabled"] = g_borrow.enabled();
+    payload["borrowApplied"] = g_borrow.applied();
+    payload["borrowCost"] = borrow;
+    if (g_config.costs.report_unapplied) {
+        payload["borrowUnratedShortBars"] = unrated;
+        if (!g_borrow.applied())
+            payload["borrowUnapplied"] = g_borrow.enabled() ? "no rates: neither a table row nor a default rate"
+                                                            : "disabled";
+    }
+    return payload;
+}
+
+// Trading-period totals; the terminal frozen gross exposes holdings that never
+// found a closing quote. Warmup bars hold no position and contribute nothing.
+static Json::Value missing_data_payload(const SimulatorOutput& output) {
+    MissingDataDiagnostics total;
+    // Warmup rows hold no position, so only their retirements contribute.
+    for (std::size_t di = 0; di < output.missing_data.size(); ++di) {
+        const auto& bar = output.missing_data[di];
+        total.retirement_count += bar.retirement_count;
+        total.missing_held_count += bar.missing_held_count;
+        total.blocked_order_count += bar.blocked_order_count;
+        total.frozen_gross += bar.frozen_gross;
+        total.blocked_trade_weight += bar.blocked_trade_weight;
+        total.resumed_holding_count += bar.resumed_holding_count;
+        total.delisting_count += bar.delisting_count;
+        total.delisting_pnl += bar.delisting_pnl;
+        total.settled_gross += bar.settled_gross;
+        total.default_delisting_count += bar.default_delisting_count;
+        total.default_delisting_gross += bar.default_delisting_gross;
+        total.stale_settlement_count += bar.stale_settlement_count;
+        total.missing_entry_count += bar.missing_entry_count;
+        total.pending_delisting_entry_count += bar.pending_delisting_entry_count;
+        total.post_end_quote_bars += bar.post_end_quote_bars;
+        total.pending_settlement_count += bar.pending_settlement_count;
+        total.successor_conversions += bar.successor_conversions;
+        total.converted_gross += bar.converted_gross;
+        total.computed_settlement_count += bar.computed_settlement_count;
+    }
+    Json::Value payload;
+    payload["missingHeldBars"] = total.missing_held_count;
+    // Asset-bar weighted frozen exposure over the whole run, not a bar count.
+    payload["frozenGrossSum"] = total.frozen_gross;
+    payload["retirements"] = total.retirement_count;
+    payload["blockedOrders"] = total.blocked_order_count;
+    payload["blockedTradeWeight"] = total.blocked_trade_weight;
+    payload["missingEntries"] = total.missing_entry_count;
+    payload["resumedHoldings"] = total.resumed_holding_count;
+    payload["delistings"] = total.delisting_count;
+    payload["delistingPnl"] = total.delisting_pnl;
+    payload["settledGross"] = total.settled_gross;
+    payload["defaultDelistings"] = total.default_delisting_count;
+    payload["defaultDelistingGross"] = total.default_delisting_gross;
+    payload["staleSettlements"] = total.stale_settlement_count;
+    payload["cancelledDelistingEntries"] = total.pending_delisting_entry_count;
+    // A security still quoting after its end date defers its settlement.
+    payload["postEndDateQuoteBars"] = total.post_end_quote_bars;
+    payload["pendingSettlements"] = total.pending_settlement_count;
+    // Exposure handed to a surviving security instead of being cashed out.
+    payload["successorConversions"] = total.successor_conversions;
+    payload["convertedGross"] = total.converted_gross;
+    payload["computedSettlementReturns"] = total.computed_settlement_count;
+    payload["terminalFrozenGross"] = output.missing_data.empty()
+        ? 0.0 : output.missing_data.back().frozen_gross;
+    return payload;
+}
+
+// Trading-period totals of the corporate-action legs; pending legs are a state,
+// so the terminal count exposes the ones that never found a child quote.
+static Json::Value corporate_actions_payload(const SimulatorOutput& output) {
+    CorporateActionDiagnostics total;
+    unsigned pending_bars = 0;
+    for (const auto& bar : output.corporate_actions) {
+        total.dividend_count += bar.dividend_count;
+        total.dividend_pnl += bar.dividend_pnl;
+        total.distribution_count += bar.distribution_count;
+        total.distribution_pnl += bar.distribution_pnl;
+        total.child_positions_created += bar.child_positions_created;
+        total.distribution_estimated += bar.distribution_estimated;
+        total.distribution_unpriced += bar.distribution_unpriced;
+        total.distribution_value_only += bar.distribution_value_only;
+        total.legs_unresolved += bar.legs_unresolved;
+        total.rights_expired += bar.rights_expired;
+        total.rights_expired_held += bar.rights_expired_held;
+        total.rights_expired_gross += bar.rights_expired_gross;
+        total.legs_on_settlement_bar += bar.legs_on_settlement_bar;
+        total.legs_deferred_to_events += bar.legs_deferred_to_events;
+        total.dividend_estimated += bar.dividend_estimated;
+        total.unconfirmed_count += bar.unconfirmed_count;
+        total.unconfirmed_abs_weight += bar.unconfirmed_abs_weight;
+        pending_bars += bar.distribution_pending;
+    }
+    Json::Value payload;
+    payload["dividends"] = total.dividend_count;
+    payload["dividendPnl"] = total.dividend_pnl;
+    payload["distributions"] = total.distribution_count;
+    payload["distributionPnl"] = total.distribution_pnl;
+    payload["childPositionsCreated"] = total.child_positions_created;
+    // Child weights whose value came from a ledger estimate rather than a quote.
+    payload["distributionsEstimated"] = total.distribution_estimated;
+    payload["distributionsUnpriced"] = total.distribution_unpriced;
+    // Legs whose child is not in the panel but whose ledger value was booked as P&L (no position).
+    payload["distributionsValueOnly"] = total.distribution_value_only;
+    // Legs on held parents the ledger left unresolved: nothing was booked for them.
+    payload["legsUnresolved"] = total.legs_unresolved;
+    // Rights that lapsed: pending legs closed at 0, and held rights settled at -1.
+    payload["rightsExpired"] = total.rights_expired;
+    payload["rightsExpiredHeld"] = total.rights_expired_held;
+    payload["rightsExpiredGross"] = total.rights_expired_gross;
+    // Legs booked on their parent's settlement bar against the pre-settlement
+    // exposure, and the ones left to the events row to avoid paying twice.
+    payload["legsOnSettlementBar"] = total.legs_on_settlement_bar;
+    payload["legsDeferredToEvents"] = total.legs_deferred_to_events;
+    // Leg-bar weighted count of legs still waiting for a child quote, not a leg count.
+    payload["distributionPendingBars"] = pending_bars;
+    payload["terminalDistributionPending"] = output.corporate_actions.empty()
+        ? 0u : output.corporate_actions.back().distribution_pending;
+    // Cash legs booked from an amount the ledger flagged as an estimate.
+    payload["dividendsEstimated"] = total.dividend_estimated;
+    // Unconfirmed P&L on held positions: every record is a (symbol, bar) the inputs
+    // could not confirm; the list is always present so a run can be audited without
+    // a second request. pnlUnconfirmed is the one-bit summary for callers.
+    Json::Value unconfirmed;
+    unconfirmed["count"] = total.unconfirmed_count;
+    unconfirmed["sumAbsWeight"] = total.unconfirmed_abs_weight;
+    Json::Value by_kind;
+    for (UnconfirmedKind kind : {UnconfirmedKind::UnresolvedLeg, UnconfirmedKind::DefaultSettlement,
+                                 UnconfirmedKind::EstimateValue, UnconfirmedKind::PendingDropped})
+        by_kind[unconfirmed_kind_name(kind)] = 0u;
+    // The list is bounded so a run that held every delisting cannot flood the response:
+    // the first kUnconfirmedItemsCap records (bar order) are listed, the rest counted.
+    Json::Value items(Json::arrayValue);
+    for (const auto& record : output.unconfirmed) {
+        by_kind[unconfirmed_kind_name(record.kind)] = by_kind[unconfirmed_kind_name(record.kind)].asUInt() + 1u;
+        if (items.size() >= kUnconfirmedItemsCap) continue;
+        Json::Value item;
+        item["symbol"] = g_data.symbols.at(record.asset);
+        item["date"] = iso_date_of(g_data.timestamps.at(record.bar));
+        item["bar"] = record.bar;   // panel bar index (0-based over the full panel, warmup included)
+        item["weightBefore"] = record.weight_before;
+        item["kind"] = unconfirmed_kind_name(record.kind);
+        item["detail"] = record.detail;
+        items.append(std::move(item));
+    }
+    unconfirmed["byKind"] = by_kind;
+    unconfirmed["itemsTruncated"] = output.unconfirmed.size() > kUnconfirmedItemsCap;
+    unconfirmed["itemsOmitted"] = static_cast<Json::UInt64>(
+        output.unconfirmed.size() > kUnconfirmedItemsCap ? output.unconfirmed.size() - kUnconfirmedItemsCap : 0);
+    unconfirmed["items"] = std::move(items);
+    payload["unconfirmed"] = std::move(unconfirmed);
+    payload["pnlUnconfirmed"] = total.unconfirmed_count > 0;
+    return payload;
+}
+
+// Opt-in ledgers of the settlements that actually moved money and of the stock
+// legs the run resolved. Held settlements only; the unheld retirements are
+// reported as a count beside it.
+static Json::Value diagnostics_payload(const SimulatorOutput& output, const RunOptions& options) {
+    Json::Value payload;
+    payload["missingData"] = missing_data_payload(output);
+    payload["corporateActions"] = corporate_actions_payload(output);
+    payload["costs"] = costs_payload(output);
+    if (options.distribution_log) {
+        Json::Value entries(Json::arrayValue);
+        for (const auto& record : output.distributions) {
+            Json::Value entry;
+            entry["parent"] = g_data.symbols.at(record.parent);
+            entry["time"] = iso_date_of(g_data.timestamps.at(record.bar));
+            entry["bar"] = record.bar;
+            entry["exDate"] = iso_date_of(g_data.timestamps.at(record.ex_bar));
+            if (record.child >= 0) entry["child"] = g_data.symbols.at(record.child);
+            else entry["child"] = Json::Value(Json::nullValue);
+            entry["parentWeight"] = record.parent_weight;
+            entry["childWeight"] = record.child_weight;
+            entry["cashShare"] = record.cash_share;
+            entry["source"] = record.source == DistributionSource::ChildClose ? "childClose"
+                : record.source == DistributionSource::LedgerValue ? "ledgerValue"
+                : record.source == DistributionSource::FirstQuote ? "firstQuote"
+                : record.source == DistributionSource::Expired ? "expired"
+                : record.source == DistributionSource::LedgerValueCash ? "ledgerValueCash" : "unpriced";
+            entry["estimate"] = record.estimate;
+            entry["onSettlementBar"] = record.on_settlement_bar;
+            entry["valueSource"] = record.value_source;
+            entry["eventType"] = record.event_type;
+            entries.append(std::move(entry));
+        }
+        payload["distributionLog"] = std::move(entries);
+    }
+    if (!options.settlement_log) return payload;
+    Json::Value entries(Json::arrayValue);
+    for (const auto& record : output.settlements) {
+        Json::Value entry;
+        entry["symbol"] = g_data.symbols.at(record.asset);
+        entry["time"] = iso_date_of(g_data.timestamps.at(record.bar));
+        entry["bar"] = record.bar;
+        entry["exposure"] = record.exposure;
+        entry["return"] = record.settlement_return;
+        entry["source"] = record.source == SettlementSource::Computed ? "computed"
+            : (record.source == SettlementSource::Explicit ? "explicit" : "default");
+        entry["cashShare"] = record.cash_share;
+        entry["stockShare"] = record.stock_share;
+        if (record.successor >= 0) entry["successor"] = g_data.symbols.at(record.successor);
+        else entry["successor"] = Json::Value(Json::nullValue);
+        entry["transferred"] = record.transferred;
+        entries.append(std::move(entry));
+    }
+    unsigned unheld = 0;
+    for (const auto& bar : output.missing_data) unheld += bar.unheld_settlement_count;
+    payload["settlementLog"] = std::move(entries);
+    payload["settlementLogUnheld"] = unheld;
+    return payload;
 }
 
 static Json::Value metrics_payload(const FullMetricsResult& metrics) {
@@ -254,8 +604,10 @@ static Json::Value metrics_payload(const FullMetricsResult& metrics) {
 }
 
 static void copy_top_metrics(Json::Value& response, const Json::Value& metrics) {
-    for (const char* key : {"yearly", "timeseries", "isStartIndex", "osStartIndex"})
-        response[key] = metrics[key];
+    for (const char* key : {"yearly", "timeseries", "isStartIndex", "osStartIndex", "missingData",
+                            "settlementLog", "settlementLogUnheld", "corporateActions",
+                            "distributionLog", "costs"})
+        if (metrics.isMember(key)) response[key] = metrics[key];
 }
 
 static void append_signal_payload(
@@ -263,8 +615,10 @@ static void append_signal_payload(
     const std::vector<int64_t>& timestamps, const RunOptions& options) {
     const std::size_t begin = options.sim_start_index;
     payload["signalPlot"] = signal_plot_to_json(
-        signals, timestamps, g_data.symbols, begin, options.signal_max_cells);
-    payload["distribution"] = signal_distribution_to_json(signals, begin);
+        signals, timestamps, g_data.symbols, begin, options.signal_max_cells,
+        options.signal_symbol_subset.empty() ? nullptr : &options.signal_symbol_subset);
+    payload["distribution"] = signal_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
+    payload["signalDistributionLog"] = signal_log_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
     float minimum = 0.0f, maximum = 0.0f;
     bool first = true;
     for (std::size_t di = begin; di < signals.size(); ++di) {
@@ -283,14 +637,86 @@ int main(int argc, char* argv[])
     // Config path: first arg or default
     std::string config_path = (argc > 1) ? argv[1] : "../../config.yaml";
 
-    // Load config + data
-    std::cout << "Loading config from " << config_path << " ..." << std::endl;
-    g_config = BacktestConfig::from_yaml(config_path);
+    // Load config + data. A bad config or an unreadable dataset is a startup
+    // failure with a readable message, not an uncaught exception.
+    fs::path cfg_dir;
+    try {
+        std::cout << "Loading config from " << config_path << " ..." << std::endl;
+        g_config = BacktestConfig::from_yaml(config_path);
 
-    fs::path cfg_dir = fs::path(config_path).parent_path();
-    std::cout << "Loading configured datasets ..." << std::endl;
-    g_data = DataPanel::load(g_config);
-    std::cout << "Data loaded: T=" << g_data.T << " N=" << g_data.N << std::endl;
+        cfg_dir = fs::path(config_path).parent_path();
+        std::cout << "Loading configured datasets ..." << std::endl;
+        g_data = DataPanel::load(g_config);
+        std::cout << "Data loaded: T=" << g_data.T << " N=" << g_data.N << std::endl;
+        g_borrow = BorrowCostModel::load(g_config.costs, g_data, g_config.config_dir);
+        if (g_borrow.enabled())
+            std::cout << "Borrow cost: " << (g_borrow.applied() ? "applied" : "enabled but no rates")
+                      << ", day count " << g_borrow.day_count() << ", default rate "
+                      << (g_borrow.has_default_rate() ? std::to_string(g_borrow.default_rate()) : "none")
+                      << ", table rows " << g_borrow.table_rows() << " (" << g_borrow.table_rows_matched()
+                      << " on panel symbols, " << g_borrow.symbols_rated() << " symbols rated)" << std::endl;
+        if (!g_config.symbol_labels_path.empty()) {
+            std::ifstream in(g_config.symbol_labels_path);
+            if (!in) throw std::runtime_error("Cannot open symbol_labels_path: " + g_config.symbol_labels_path);
+            Json::Value all;
+            in >> all;
+            if (!all.isObject()) throw std::runtime_error("symbol_labels_path must hold a JSON object");
+            std::size_t matched = 0;
+            for (const auto& sym : g_data.symbols)
+                if (all.isMember(sym)) { g_symbol_labels[sym] = all[sym]; ++matched; }
+            std::cout << "Symbol labels: " << matched << "/" << g_data.N << " panel symbols labeled" << std::endl;
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "Cannot start: " << error.what() << std::endl;
+        return 1;
+    }
+
+    // config_loader rejects any other spelling before the panel loads.
+    if (!parse_missing_close_policy(g_config.missing_close_policy, &g_missing_close_policy)) {
+        std::cerr << "Unsupported missing_close_policy: "
+                  << g_config.missing_close_policy << std::endl;
+        return 1;
+    }
+    // config_loader accepts only the two spellings, so a plain mapping suffices here.
+    g_unpriced_child = g_config.corporate_actions.unpriced_child == "drop"
+        ? UnpricedChildPolicy::Drop : UnpricedChildPolicy::Pending;
+    g_unresolved_policy = g_config.corporate_actions.unresolved_policy == "strict"
+        ? UnresolvedPolicy::Strict : UnresolvedPolicy::Warn;
+    // eventsLoaded counts the panel symbols that matched a row in the events file,
+    // which is exactly what the three guard buckets partition.
+    g_events_loaded = g_data.events_rows_matched;
+    for (unsigned ii = 0; ii < g_data.N; ++ii) {
+        if (ii < g_data.settlement_bar.size() && g_data.settlement_bar[ii] >= 0)
+            ++g_settlement_symbols;
+        if (ii < g_data.settlement_successor.size() && g_data.settlement_successor[ii] >= 0)
+            ++g_successor_events;
+    }
+    std::cout << "Settlement events: " << g_events_loaded << " rows matched, "
+              << g_settlement_symbols << " opening inside the panel, "
+              << g_successor_events << " with a successor; price guard "
+              << g_data.events_price_checks << " checked / "
+              << g_data.events_price_checks_out_of_range << " out of range / "
+              << g_data.events_price_checks_not_evaluable << " not evaluable" << std::endl;
+    if (g_data.corporate_actions_loaded)
+        std::cout << "Corporate actions: " << g_data.corporate_action_rows << " ledger rows, "
+                  << g_data.corporate_action_rows_matched << " on panel symbols ("
+                  << g_data.corporate_action_rows_quantity << " quantity, "
+                  << g_data.corporate_action_rows_unresolved << " unresolved), "
+                  << g_data.corporate_action_legs << " legs inside the panel ("
+                  << g_data.corporate_action_legs_estimated << " estimated, "
+                  << g_data.corporate_action_legs_unbookable << " without amount/child, "
+                  << g_data.corporate_action_legs_value_only << " value-only (child outside the panel), "
+                  << g_data.corporate_action_legs_rights << " rights"
+                  << (g_data.corporate_action_rights_terms_loaded
+                          ? " with terms, " + std::to_string(g_data.corporate_action_rights_without_expiry) + " without expiry, "
+                          : " without terms columns, ")
+                  << g_data.corporate_action_unpriced_children << " with an unpriced child, "
+                  << g_data.corporate_action_legs_after_parent_end << " inside the parent's settlement window), "
+                  << g_data.corporate_action_out_of_range << " out of range; price guard "
+                  << g_data.corporate_action_price_checks << " checked / "
+                  << g_data.corporate_action_price_checks_not_evaluable << " not evaluable; unresolved_policy "
+                  << unresolved_policy_name(g_unresolved_policy)
+                  << std::endl;
 
     // Alphas directory (relative to config.yaml)
     g_alphas_dir = cfg_dir / "alphas";
@@ -342,6 +768,8 @@ int main(int argc, char* argv[])
             for (const auto& s : g_data.symbols)
                 symbols.append(s);
             json["symbols"] = symbols;
+            if (!g_symbol_labels.isNull())
+                json["symbolLabels"] = g_symbol_labels;  // {panelSymbol: display label}
 
             // Date range (epoch_ms -> ISO date string)
             // First and last timestamps from DataPanel
@@ -369,6 +797,70 @@ int main(int argc, char* argv[])
             json["barsPerYear"] = g_config.bars_per_year;
             json["combinedMode"] = g_config.combined_mode;
             json["mode"] = g_config.mode;
+            json["missingClosePolicy"] = missing_close_policy_name(g_missing_close_policy);
+            json["defaultDelistingReturn"] = g_config.default_delisting_return;
+            json["staleQuoteSettleBars"] = g_config.stale_quote_settle_bars;
+            json["thinLayout"] = g_data.thin_layout;
+            // eventsLoaded: panel symbols matched to a row in the events file.
+            // settlementSymbols: of those, the ones whose settlement opens inside
+            // this panel (an end date before the last bar). The three guard counts
+            // partition eventsLoaded, one bucket per matched row.
+            json["eventsLoaded"] = static_cast<Json::UInt64>(g_events_loaded);
+            json["settlementSymbols"] = static_cast<Json::UInt64>(g_settlement_symbols);
+            json["successorEvents"] = static_cast<Json::UInt64>(g_successor_events);
+            json["eventsPriceChecks"] = static_cast<Json::UInt64>(g_data.events_price_checks);
+            json["eventsPriceChecksOutOfRange"] =
+                static_cast<Json::UInt64>(g_data.events_price_checks_out_of_range);
+            json["eventsPriceChecksNotEvaluable"] =
+                static_cast<Json::UInt64>(g_data.events_price_checks_not_evaluable);
+            // Corporate-action ledger report: rows in the file, rows on panel
+            // symbols, legs scheduled inside the panel and the guard partition
+            // of those legs (checked + notEvaluable = legs).
+            Json::Value actions;
+            actions["loaded"] = g_data.corporate_actions_loaded;
+            actions["rows"] = static_cast<Json::UInt64>(g_data.corporate_action_rows);
+            actions["rowsMatched"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_matched);
+            actions["rowsQuantity"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_quantity);
+            actions["rowsUnresolved"] = static_cast<Json::UInt64>(g_data.corporate_action_rows_unresolved);
+            actions["legs"] = static_cast<Json::UInt64>(g_data.corporate_action_legs);
+            actions["legsEstimated"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_estimated);
+            actions["legsUnbookable"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_unbookable);
+            actions["legsValueOnly"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_value_only);
+            actions["legsRights"] = static_cast<Json::UInt64>(g_data.corporate_action_legs_rights);
+            actions["rightsTermsLoaded"] = g_data.corporate_action_rights_terms_loaded;
+            actions["rightsWithoutExpiry"] =
+                static_cast<Json::UInt64>(g_data.corporate_action_rights_without_expiry);
+            actions["autoExercise"] = g_config.corporate_actions.auto_exercise;   // always false: refused otherwise
+            actions["legsAfterParentEnd"] =
+                static_cast<Json::UInt64>(g_data.corporate_action_legs_after_parent_end);
+            actions["legsOutOfRange"] = static_cast<Json::UInt64>(g_data.corporate_action_out_of_range);
+            actions["unpricedChildren"] =
+                static_cast<Json::UInt64>(g_data.corporate_action_unpriced_children);
+            actions["priceChecks"] = static_cast<Json::UInt64>(g_data.corporate_action_price_checks);
+            actions["priceChecksNotEvaluable"] =
+                static_cast<Json::UInt64>(g_data.corporate_action_price_checks_not_evaluable);
+            actions["applyDividends"] = g_config.corporate_actions.apply_dividends;
+            actions["applyDistributions"] = g_config.corporate_actions.apply_distributions;
+            actions["unpricedChild"] = unpriced_child_name(g_unpriced_child);
+            actions["staleCheck"] = g_config.corporate_actions.stale_check;
+            actions["unresolvedPolicy"] = unresolved_policy_name(g_unresolved_policy);
+            json["corporateActions"] = actions;
+            // Cost modules: the borrow block as configured plus the rate table's coverage.
+            Json::Value borrow;
+            borrow["enabled"] = g_borrow.enabled();
+            borrow["applied"] = g_borrow.applied();
+            borrow["defaultRate"] = g_borrow.has_default_rate()
+                ? Json::Value(g_borrow.default_rate()) : Json::Value(Json::nullValue);
+            borrow["dayCount"] = g_borrow.day_count();
+            borrow["path"] = g_borrow.table_path().empty()
+                ? Json::Value(Json::nullValue) : Json::Value(g_borrow.table_path());
+            borrow["tableRows"] = static_cast<Json::UInt64>(g_borrow.table_rows());
+            borrow["tableRowsMatched"] = static_cast<Json::UInt64>(g_borrow.table_rows_matched());
+            borrow["symbolsRated"] = static_cast<Json::UInt64>(g_borrow.symbols_rated());
+            Json::Value costs;
+            costs["borrow"] = borrow;
+            costs["reportUnapplied"] = g_config.costs.report_unapplied;
+            json["costs"] = costs;
             json["T"] = g_data.T;
             json["N"] = g_data.N;
 
@@ -404,15 +896,18 @@ int main(int argc, char* argv[])
                     std::size_t index = 0;
                     std::string xml;
                     FullMetricsResult metrics;
+                    Json::Value diagnostics;
                 };
                 std::vector<BatchResult> batches(alphas.size());
                 SimulatorOutput single_output;
                 std::vector<std::vector<float>> combined_signals;
                 if (single) {
                     single_output = execute_alpha(alphas[0], options, true);
-                    batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options)};
+                    batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options),
+                                  diagnostics_payload(single_output, options)};
                 } else {
-                    OrderedSignalAccumulator accumulator(g_data, options.combined_mode);
+                    OrderedSignalAccumulator accumulator(
+                        g_data, options.combined_mode, options.missing_close_policy);
                     unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
                     const unsigned thread_count = std::max(1u, std::min<unsigned>(
                         options.threads == 0 ? hardware : options.threads,
@@ -431,7 +926,8 @@ int main(int argc, char* argv[])
                                     [&](unsigned di, const float* row, unsigned n) {
                                         accumulator.add(i, di, row, n, normalized_scratch);
                                     });
-                                batches[i] = {i, alphas[i].source_xml, full_metrics(output, options)};
+                                batches[i] = {i, alphas[i].source_xml, full_metrics(output, options),
+                                              diagnostics_payload(output, options)};
                                 // Completed module state is no longer needed; selected plots
                                 // are recomputed from the stored expanded XML after ranking.
                                 alphas[i] = CompiledAlpha{};
@@ -474,6 +970,8 @@ int main(int argc, char* argv[])
                 for (std::size_t i = 0; i < batches.size(); ++i) {
                     const auto& batch = batches[i];
                     Json::Value entry = metrics_payload(batch.metrics);
+                    for (const auto& key : batch.diagnostics.getMemberNames())
+                        entry[key] = batch.diagnostics[key];
                     entry["index"] = static_cast<Json::UInt64>(batch.index);
                     entry["xml"] = batch.xml;
                     if (!single && options.collect_signals && i < options.signal_top_k) {
@@ -491,12 +989,17 @@ int main(int argc, char* argv[])
                     Simulator combined_simulator(g_data, simulator_config(options, false));
                     auto combined_output = combined_simulator.run_from_signals(combined_signals);
                     Json::Value combined = metrics_payload(full_metrics(combined_output, options));
+                    const Json::Value combined_diagnostics =
+                        diagnostics_payload(combined_output, options);
+                    for (const auto& key : combined_diagnostics.getMemberNames())
+                        combined[key] = combined_diagnostics[key];
                     combined["index"] = -1;
                     if (options.collect_signals) {
                         append_signal_payload(combined, combined_signals, g_data.timestamps, options);
                         response["signalPlot"] = combined["signalPlot"];
                         response["signalRange"] = combined["signalRange"];
                         response["distribution"] = combined["distribution"];
+                        response["signalDistributionLog"] = combined["signalDistributionLog"];
                     }
                     copy_top_metrics(response, combined);
                     response["combined"] = std::move(combined);
@@ -525,8 +1028,8 @@ int main(int argc, char* argv[])
                 if (xml.empty()) throw std::invalid_argument("Missing 'xml' field");
                 const RunOptions options = parse_run_options(*body);
                 GAConfig ga_config;
-                ga_config.population_size = (*body).get("popSize", 50).asUInt();
-                ga_config.generations = (*body).get("generations", 20).asUInt();
+                ga_config.population_size = parse_uint_option(*body, "popSize", 50);
+                ga_config.generations = parse_uint_option(*body, "generations", 20);
                 ga_config.n_threads = options.threads == 0 ? 4 : options.threads;
                 if (ga_config.population_size == 0 || ga_config.generations == 0)
                     throw std::invalid_argument("GA population and generations must be positive");
@@ -577,6 +1080,9 @@ int main(int argc, char* argv[])
                                     auto output = execute_alpha(alphas[0], options, true,
                                         [&](unsigned, const float*, unsigned) { require_connection(); });
                                     Json::Value batch = metrics_payload(full_metrics(output, options));
+                                    const Json::Value diagnostics = diagnostics_payload(output, options);
+                                    for (const auto& key : diagnostics.getMemberNames())
+                                        batch[key] = diagnostics[key];
                                     batch["index"] = 0;
                                     batch["xml"] = best.best_xml;
                                     append_signal_payload(batch, output.signals, output.timestamps, options);
@@ -589,6 +1095,7 @@ int main(int argc, char* argv[])
                                     complete["signalPlot"] = batch["signalPlot"];
                                     complete["signalRange"] = batch["signalRange"];
                                     complete["distribution"] = batch["distribution"];
+                                    complete["signalDistributionLog"] = batch["signalDistributionLog"];
                                     complete["batches"] = Json::Value(Json::arrayValue);
                                     complete["batches"].append(std::move(batch));
                                     write(complete);

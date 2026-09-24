@@ -3,8 +3,9 @@
 import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import MainLayout from '@/components/layout/MainLayout';
-import ControlButtons from '@/components/editor/ControlButtons';
+import ControlButtons, { AlphaStorageButtons } from '@/components/editor/ControlButtons';
 import SettingsBar from '@/components/visualization/SettingsBar';
+import AlphaXmlPanel from '@/components/visualization/AlphaXmlPanel';
 import SignalPanelSelector from '@/components/visualization/SignalPanelSelector';
 import { useBacktest } from '@/hooks/useBacktest';
 import { useAlphaStore } from '@/store/alphaStore';
@@ -42,14 +43,6 @@ const SnapshotManager = dynamic(
 const SaveAlphaModal = dynamic(() => import('@/components/modals/SaveAlphaModal'));
 const LoadAlphaModal = dynamic(() => import('@/components/modals/LoadAlphaModal'));
 
-// Grid background style — crosshatch visible in empty chart area
-const GRID_BG: React.CSSProperties = {
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),' +
-    'linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-};
-
 // Modals: conditionally mounted so bundles load only when opened (bundle-conditional)
 function Modals() {
   const isSaveOpen = useAlphaStore(s => s.isSaveModalOpen);
@@ -67,71 +60,56 @@ function XmlPanel() {
   const alphaName = useAlphaStore(s => s.alphaName);
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-background-secondary panel-inset">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide shrink-0">Name</span>
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[#555466] bg-[#353446]">
+        <span className="text-[11px] text-[#c7c5d1] shrink-0">Alpha name:</span>
         <input
           type="text"
           value={alphaName}
           onChange={(e) => useAlphaStore.getState().setAlphaName(e.target.value)}
           placeholder="alpha name"
-          className="flex-1 px-2 py-0.5 bg-background-elevated border border-border text-xs font-mono text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex-1 min-w-0 px-1 py-0.5 bg-transparent border border-transparent hover:border-[#777486] text-xs font-mono text-[#f0eff5] placeholder:text-[#9996ab] focus:outline-none focus:border-accent"
         />
+        <AlphaStorageButtons />
       </div>
       <XmlEditor />
     </div>
   );
 }
 
-// Alpha XML read-only panel (shown in detail view)
-function AlphaXmlPanel() {
-  const xml = useAlphaStore(s => {
-    const idx = s.selectedAlphaIndex;
-    return idx === -1 ? s.result?.combined?.xml ?? '' : idx !== null ? s.result?.alphas?.[idx]?.xml ?? '' : '';
-  });
-
-  return (
-    <div className="flex flex-col h-full border-l border-border bg-background-secondary">
-      <div className="px-2 py-1 border-b border-border shrink-0">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Alpha XML</span>
-      </div>
-      <pre className="flex-1 overflow-auto px-2 py-1 text-[11px] font-mono text-data-color whitespace-pre leading-relaxed">{xml}</pre>
-    </div>
-  );
-}
-
-// Chart area: both views kept in DOM, toggled via display (rendering-activity)
+// Only single-alpha runs expose instrument-level signal analysis.
 function ChartArea() {
   const isDetail = useAlphaStore(s => s.viewMode === 'detail');
+  const alphaCount = useAlphaStore(s => s.result?.alphas.length ?? 0);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      {/* Detail view — hidden via display:none when inactive */}
-      <div className={isDetail ? 'flex-1 min-h-0 flex flex-row' : 'hidden'}>
-        <div className="flex-1 min-h-0 min-w-0" style={GRID_BG}>
-          <AlphaDetailView />
-        </div>
-        <div className="w-[300px] shrink-0 min-h-0">
-          <AlphaXmlPanel />
-        </div>
+    <div className="flex-1 min-h-0 flex flex-col bg-background">
+      <div className={isDetail ? 'flex-1 min-h-0 flex flex-row' : 'hidden'} data-testid="alpha-detail">
+        <div className="flex-1 min-h-0 min-w-0"><AlphaDetailView /></div>
+        <div className="w-[28%] min-w-0 max-w-[440px] shrink-0 min-h-0"><AlphaXmlPanel /></div>
       </div>
-      {/* Charts view — hidden via display:none when detail is active */}
-      <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col'} style={GRID_BG}>
-        <SignalPanelSelector />
-        <SignalDistribution />
-        <SignalHeatmap />
-        <SignalChart />
-        <SnapshotManager />
-      </div>
+      {alphaCount === 1 ? (
+        <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col overflow-y-auto'} data-testid="signal-analysis">
+          <SignalPanelSelector />
+          <SignalDistribution />
+          <SignalHeatmap />
+          <SignalChart />
+          <SnapshotManager />
+        </div>
+      ) : !isDetail ? (
+        <div className="flex-1 flex items-center justify-center text-xs text-foreground-secondary" data-testid="result-placeholder">
+          {alphaCount > 1 ? 'Select an alpha row to view its performance and XML.' : ''}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-// Right panel content: settings + ranking table + chart area (no buttons — they're in sidebar)
+// Results remain above both signal analysis and performance detail.
 function MainContent() {
   const backtestError = useAlphaStore(s => s.backtestError);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full">
+    <div className="flex-1 flex flex-col min-w-0 h-full border-t-2 border-accent">
       {backtestError ? (
         <div className="flex items-center justify-between gap-2 px-3 py-2 bg-metric-negative/10 text-metric-negative border-b border-metric-negative/20">
           <div className="text-sm truncate">{backtestError}</div>
@@ -144,26 +122,14 @@ function MainContent() {
           </button>
         </div>
       ) : null}
-      <SettingsBar />
-      {/* Ranking table: content-based height, capped at 40% */}
-      <div className="overflow-hidden min-h-[180px] max-h-[40%]">
+      {/* Ranking table reserves five result rows; larger batches remain scrollable. */}
+      <div className="overflow-auto shrink-0 max-h-[35%]">
         <AlphaRankingTable />
       </div>
       {/* Strong separator between table and chart */}
       <div className="h-px bg-border-strong shrink-0" />
       {/* Chart area fills remaining space */}
       <ChartArea />
-    </div>
-  );
-}
-
-// Right panel: main content + vertical button sidebar on the FAR RIGHT of the screen
-function MainPanel({ onRun, onStop, onRunGA }: { onRun: () => void; onStop: () => void; onRunGA: () => void }) {
-  return (
-    <div className="flex flex-row h-full">
-      <MainContent />
-      {/* Vertical button strip — positioned at the screen's far right edge */}
-      <ControlButtons onRun={onRun} onStop={onStop} onRunGA={onRunGA} vertical />
     </div>
   );
 }
@@ -196,8 +162,14 @@ export default function Home() {
   return (
     <>
       <MainLayout
+        topBar={<header className="flex flex-wrap items-end justify-start gap-2 bg-[#353446] border-b border-[#555466]">
+          <SettingsBar />
+          <div className="ml-auto self-start pt-1 pr-2">
+            <ControlButtons onRun={run} onStop={stop} onRunGA={runGA} />
+          </div>
+        </header>}
         leftPanel={<XmlPanel />}
-        rightPanel={<MainPanel onRun={run} onStop={stop} onRunGA={runGA} />}
+        rightPanel={<MainContent />}
         minLeftWidth={15}
       />
       <Modals />

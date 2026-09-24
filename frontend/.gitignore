@@ -40,3 +40,10 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Generated Monaco browser assets
+/public/monaco/
+
+# Isolated development and browser-test output
+/.next-dev/
+/.next-playwright/

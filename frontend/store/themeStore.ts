@@ -9,7 +9,7 @@ interface ThemeState {
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  theme: 'dark',
+  theme: 'light',
 
   setTheme: (theme) => {
     set({ theme });
@@ -19,6 +19,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       } else {
         document.documentElement.classList.remove('dark');
       }
+      document.documentElement.style.colorScheme = theme;
       localStorage.setItem('theme', theme);
     }
   },
@@ -33,8 +34,7 @@ export function initializeTheme() {
   if (typeof window === 'undefined') return;
 
   const stored = localStorage.getItem('theme') as Theme | null;
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = stored || (prefersDark ? 'dark' : 'light');
+  const theme = stored === 'dark' ? 'dark' : 'light';
 
   useThemeStore.getState().setTheme(theme);
 }

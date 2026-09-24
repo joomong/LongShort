@@ -1,0 +1,2 @@
+overrideId,caseId,tradingItemId,evidence,source,isEstimate,owner,exDate,action,newFactor,newExDate,checkBasis
+X2-44,1793,12465726,"https://www.sec.gov/Archives/edgar/data/1308161/000095015719000308/form8k.htm: recapitalization merger 2019-03-19 - 0.263183 of each 21CF share exchanged for 1/3 FOX, 1 original share -> 0.736817 post-recap share (Distribution Adjustment Multiple 1.357190 = 1/0.736817); TFCFA raw close 03-19 (49.69 = 0.4517 x DIS 110.00) is per post-recap share; no vendor split",public_terms,false,X2,2019-03-19,add,0.736817,,document

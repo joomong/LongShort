@@ -67,6 +67,14 @@ export function adaptSignalPayload(source: StarSignalPayload): SignalPayload {
     heatmap: source.signalPlot,
     signalRange: source.signalRange,
     distribution: source.distribution?.counts,
+    signalDistributionLog: source.signalDistributionLog ?? null,
+    distributionBins: source.distribution?.bins,
+    distributionRange: source.distribution ? {
+      min: source.distribution.rangeLo ?? source.distribution.min,
+      max: source.distribution.rangeHi ?? source.distribution.max,
+    } : null,
+    distributionExamples: source.distribution?.exampleSymbol && source.distribution?.exampleDate
+      ? { symbol: source.distribution.exampleSymbol, date: source.distribution.exampleDate } : null,
   };
 }
 
@@ -147,6 +155,7 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
         signalPlot: combinedSource.signalPlot ?? resp.signalPlot,
         signalRange: combinedSource.signalRange ?? resp.signalRange,
         distribution: combinedSource.distribution ?? resp.distribution,
+        signalDistributionLog: combinedSource.signalDistributionLog ?? resp.signalDistributionLog,
       }),
       name: 'combined',
       rank: 0,
@@ -171,6 +180,7 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
         signalPlot: batch.signalPlot ?? (single ? resp.signalPlot : undefined),
         signalRange: batch.signalRange ?? (single ? resp.signalRange : undefined),
         distribution: batch.distribution ?? (single ? resp.distribution : undefined),
+        signalDistributionLog: batch.signalDistributionLog ?? (single ? resp.signalDistributionLog : undefined),
       }),
       name: `alpha_${batch.index}`,
       rank: i + 1,
@@ -192,6 +202,7 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
     heatmap: (combined ?? alphas[0])?.heatmap ?? resp.signalPlot ?? null,
     signalRange: (combined ?? alphas[0])?.signalRange ?? resp.signalRange ?? null,
     distribution: (combined ?? alphas[0])?.distribution ?? resp.distribution?.counts ?? null,
+    signalDistributionLog: (combined ?? alphas[0])?.signalDistributionLog ?? resp.signalDistributionLog ?? null,
   };
 }
 
@@ -217,11 +228,12 @@ export async function runSimulate(
   signal?: AbortSignal,
   threads?: number,
   mode: 0 | 1 = 1,
+  extra: { signalPlotSymbols?: string[] } = {},
 ): Promise<StarBatchResponse> {
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5 }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5, ...extra }),
     signal,
   });
 

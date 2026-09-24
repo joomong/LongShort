@@ -9,10 +9,21 @@ export function selectSignalSource(state: { result: BacktestRunResponse | null; 
   return result.combined?.heatmap ? result.combined : result.heatmap ? result : result.alphas[0];
 }
 
+/** Nearest sampled timestamp at or before `timestamp` (ISO strings sort lexically); first row when earlier than all. */
+export function nearestTimestamp(timestamps: string[], timestamp: string): string | null {
+  if (timestamps.length === 0) return null;
+  let lo = 0, hi = timestamps.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (timestamps[mid] <= timestamp) lo = mid + 1; else hi = mid;
+  }
+  return timestamps[Math.max(0, lo - 1)];
+}
+
 export function selectSignalCell(source: SignalPayload | undefined, symbol: string | null = null, timestamp: string | null = null) {
   const heatmap = source?.heatmap;
   return {
     selectedSymbol: symbol && heatmap?.symbols.includes(symbol) ? symbol : heatmap?.symbols[0] ?? null,
-    selectedTimestamp: timestamp && heatmap?.timestamps.includes(timestamp) ? timestamp : heatmap?.timestamps[0] ?? null,
+    selectedTimestamp: timestamp && heatmap ? nearestTimestamp(heatmap.timestamps, timestamp) : heatmap?.timestamps[0] ?? null,
   };
 }

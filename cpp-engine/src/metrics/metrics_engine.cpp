@@ -14,7 +14,13 @@ FullMetricsResult compute_full_metrics(
     int64_t os_timestamp_ms,
     double fee_rate,
     unsigned bars_per_year,
-    std::size_t start_index)
+    std::size_t start_index,
+    const std::vector<double>* frozen_gross,
+    const std::vector<double>* settled_gross,
+    const std::vector<double>* dividend_pnl,
+    const std::vector<double>* distribution_pnl,
+    const std::vector<double>* borrow_cost,
+    const std::vector<double>* unconfirmed_weight)
 {
     FullMetricsResult result{};
 
@@ -28,7 +34,8 @@ FullMetricsResult compute_full_metrics(
         std::lower_bound(timestamps.begin(), timestamps.end(), os_timestamp_ms) - timestamps.begin()));
 
     result.timeseries = compute_timeseries(
-        timestamps, ret, turnover, max_weight, position_count, fee_rate, begin);
+        timestamps, ret, turnover, max_weight, position_count, fee_rate, begin,
+        frozen_gross, settled_gross, dividend_pnl, distribution_pnl, borrow_cost, unconfirmed_weight);
     result.yearly = compute_yearly(
         timestamps, ret, turnover, long_weight, short_weight, bars_per_year, begin);
     result.is_start_index = is_idx - begin;

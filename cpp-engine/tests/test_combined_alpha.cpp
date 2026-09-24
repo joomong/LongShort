@@ -222,21 +222,21 @@ TEST(CombinedAlpha, NormalizedModeGivesEqualWeightDespiteRawSignalScale) {
     const float alpha_a[] = {1, -1, 0, 0};
     const float alpha_b[] = {0, 0, 100, -100};
     std::vector<double> scratch, weights;
-    OrderedSignalAccumulator normalized(panel, "normalized");
+    OrderedSignalAccumulator normalized(panel, "normalized", MissingClosePolicy::Error);
     normalized.add(0, 0, alpha_a, 4, scratch);
     normalized.add(1, 0, alpha_b, 4, scratch);
     const auto equal_signals = normalized.take_signals();
-    normalize_signal_row(panel, 0, equal_signals[0].data(), weights);
+    normalize_signal_row(panel, 0, equal_signals[0].data(), weights, MissingClosePolicy::Error);
     EXPECT_DOUBLE_EQ(weights[0], 0.25);
     EXPECT_DOUBLE_EQ(weights[1], -0.25);
     EXPECT_DOUBLE_EQ(weights[2], 0.25);
     EXPECT_DOUBLE_EQ(weights[3], -0.25);
 
-    OrderedSignalAccumulator legacy(panel, "raw");
+    OrderedSignalAccumulator legacy(panel, "raw", MissingClosePolicy::Error);
     legacy.add(0, 0, alpha_a, 4, scratch);
     legacy.add(1, 0, alpha_b, 4, scratch);
     const auto raw_signals = legacy.take_signals();
-    normalize_signal_row(panel, 0, raw_signals[0].data(), weights);
+    normalize_signal_row(panel, 0, raw_signals[0].data(), weights, MissingClosePolicy::Error);
     EXPECT_DOUBLE_EQ(weights[0], 1.0 / 202.0);
     EXPECT_DOUBLE_EQ(weights[2], 100.0 / 202.0);
 }
@@ -245,7 +245,7 @@ TEST(CombinedAlpha, OrderedAccumulationIsExactAcrossWorkerCounts) {
     auto panel = make_test_panel(9, 4);
     const std::vector<float> scales = {1e20f, 3.0f, -1e20f, 7.0f, 0.125f, -0.25f, 1e-8f};
     auto run = [&](unsigned threads, const std::string& mode) {
-        OrderedSignalAccumulator accumulator(panel, mode);
+        OrderedSignalAccumulator accumulator(panel, mode, MissingClosePolicy::Error);
         std::atomic<std::size_t> next{0};
         std::vector<std::thread> workers;
         for (unsigned worker = 0; worker < threads; ++worker) {
@@ -274,7 +274,7 @@ TEST(CombinedAlpha, OrderedAccumulationIsExactAcrossWorkerCounts) {
 
 TEST(CombinedAlpha, FailedEvaluationWakesWaitingLaterAlpha) {
     auto panel = make_test_panel(1, 1);
-    OrderedSignalAccumulator accumulator(panel, "raw");
+    OrderedSignalAccumulator accumulator(panel, "raw", MissingClosePolicy::Error);
     auto later = std::async(std::launch::async, [&] {
         std::vector<double> scratch;
         const float row[] = {1};
@@ -287,7 +287,7 @@ TEST(CombinedAlpha, FailedEvaluationWakesWaitingLaterAlpha) {
 TEST(CombinedAlpha, NormalizedContributionsUseTheSignalDateUniverse) {
     auto panel = make_test_panel(1, 3);
     panel.universe_mask = {1, 0, 1};
-    OrderedSignalAccumulator accumulator(panel, "normalized");
+    OrderedSignalAccumulator accumulator(panel, "normalized", MissingClosePolicy::Error);
     const float row[] = {1, 100, -1};
     std::vector<double> scratch;
     accumulator.add(0, 0, row, 3, scratch);
@@ -298,7 +298,7 @@ TEST(CombinedAlpha, NormalizedContributionsUseTheSignalDateUniverse) {
 
 TEST(CombinedAlpha, RawOverflowFailsInsteadOfDiscardingTheEarlierSum) {
     auto panel = make_test_panel(1, 1);
-    OrderedSignalAccumulator accumulator(panel, "raw");
+    OrderedSignalAccumulator accumulator(panel, "raw", MissingClosePolicy::Error);
     std::vector<double> scratch;
     const float large[] = {std::numeric_limits<float>::max()};
     const float small[] = {-1.0f};

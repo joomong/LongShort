@@ -1,0 +1,16 @@
+tradingItemId,symbol,companyName,exchangeId,companyTypeId,everMainExchange,reason,ALL_days_before,Top1000_days_before,Top700_days_before,Top500_days_before,Top300_days_before,Top200_days_before,Top100_days_before,Top10_days_before
+28624458,DBC,Invesco DB Commodity Index Tracking Fund,117,13.0,True,public_fund_company,5123,1761,1221,578,0,0,0,0
+31783758,DJP,iPath Bloomberg Commodity Index Total Return ETN,117,13.0,True,public_fund_company,4584,1103,113,0,0,0,0,0
+28687040,OILN.F,iPath S&P GSCI Crude Oil Total Return Index ETN,134,13.0,True,public_fund_company,2976,0,0,0,0,0,0,0
+2607273,DSL,Downey Financial Corp.,117,5.0,True,fund_venue,1934,596,0,0,0,0,0,0
+31786937,INPT.F,iPath MSCI India Index ETN,134,13.0,True,public_fund_company,1743,0,0,0,0,0,0,0
+29156155,DBV,Invesco DB G10 Currency Harvest Fund,117,13.0,True,public_fund_company,1331,0,0,0,0,0,0,0
+40628225,JJCT.F,iPath Bloomberg Copper Subindex Total Return ETN,134,13.0,True,public_fund_company,853,0,0,0,0,0,0,0
+40615026,JJGT.F,iPath Bloomberg Grains Subindex Total Return ETN,134,13.0,True,public_fund_company,681,0,0,0,0,0,0,0
+39361658,USL,"United States 12 Month Oil Fund, LP",117,13.0,True,public_fund_company,332,0,0,0,0,0,0,0
+11224242,AX,"Archipelago Holdings, Inc.",117,5.0,True,fund_venue,211,121,0,0,0,0,0,0
+31783748,GSP,iPath S&P GSCI Total Return Index ETN,117,13.0,True,public_fund_company,207,0,0,0,0,0,0,0
+40613942,,iPath Bloomberg Natural Gas Subindex Total Return ETN,117,13.0,True,public_fund_company,151,0,0,0,0,0,0,0
+130256838,SVVC,"Firsthand Technology Value Fund, Inc.",134,13.0,True,public_fund_company,50,0,0,0,0,0,0,0
+1945578924,RGLO,Russell Investments Exchange Traded Funds - Global Equity Active Etf,104,13.0,True,public_fund_company,13,0,0,0,0,0,0,0
+40643373,GSCE,GS Connect S&P GSCI Enhanced Commodity Total Return ETN,134,13.0,True,public_fund_company,4,0,0,0,0,0,0,0

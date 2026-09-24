@@ -191,6 +191,67 @@ def golden_zscore(arr: np.ndarray, ddof: int, min_count: int, eps: float) -> np.
     return out
 
 
+# ── Group neutralization (MNeutralize) ──
+
+# Static classification codes for the 3 fixture symbols, broadcast over every row.
+NEUTRALIZE_CODES = [1.0, 1.0, 2.0]
+
+# A second case widens the fixture with two unclassified symbols: a missing code
+# and a finite negative one. The shared FIXTURE above is left untouched so the
+# other golden entries keep their values.
+NEUTRALIZE_WIDE_FIXTURE = np.hstack([
+    FIXTURE,
+    np.array([[7.0], [np.nan], [3.0], [11.0], [4.0], [9.0]], dtype=np.float64),
+    np.array([[2.0], [8.0], [6.0], [np.nan], [1.0], [5.0]], dtype=np.float64),
+])
+NEUTRALIZE_WIDE_CODES = [1.0, 1.0, 2.0, np.nan, -1.0]
+
+
+def golden_neutralize(arr: np.ndarray, codes) -> np.ndarray:
+    """Cross-sectional group demean, matching team `cs_group_neut_1d`.
+
+    A cell joins its group only when the value is finite and the code is finite
+    and >= 0; every other cell is NaN. Singleton groups become 0. No scaling and
+    no minimum group size.
+    """
+    codes = np.asarray(codes, dtype=np.float64)
+    out = np.full_like(arr, np.nan)
+    for t in range(arr.shape[0]):
+        row = arr[t]
+        usable = np.isfinite(row) & np.isfinite(codes) & (codes >= 0.0)
+        for code in np.unique(codes[usable]):
+            members = usable & (codes == code)
+            out[t, members] = row[members] - row[members].mean()
+    return out
+
+
+def crosscheck_neutralize(arr: np.ndarray, codes, expected: np.ndarray) -> str:
+    """Compare the numpy reference above against the team sim implementation."""
+    try:
+        import sys
+        sys.path.append('/home/base/sim/utils')
+        from func_util.lib_funcs import cs_group_neut
+    except Exception as error:  # noqa: BLE001 - the team library is optional here
+        return f"SKIPPED (cannot import func_util.lib_funcs: {error})"
+
+    columns = [f"SYM{n}" for n in range(arr.shape[1])]
+    index = list(range(arr.shape[0]))
+    alpha = pd.DataFrame(arr, index=index, columns=columns)
+    group = pd.DataFrame(
+        np.tile(np.asarray(codes, dtype=np.float64), (arr.shape[0], 1)),
+        index=index, columns=columns)
+    team = cs_group_neut(alpha, group).to_numpy()
+
+    both_nan = np.isnan(team) & np.isnan(expected)
+    diff = np.where(both_nan, 0.0, np.abs(team - expected))
+    max_diff = float(np.nanmax(diff))
+    if not np.array_equal(np.isnan(team), np.isnan(expected)):
+        raise AssertionError("cs_group_neut NaN placement differs from the numpy reference")
+    if max_diff > 1e-12:
+        raise AssertionError(f"cs_group_neut differs from the numpy reference: max|diff|={max_diff}")
+    return f"OK (max|diff|={max_diff:.3e} vs func_util.lib_funcs.cs_group_neut)"
+
+
 # ── Metrics computation ──
 
 def generate_metrics_input():
@@ -391,6 +452,25 @@ def main():
         "expected": ndarray_to_list(golden_zscore(FIXTURE, 1, 2, 1e-12)),
     }
 
+    neutralize_expected = golden_neutralize(FIXTURE, NEUTRALIZE_CODES)
+    modules["neutralize_sector"] = {
+        "input": ndarray_to_list(FIXTURE),
+        "params": {"group": "sector", "codes": NEUTRALIZE_CODES},
+        "expected": ndarray_to_list(neutralize_expected),
+    }
+    neutralize_crosscheck = crosscheck_neutralize(FIXTURE, NEUTRALIZE_CODES, neutralize_expected)
+
+    wide_expected = golden_neutralize(NEUTRALIZE_WIDE_FIXTURE, NEUTRALIZE_WIDE_CODES)
+    modules["neutralize_sector_unclassified"] = {
+        "input": ndarray_to_list(NEUTRALIZE_WIDE_FIXTURE),
+        # NaN codes serialize as null, like NaN values do.
+        "params": {"group": "sector",
+                   "codes": [None if np.isnan(c) else float(c) for c in NEUTRALIZE_WIDE_CODES]},
+        "expected": ndarray_to_list(wide_expected),
+    }
+    wide_crosscheck = crosscheck_neutralize(
+        NEUTRALIZE_WIDE_FIXTURE, NEUTRALIZE_WIDE_CODES, wide_expected)
+
     with open(OUTPUT_DIR / "modules.json", "w") as f:
         json.dump(modules, f, indent=2)
     print(f"Wrote {OUTPUT_DIR / 'modules.json'}")
@@ -427,6 +507,10 @@ def main():
     print(f"Delay(1) row 1: {modules['delay_1']['expected'][1]}")
     print(f"TsMean(3) row 2: {modules['tsmean_3']['expected'][2]}")
     print(f"Rank(pct) row 1: {modules['rank_pct']['expected'][1]}")
+    print(f"Neutralize(sector) row 0: {modules['neutralize_sector']['expected'][0]}")
+    print(f"Neutralize(sector) team cross-check: {neutralize_crosscheck}")
+    print(f"Neutralize(unclassified) row 0: {modules['neutralize_sector_unclassified']['expected'][0]}")
+    print(f"Neutralize(unclassified) team cross-check: {wide_crosscheck}")
     print(f"Summary sharpe: {summary['sharpe']:.10f}")
     print(f"Summary pnl: {summary['pnl']:.10f}")
     print(f"Summary mdd: {summary['mdd']:.10f}")

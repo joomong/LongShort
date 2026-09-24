@@ -48,20 +48,22 @@ test('live C++ D0/D1, GA signals and expanded XML save/load roundtrip', async ({
       expect(response.request().postDataJSON()).toMatchObject({ mode, threads: 2 });
       current = await response.json() as StarBatchResponse;
       expect(current.mode).toBe(mode);
-      await expect(page.getByText('Alpha Ranking (2)')).toBeVisible();
-      await expect(page.getByLabel('Signal heatmap')).toBeVisible();
-      await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
+      await expect(page.getByRole('table', { name: 'Alpha results' })).toBeVisible();
+      await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'View combined alpha', exact: true })).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('result-placeholder')).toHaveCount(0);
     }
+    await page.getByRole('button', { name: 'View combined alpha', exact: true }).click();
     for (const index of [0, 1]) await page.getByRole('button', { name: `View alpha_${index}`, exact: true }).getByRole('button', { name: 'Select alpha', exact: true }).click();
     await save(prefix);
     let saved = await (await request.get(`${engine}/api/alphas`)).json() as { name: string; xml: string }[];
     for (const batch of current.batches) expect(saved.find(alpha => alpha.name === `${prefix}_alpha_${batch.index}`)?.xml).toBe(batch.xml);
-    // Existing multi selections cannot override a detail save.
+    // Saving uses the explicit circle selection, independently of the visible detail.
     await page.getByRole('button', { name: 'View alpha_0', exact: true }).getByRole('button', { name: 'Select alpha', exact: true }).click();
     await page.getByRole('button', { name: 'View alpha_1', exact: true }).click();
     await save(`${prefix}_detail`);
     saved = await (await request.get(`${engine}/api/alphas`)).json() as { name: string; xml: string }[];
-    expect(saved.find(alpha => alpha.name === `${prefix}_detail`)?.xml).toBe(current.batches.find(batch => batch.index === 1)?.xml);
+    expect(saved.find(alpha => alpha.name === `${prefix}_detail`)?.xml).toBe(current.batches.find(batch => batch.index === 0)?.xml);
     await load(templateName);
     await expect(page.getByPlaceholder('alpha name')).toHaveValue(templateName);
     await page.getByLabel('Bar interval').selectOption('D1');
@@ -73,7 +75,7 @@ test('live C++ D0/D1, GA signals and expanded XML save/load roundtrip', async ({
     const complete = (await gaResponse.text()).trim().split('\n').map(line => JSON.parse(line)).find(event => event.type === 'complete') as StarGACompleteEvent;
     expect(complete.mode).toBe(1);
     expect(complete.signalPlot?.values.length).toBeGreaterThan(0);
-    await expect(page.getByText('Alpha Ranking (1)')).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Alpha results' })).toBeVisible();
     await expect(page.getByLabel('Signal heatmap')).toBeVisible();
     await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
     expect(errors).toEqual([]);

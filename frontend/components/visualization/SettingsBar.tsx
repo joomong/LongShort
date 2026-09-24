@@ -9,123 +9,86 @@ const BAR_INTERVALS: { value: BacktestSettings['barInterval']; label: string; di
   { value: 'intraday', label: 'intraday (coming soon)', disabled: true },
 ];
 
+const inputClass = 'h-[19px] min-w-0 px-1 py-0 bg-transparent border border-transparent hover:border-[#777486] text-[11px] font-mono text-[#f0eff5] [color-scheme:dark] focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent';
+const rowClass = 'flex h-[19px] items-center gap-1 whitespace-nowrap';
+const labelClass = 'text-[11px] text-[#c7c5d1]';
+
 export default function SettingsBar() {
   const settings = useAlphaStore(s => s.settings);
   const setSettings = useAlphaStore(s => s.setSettings);
   const config = useAlphaStore(s => s.config);
   const gaProgress = useAlphaStore(s => s.gaProgress);
+  const isRunning = useAlphaStore(s => s.isRunning);
 
   const handleChange = (key: keyof BacktestSettings, value: string) => {
-    if (!value) return;
-
-    const currentValue = settings[key];
-    if (currentValue === value) return;
-
+    if (!value || settings[key] === value) return;
     setSettings({ [key]: value });
   };
 
   return (
-    <div className="flex items-center gap-4 px-4 py-2 bg-background-secondary border-b border-border">
-      {/* Sim Period */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Sim</span>
-        <input
-          type="date"
-          value={settings.simStart}
-          min={config?.simStart}
-          max={settings.isStart}
-          onChange={(e) => handleChange('simStart', e.target.value)}
-          aria-label="Sim start date"
-          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
+    <div className="research-toolbar flex w-fit max-w-full shrink-0 overflow-x-auto items-start gap-x-7 px-3 py-1 bg-[#353446] text-[#f0eff5]">
+      <div className="grid grid-rows-3">
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[54px]`}>Sim period:</span>
+          <input type="date" value={settings.simStart} min={config?.simStart} max={settings.isStart}
+            onChange={e => handleChange('simStart', e.target.value)} aria-label="Sim start date"
+            className={`${inputClass} w-[118px]`} />
+        </label>
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[54px]`}>IS start:</span>
+          <input type="date" value={settings.isStart} min={config?.simStart} max={config?.simEnd}
+            onChange={e => handleChange('isStart', e.target.value)} aria-label="IS start date"
+            className={`${inputClass} w-[118px]`} />
+        </label>
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[54px]`}>OS period:</span>
+          <input type="date" value={settings.osStart} min={config?.simStart} max={config?.simEnd}
+            onChange={e => handleChange('osStart', e.target.value)} aria-label="OS start date"
+            className={`${inputClass} w-[118px]`} />
+        </label>
       </div>
 
-      {/* IS Period */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">IS</span>
-        <input
-          type="date"
-          value={settings.isStart}
-          min={config?.simStart}
-          max={config?.simEnd}
-          onChange={(e) => handleChange('isStart', e.target.value)}
-          aria-label="IS start date"
-          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
+      <div className="grid grid-rows-3">
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[61px]`}>Jobs:</span>
+          <input type="number" min={1} max={32} value={settings.nJobs}
+            onChange={e => setSettings({ nJobs: Math.min(32, Math.max(1, parseInt(e.target.value) || 1)) })}
+            aria-label="Number of jobs" autoComplete="off" className={`${inputClass} w-14`} />
+        </label>
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[61px]`}>Population:</span>
+          <input type="number" min={10} max={500} value={settings.gaPopulation}
+            onChange={e => setSettings({ gaPopulation: Math.min(500, Math.max(10, parseInt(e.target.value) || 50)) })}
+            aria-label="GA population size" autoComplete="off" className={`${inputClass} w-14`} />
+        </label>
+        <label className={rowClass}>
+          <span className={`${labelClass} w-[61px]`}>Interval:</span>
+          <select value={settings.barInterval} onChange={e => handleChange('barInterval', e.target.value)}
+            aria-label="Bar interval" className={`${inputClass} w-14`}>
+            {BAR_INTERVALS.map(interval => (
+              <option className="bg-[#353446]" key={interval.value} value={interval.value} disabled={interval.disabled}>
+                {interval.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {/* OS Period */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">OS</span>
-        <input
-          type="date"
-          value={settings.osStart}
-          min={config?.simStart}
-          max={config?.simEnd}
-          onChange={(e) => handleChange('osStart', e.target.value)}
-          aria-label="OS start date"
-          className="px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        <span className="text-[10px] text-foreground-muted">~</span>
-        <span className="px-2 py-1 text-xs font-mono text-foreground-muted">{config?.simEnd ?? '...'}</span>
-      </div>
-
-      {/* Bar Interval */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Interval</span>
-        <select
-          value={settings.barInterval}
-          onChange={(e) => handleChange('barInterval', e.target.value as BacktestSettings['barInterval'])}
-          aria-label="Bar interval"
-          className="w-16 px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {BAR_INTERVALS.map((interval) => (
-            <option key={interval.value} value={interval.value} disabled={interval.disabled}>
-              {interval.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Jobs */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Jobs</span>
-        <input
-          type="number"
-          min={1}
-          max={32}
-          value={settings.nJobs}
-          onChange={(e) => setSettings({ nJobs: Math.min(32, Math.max(1, parseInt(e.target.value) || 1)) })}
-          aria-label="Number of jobs"
-          autoComplete="off"
-          className="w-14 px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
-      </div>
-
-      {/* Population */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-foreground-muted font-semibold uppercase tracking-wide">Population</span>
-        <input
-          type="number"
-          min={10}
-          max={500}
-          value={settings.gaPopulation}
-          onChange={(e) => setSettings({ gaPopulation: Math.max(10, parseInt(e.target.value) || 50) })}
-          aria-label="GA population size"
-          autoComplete="off"
-          className="w-16 px-2 py-1 bg-background-elevated border border-border text-xs font-mono text-foreground focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent"
-        />
-      </div>
-
-      {/* GA Progress / Symbol Count */}
-      <div className="flex items-center gap-1 ml-auto">
-        {gaProgress ? (
-          <span className="text-xs text-accent font-mono tabular-nums">
-            {gaProgress.generation} : {gaProgress.evaluated}/{gaProgress.populationSize}
+      <div className="grid grid-rows-3 text-[11px]">
+        <div className={rowClass} role="status" aria-live="polite">
+          <span className={labelClass}>Status:</span>
+          <span className={isRunning ? 'text-[#ffbe50]' : ''}>
+            {gaProgress ? `GA ${gaProgress.generation}: ${gaProgress.evaluated}/${gaProgress.populationSize}` : isRunning ? 'Running' : 'Stopped'}
           </span>
-        ) : (
-          config && config.N > 0 && <span className="text-xs text-foreground-muted">{config.N} symbols</span>
-        )}
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Data end:</span>
+          <span className="font-mono">{config?.simEnd ?? '—'}</span>
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Universe:</span>
+          <span>{config && config.N > 0 ? `${config.N} symbols` : '—'}</span>
+        </div>
       </div>
     </div>
   );

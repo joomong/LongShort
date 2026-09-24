@@ -7,20 +7,14 @@ import { saveAlpha } from '@/lib/api';
 export default function SaveAlphaModal() {
   const isSaveModalOpen = useAlphaStore(s => s.isSaveModalOpen);
   const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
-  const xmlCode = useAlphaStore(s => s.xmlCode);
-  const viewMode = useAlphaStore(s => s.viewMode);
   const result = useAlphaStore(s => s.result);
-  const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
   const selectedAlphaIndices = useAlphaStore(s => s.selectedAlphaIndices);
   const clearAlphaSelection = useAlphaStore(s => s.clearAlphaSelection);
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const isMulti = viewMode === 'multi' && selectedAlphaIndices.length > 0;
-  const selectedAlphas = isMulti
-    ? selectedAlphaIndices.map((i) => result?.alphas?.[i]).filter(Boolean)
-    : [];
+  const selectedAlphas = selectedAlphaIndices.map(index => result?.alphas[index]);
 
   if (!isSaveModalOpen) return null;
 
@@ -30,16 +24,12 @@ export default function SaveAlphaModal() {
       return;
     }
 
-    if (isMulti && (selectedAlphas.length !== selectedAlphaIndices.length || selectedAlphas.some(alpha => !alpha?.xml?.trim()))) {
-      setError('A selected alpha has no XML to save. Run it again before saving.');
+    if (selectedAlphas.length === 0) {
+      setError('Select alphas in the result table before saving.');
       return;
     }
-    const detailAlpha = viewMode === 'detail'
-      ? selectedAlphaIndex === -1 ? result?.combined : selectedAlphaIndex !== null ? result?.alphas[selectedAlphaIndex] : undefined
-      : undefined;
-    const singleXml = viewMode === 'detail' ? detailAlpha?.xml : xmlCode;
-    if (!isMulti && !singleXml?.trim()) {
-      setError('This alpha has no XML to save.');
+    if (selectedAlphas.some(alpha => !alpha?.xml?.trim())) {
+      setError('A selected alpha has no XML to save. Run it again before saving.');
       return;
     }
 
@@ -47,19 +37,12 @@ export default function SaveAlphaModal() {
     setError('');
 
     try {
-      if (isMulti && selectedAlphas.length > 0) {
-        // Save each selected alpha individually with name prefix
-        for (let i = 0; i < selectedAlphas.length; i++) {
-          const alpha = selectedAlphas[i]!;
-          const saveName = selectedAlphas.length === 1
-            ? name.trim()
-            : `${name.trim()}_${alpha.name}`;
-          await saveAlpha(saveName, alpha.xml!);
-        }
-        clearAlphaSelection();
-      } else {
-        await saveAlpha(name.trim(), singleXml!);
+      // Explicit table selection always determines the save targets, including in detail view.
+      for (const alpha of selectedAlphas) {
+        const saveName = selectedAlphas.length === 1 ? name.trim() : `${name.trim()}_${alpha!.name}`;
+        await saveAlpha(saveName, alpha!.xml!);
       }
+      clearAlphaSelection();
       setName('');
       setIsSaveModalOpen(false);
     } catch (err) {
@@ -109,12 +92,12 @@ export default function SaveAlphaModal() {
           </div>
 
           {/* Selected alphas info */}
-          {isMulti && selectedAlphas.length > 0 && (
+          {selectedAlphas.length > 0 && (
             <div>
               <label className="block text-sm text-foreground-secondary mb-1">Saving {selectedAlphas.length} alpha(s):</label>
               <ul className="text-xs text-foreground-muted font-mono max-h-24 overflow-y-auto space-y-0.5">
                 {selectedAlphas.map((a, i) => (
-                  <li key={i}>{a!.name}</li>
+                  <li key={i}>{a?.name ?? 'Unavailable alpha'}</li>
                 ))}
               </ul>
             </div>
@@ -136,7 +119,7 @@ export default function SaveAlphaModal() {
           </button>
           <button
             onClick={handleSave}
-            disabled={isLoading}
+            disabled={isLoading || selectedAlphas.length === 0}
             className="px-4 py-2 bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
           >
             {isLoading ? 'Saving\u2026' : 'Save'}

@@ -5,6 +5,9 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useAlphaStore } from '@/store/alphaStore';
 import { selectSignalSource } from '@/lib/signalSelection';
+import { symbolLabel } from '@/lib/symbolLabels';
+import { runSimulate } from '@/lib/api';
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
@@ -12,11 +15,8 @@ import { getNextColor } from '@/lib/snapshotColors';
 import {
   toMultiSeriesData,
   buildUPlotAxes,
-  fmtMonth,
-  fmtDate,
-  getDPR,
-  TOOLTIP_STYLE,
 } from '@/lib/uplotUtils';
+import { chartInteraction } from '@/lib/chartInteraction';
 import { useContainerSize, useUPlot } from '@/lib/uplotAdapters';
 
 interface ChartDataPoint {
@@ -26,8 +26,7 @@ interface ChartDataPoint {
 
 // ── Stable constants ──────────────────────────────────────────────────
 const EMPTY_DATA: ChartDataPoint[] = [];
-// content-visibility: auto skips layout/paint for off-screen table rows
-const ROW_CV_STYLE: React.CSSProperties = { contentVisibility: 'auto', containIntrinsicBlockSize: '18px' };
+const ROW_HEIGHT = 22;
 
 function formatSignalValue(n: number): string {
   const abs = Math.abs(n);
@@ -38,11 +37,17 @@ function formatSignalValue(n: number): string {
 const SignalDataTable = React.memo(function SignalDataTable({
   data,
   selectedSymbol,
+  symbolLabels,
 }: {
   data: ChartDataPoint[];
   selectedSymbol: string | null;
+  symbolLabels: Record<string, string> | null;
 }) {
   const tableScrollRef = useRef<HTMLDivElement>(null);
+  const tableSize = useContainerSize(tableScrollRef);
+  const [scrollTop, setScrollTop] = useState(0);
+  const firstVisible = Math.max(0, Math.min(data.length - 1, Math.floor(Math.max(0, scrollTop - ROW_HEIGHT) / ROW_HEIGHT) - 6));
+  const lastVisible = Math.min(data.length, firstVisible + Math.ceil(tableSize.height / ROW_HEIGHT) + 14);
 
   const firstDataIndex = useMemo(() => {
     for (let i = 0; i < data.length; i++) {
@@ -52,21 +57,22 @@ const SignalDataTable = React.memo(function SignalDataTable({
   }, [data]);
 
   useEffect(() => {
-    if (firstDataIndex > 0 && tableScrollRef.current) {
-      const rowHeight = 18;
-      tableScrollRef.current.scrollTop = Math.max(0, (firstDataIndex - 3) * rowHeight);
+    if (tableScrollRef.current) {
+      const top = Math.max(0, (firstDataIndex - 3) * ROW_HEIGHT);
+      tableScrollRef.current.scrollTop = top;
+      setScrollTop(tableScrollRef.current.scrollTop);
     }
   }, [firstDataIndex, selectedSymbol]);
 
   return (
     <div className="w-[190px] shrink-0 border-r border-border overflow-hidden flex flex-col">
-      <div className="px-2 py-1 border-b border-border bg-background-secondary/50">
-        <span className="text-[10px] text-foreground-muted font-semibold uppercase tracking-wide">
-          {selectedSymbol ?? 'signal'} data
+      <div className="px-2 py-1 border-b border-border bg-background-secondary">
+        <span className="text-[11px] text-foreground-secondary font-medium">
+          {selectedSymbol ? symbolLabel(selectedSymbol, symbolLabels) : 'signal'} data
         </span>
       </div>
-      <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
-        <table aria-label="Signal data" className="w-full text-[11px] border-collapse font-mono">
+      <div ref={tableScrollRef} className="flex-1 overflow-y-auto" onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
+        <table aria-label="Signal data" aria-rowcount={data.length + 1} className="w-full text-[11px] border-collapse font-mono">
           <thead className="sticky top-0 bg-background-secondary">
             <tr className="border-b border-border-strong">
               <th className="text-left px-2 py-0.5 text-foreground-secondary font-medium">dates</th>
@@ -74,11 +80,12 @@ const SignalDataTable = React.memo(function SignalDataTable({
             </tr>
           </thead>
           <tbody>
-            {data.map(row => {
+            {firstVisible > 0 && <tr aria-hidden="true"><td colSpan={2} style={{ height: firstVisible * ROW_HEIGHT, padding: 0, border: 0 }} /></tr>}
+            {data.slice(firstVisible, lastVisible).map((row, index) => {
               const v = row.value;
               const hasValue = v !== null && v !== undefined;
               return (
-                <tr key={row.date} className="border-b border-border/20 hover:bg-row-hover" style={ROW_CV_STYLE}>
+                <tr key={row.date} aria-rowindex={firstVisible + index + 2} className="border-b border-border/20 hover:bg-row-hover" style={{ height: ROW_HEIGHT }}>
                   <td className="px-2 py-px tabular-nums text-foreground-muted whitespace-nowrap">{row.date}</td>
                   <td className={`px-2 py-px tabular-nums text-right whitespace-nowrap ${hasValue ? 'text-data-color' : 'text-foreground-muted'}`}>
                     {hasValue ? v.toFixed(4) : 'NaN'}
@@ -86,6 +93,7 @@ const SignalDataTable = React.memo(function SignalDataTable({
                 </tr>
               );
             })}
+            {lastVisible < data.length && <tr aria-hidden="true"><td colSpan={2} style={{ height: (data.length - lastVisible) * ROW_HEIGHT, padding: 0, border: 0 }} /></tr>}
           </tbody>
         </table>
       </div>
@@ -97,11 +105,56 @@ export default function SignalChart() {
   // Granular selectors
   const heatmap = useAlphaStore(s => selectSignalSource(s)?.heatmap ?? null);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
+  const symbolLabels = useAlphaStore(s => s.config?.symbolLabels ?? null);
+  // Full (unsampled) series for the selected symbol: the heatmap payload is date-sampled
+  // for wide panels, so the chart re-asks the engine for this one column at every date.
+  const result = useAlphaStore(s => s.result);
+  const revision = useAlphaStore(s => s.resultRevision);
+  const selectedSignalAlphaIndex = useAlphaStore(s => s.selectedSignalAlphaIndex);
+  const currentSettings = useAlphaStore(s => s.settings);
+  const [fullSeries, setFullSeries] = useState<{ key: string; timestamps: string[]; values: (number | null)[] } | null>(null);
+  const seriesCache = useRef(new Map<string, NonNullable<typeof fullSeries>>());
+  useEffect(() => { seriesCache.current.clear(); }, [revision]);
+  const [seriesState, setSeriesState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const needsFull = !!heatmap?.sampled && (heatmap.rowStride ?? 1) > 1 && !!selectedSymbol;
+  const alphaIndex = selectedSignalAlphaIndex ?? (result?.combined ? -1 : 0);
+  const alphaXml = alphaIndex >= 0 ? result?.alphas[alphaIndex]?.xml : undefined;
+  const seriesKey = `${revision}:${alphaIndex}:${selectedSymbol ?? ''}`;
+  useEffect(() => {
+    if (!needsFull || !selectedSymbol || !alphaXml || fullSeries?.key === seriesKey) return;
+    const cached = seriesCache.current.get(seriesKey);
+    if (cached) {
+      seriesCache.current.delete(seriesKey);
+      seriesCache.current.set(seriesKey, cached);
+      setFullSeries(cached);
+      setSeriesState('idle');
+      return;
+    }
+    const { simStart, isStart, osStart } = result?.runSettings ?? currentSettings;
+    const mode = result?.runSettings?.mode ?? (currentSettings.barInterval === 'D0' ? 0 : 1);
+    const threads = result?.runSettings?.threads ?? currentSettings.nJobs;
+    const controller = new AbortController();
+    let active = true;
+    setSeriesState('loading');
+    runSimulate(alphaXml, simStart, isStart, osStart, controller.signal, threads, mode, { signalPlotSymbols: [selectedSymbol] })
+      .then(response => {
+        if (!active) return;
+        const plot = response.batches[0]?.signalPlot ?? response.signalPlot;
+        if (!plot || plot.symbols[0] !== selectedSymbol) throw new Error('no series');
+        const series = { key: seriesKey, timestamps: plot.timestamps, values: plot.values.map(row => row[0] ?? null) };
+        seriesCache.current.set(seriesKey, series);
+        // Bound memory; a new run invalidates every cached series.
+        if (seriesCache.current.size > 32) seriesCache.current.delete(seriesCache.current.keys().next().value!);
+        setFullSeries(series);
+        setSeriesState('idle');
+      })
+      .catch(() => { if (active && !controller.signal.aborted) setSeriesState('error'); });
+    return () => { active = false; controller.abort(); };
+  }, [needsFull, selectedSymbol, alphaXml, seriesKey, fullSeries?.key, result?.runSettings, currentSettings]);
   const pinnedSnapshots = useAlphaStore(useShallow(s => s.pinnedSnapshots));
   const addSnapshot = useAlphaStore(s => s.addSnapshot);
   const theme = useThemeStore(s => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   // ── Measure container size with ResizeObserver ──
   const size = useContainerSize(containerRef);
@@ -117,6 +170,12 @@ export default function SignalChart() {
 
   const data = useMemo<ChartDataPoint[]>(() => {
     if (!heatmap || !selectedSymbol) return EMPTY_DATA;
+    if (needsFull && fullSeries?.key === seriesKey) {
+      return fullSeries.timestamps.map((ts, i) => {
+        const v = fullSeries.values[i];
+        return { date: ts, value: typeof v === 'number' && Number.isFinite(v) ? v : null };
+      });
+    }
     const symbolIdx = symbolMap.get(selectedSymbol);
     if (symbolIdx === undefined) return EMPTY_DATA;
     return heatmap.timestamps.map((ts, timeIdx) => {
@@ -126,7 +185,7 @@ export default function SignalChart() {
         value: typeof v === 'number' && Number.isFinite(v) ? v : null,
       };
     });
-  }, [heatmap, selectedSymbol, symbolMap]);
+  }, [heatmap, selectedSymbol, symbolMap, needsFull, fullSeries, seriesKey]);
 
   // Merge snapshot series into chart data
   const mergedData = useMemo(() => {
@@ -162,24 +221,15 @@ export default function SignalChart() {
     [mergedData, seriesKeys]
   );
 
-  // ── Drag state (refs only — no React re-renders during interaction) ──
-  const isDraggingRef = useRef(false);
-  const dragStartRef = useRef<{
-    x: number; y: number;
-    xMin: number; xMax: number;
-    yMin: number; yMax: number;
-  } | null>(null);
-
   // ── uPlot options (memoized to avoid unnecessary recreation) ──
   const opts = useMemo<uPlot.Options | null>(() => {
-    if (size.width === 0 || size.height === 0) return null;
     const [axisX, axisY] = buildUPlotAxes(colors);
 
     const seriesDefs: uPlot.Series[] = [
       {},
       {
         stroke: colors.chartLine,
-        width: 2,
+        width: 1.25,
         label: 'Signal',
         points: { show: true, size: 4, fill: colors.chartLine, stroke: colors.chartLine },
       },
@@ -193,13 +243,14 @@ export default function SignalChart() {
     ];
 
     return {
-      width: size.width,
-      height: size.height,
+      width: 1,
+      height: 1,
       padding: [10, 30, 0, 0],
       cursor: {
         drag: { x: false, y: false },
       },
       legend: { show: false },
+      plugins: [chartInteraction(formatSignalValue)],
       scales: {
         x: { time: true },
         y: { auto: true },
@@ -207,8 +258,7 @@ export default function SignalChart() {
       axes: [
         {
           ...axisX,
-          values: (_u: uPlot, vals: number[]) => vals.map(fmtMonth),
-          gap: 40,
+          gap: 5,
         },
         {
           ...axisY,
@@ -218,191 +268,10 @@ export default function SignalChart() {
         },
       ],
       series: seriesDefs,
-      hooks: {
-        setCursor: [(u: uPlot) => {
-          const tt = tooltipRef.current;
-          if (!tt) return;
-          const { idx, left, top } = u.cursor;
-          if (idx == null || left == null || left < 0) { tt.style.display = 'none'; return; }
-
-          let html = `<div style="margin-bottom:2px;opacity:0.7">${fmtDate(u.data[0][idx])}</div>`;
-          let hasAny = false;
-          for (let i = 1; i < u.series.length; i++) {
-            const v = u.data[i]?.[idx];
-            if (v == null) continue;
-            hasAny = true;
-            const s = u.series[i];
-            const label = s.label || 'Value';
-            html += `<div><span style="color:${s.stroke}">${label}:</span> ${formatSignalValue(v as number)}</div>`;
-          }
-          if (!hasAny) { tt.style.display = 'none'; return; }
-
-          tt.innerHTML = html;
-          tt.style.display = 'block';
-          const dpr = getDPR();
-          const bL = u.bbox.left / dpr;
-          const bT = u.bbox.top / dpr;
-          let x = left + bL + 15;
-          // Use fixed max-width (150px) instead of reading tt.offsetWidth to avoid layout thrash
-          const ttMaxW = 150;
-          if (x + ttMaxW > size.width) {
-            x = left + bL - ttMaxW - 15;
-          }
-          tt.style.left = `${x}px`;
-          tt.style.top = `${(top ?? 0) + bT - 10}px`;
-        }],
-      },
     };
-  }, [size.width, size.height, colors, pinnedSnapshots]);
+  }, [colors, pinnedSnapshots]);
 
-  // ── uPlot lifecycle (shared hook) ──
-  const uplotRef = useUPlot(containerRef, opts, uData, size);
-
-  // Reset viewport when data changes (symbol changed)
-  useEffect(() => {
-    const u = uplotRef.current;
-    if (!u || uData[0].length === 0) return;
-    const ts = uData[0];
-    if (ts.length > 365) {
-      u.setScale('x', { min: ts[ts.length - 365], max: ts[ts.length - 1] });
-    } else {
-      u.setScale('x', { min: ts[0], max: ts[ts.length - 1] });
-    }
-  }, [uData, uplotRef]);
-
-  // ── Wheel handler: zoom + horizontal pan via setScale ──
-  // Attached as a native listener with { passive: false } so preventDefault works
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    const u = uplotRef.current;
-    if (!u || !u.data[0] || u.data[0].length === 0) return;
-
-    const xMin = u.scales.x.min!;
-    const xMax = u.scales.x.max!;
-    const xRange = xMax - xMin;
-    const dataMin = u.data[0][0];
-    const dataMax = u.data[0][u.data[0].length - 1];
-
-    const isHorizontalPan = Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey;
-    if (isHorizontalPan) {
-      const plotWidth = u.bbox.width / getDPR();
-      const shift = (e.deltaX / plotWidth) * xRange;
-      let newMin = xMin + shift;
-      let newMax = xMax + shift;
-      if (newMin < dataMin) { newMax += (dataMin - newMin); newMin = dataMin; }
-      if (newMax > dataMax) { newMin -= (newMax - dataMax); newMax = dataMax; }
-      u.setScale('x', { min: newMin, max: newMax });
-      return;
-    }
-
-    // Zoom — cursor-anchored: the data point under the mouse stays fixed on screen
-    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-    const overRect = u.over.getBoundingClientRect();
-    const mouseOffsetX = e.clientX - overRect.left;
-    const t = Math.max(0, Math.min(1, mouseOffsetX / overRect.width));
-    const cursorVal = xMin + t * xRange;
-
-    const newRange = xRange * zoomFactor;
-    const spacing = u.data[0].length > 1 ? u.data[0][1] - u.data[0][0] : 86400;
-    const minRange = spacing * 5;
-    const maxRange = dataMax - dataMin;
-    const clamped = Math.max(minRange, Math.min(maxRange, newRange));
-
-    let newMin = cursorVal - t * clamped;
-    let newMax = cursorVal + (1 - t) * clamped;
-    if (newMin < dataMin) { newMin = dataMin; newMax = newMin + clamped; }
-    if (newMax > dataMax) { newMax = dataMax; newMin = newMax - clamped; }
-
-    u.setScale('x', { min: newMin, max: newMax });
-  }, [uplotRef]);
-
-  // Attach native wheel listener with { passive: false } so preventDefault is honoured
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [handleWheel]);
-
-  // ── Drag pan: reads/writes uPlot scales directly, zero React state ──
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    const u = uplotRef.current;
-    if (!u || e.button !== 0) return;
-    e.preventDefault();
-    isDraggingRef.current = true;
-    if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      xMin: u.scales.x.min!,
-      xMax: u.scales.x.max!,
-      yMin: u.scales.y.min!,
-      yMax: u.scales.y.max!,
-    };
-  }, [uplotRef]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const ds = dragStartRef.current;
-    const u = uplotRef.current;
-    if (!isDraggingRef.current || !ds || !u) return;
-
-    const dpr = getDPR();
-    const plotWidth = u.bbox.width / dpr;
-    const plotHeight = u.bbox.height / dpr;
-    const deltaX = e.clientX - ds.x;
-    const deltaY = e.clientY - ds.y;
-
-    const xShift = (deltaX / plotWidth) * (ds.xMax - ds.xMin) * -1;
-    const yShift = (deltaY / plotHeight) * (ds.yMax - ds.yMin);
-
-    u.batch(() => {
-      u.setScale('x', { min: ds.xMin + xShift, max: ds.xMax + xShift });
-      u.setScale('y', { min: ds.yMin + yShift, max: ds.yMax + yShift });
-    });
-  }, [uplotRef]);
-
-  const handleMouseUp = useCallback(() => {
-    isDraggingRef.current = false;
-    dragStartRef.current = null;
-    if (containerRef.current) containerRef.current.style.cursor = 'grab';
-  }, []);
-
-  const handleDoubleClick = useCallback(() => {
-    const u = uplotRef.current;
-    if (!u || !u.data[0] || u.data[0].length === 0) return;
-    // Reset X to full range
-    u.setScale('x', { min: u.data[0][0], max: u.data[0][u.data[0].length - 1] });
-    // Reset Y by computing data extent
-    let yMin = Infinity, yMax = -Infinity;
-    for (let s = 1; s < u.data.length; s++) {
-      const series = u.data[s];
-      if (!series) continue;
-      for (let i = 0; i < series.length; i++) {
-        const v = series[i];
-        if (v != null && Number.isFinite(v)) {
-          if (v < yMin) yMin = v;
-          if (v > yMax) yMax = v;
-        }
-      }
-    }
-    if (yMin < yMax) {
-      const pad = (yMax - yMin) * 0.05;
-      u.setScale('y', { min: yMin - pad, max: yMax + pad });
-    }
-  }, [uplotRef]);
-
-  // Global mouseup listener (cleanup on unmount)
-  useEffect(() => {
-    const handler = () => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false;
-        dragStartRef.current = null;
-        if (containerRef.current) containerRef.current.style.cursor = 'grab';
-      }
-    };
-    window.addEventListener('mouseup', handler);
-    return () => window.removeEventListener('mouseup', handler);
-  }, []);
+  useUPlot(containerRef, opts, uData, size, seriesKey);
 
   const handlePin = useCallback(() => {
     if (data.length === 0) return;
@@ -424,23 +293,24 @@ export default function SignalChart() {
   const hasData = data.length > 0 && data.some(d => d.value !== null);
 
   return (
-    <div className="flex-1 flex flex-row bg-background-tertiary min-h-0 panel-inset">
+    <div className="flex-[1_1_0%] flex flex-row bg-chart-background min-h-[240px]">
       {/* Left: STAR-style data table (memo-isolated from chart re-renders) */}
-      <SignalDataTable data={data} selectedSymbol={selectedSymbol} />
+      <SignalDataTable data={data} selectedSymbol={selectedSymbol} symbolLabels={symbolLabels} />
 
       {/* Right: uPlot chart */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+        {needsFull && seriesState !== 'idle' ? (
+          <div className="absolute top-1 right-2 z-10 text-[10px] text-foreground-muted">
+            {seriesState === 'loading' ? 'loading full series…' : 'full series unavailable (showing sampled dates)'}
+          </div>
+        ) : null}
         <div
           ref={containerRef}
           className="relative flex-1 w-full min-h-0 p-2 select-none overflow-hidden"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onDoubleClick={handleDoubleClick}
           style={{ cursor: hasData ? 'grab' : 'default' }}
         >
           <button
-            className="absolute top-2 right-2 z-10 text-xs px-2 py-1 border border-border text-foreground-secondary bg-background-elevated/90 backdrop-blur-sm shadow-card hover:bg-border-hover disabled:opacity-30 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
+            className="absolute top-2 right-2 z-10 text-[11px] px-2 py-0.5 border border-border text-foreground-secondary bg-background hover:bg-row-hover disabled:opacity-30 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
             disabled={data.length === 0 || pinnedSnapshots.length >= 8}
             onClick={handlePin}
             title="Pin current chart as snapshot"
@@ -449,16 +319,6 @@ export default function SignalChart() {
             + Pin
           </button>
         </div>
-        <div
-          ref={tooltipRef}
-          suppressHydrationWarning
-          style={{
-            ...TOOLTIP_STYLE,
-            backgroundColor: colors.backgroundElevated,
-            border: `1px solid ${colors.chartGrid}`,
-            color: colors.chartText,
-          }}
-        />
       </div>
     </div>
   );

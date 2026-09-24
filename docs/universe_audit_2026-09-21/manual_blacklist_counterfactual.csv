@@ -1,0 +1,46 @@
+tradingItemId,symbol,companyName,would_qualify_latest_without_blacklist,would_qualify_days_since_2010_without_blacklist
+2642243,RTN,Raytheon Company,False,2580
+1913901735,VG,"Venture Global, Inc.",True,350
+1933861078,CRWV,"CoreWeave, Inc.",True,306
+2588570,OSG,"Ambac Financial Group, Inc.",True,3300
+216534627,DYN,Dynegy Inc.,False,1925
+2615898,GS,"The Goldman Sachs Group, Inc.",True,4198
+25745176,FIS,"Fidelity National Information Services, Inc.",True,4198
+659337840,DKNG,DraftKings Inc.,True,1551
+1776948460,WBD,"Warner Bros. Discovery, Inc.",True,4197
+2622876,JPM,JPMorgan Chase & Co.,True,4198
+622839848,CHWY,"Chewy, Inc.",True,1761
+1683446337,NU,Nu Holdings Ltd.,True,1133
+1673049332,HOOD,"Robinhood Markets, Inc.",True,1226
+2640322,TROW,"T. Rowe Price Group, Inc.",True,4198
+715588599,OWL,Blue Owl Capital Inc.,True,1375
+24687604,GTE,Gran Tierra Energy Inc.,True,2571
+1846726403,SN,"SharkNinja, Inc.",True,723
+132508040,NBIS,Nebius Group N.V.,True,3063
+25389977,LYV,"Live Nation Entertainment, Inc.",True,4198
+2618746,HOLX,"Hologic, Inc.",False,4088
+2626233,LEN,Lennar Corporation,True,4198
+1952948011,FIG,"Figma, Inc.",True,221
+1820944852,KVUE,Kenvue Inc.,True,782
+2627536,MTB,M&T Bank Corporation,True,4198
+2659893,COHR,Coherent Corp.,True,4198
+268941272,SYF,Synchrony Financial,True,2986
+2623717,K,Kellanova,False,4010
+266673936,FNF,"Fidelity National Financial, Inc.",True,4198
+39734352,ECHO,EchoStar Corporation,True,4009
+1672696918,IONQ,"IonQ, Inc.",True,1182
+43858210,BMNR,"Bitmine Immersion Technologies, Inc.",True,243
+604619421,FOXA,Fox Corporation,True,1826
+2593888,BDX,"Becton, Dickinson and Company",True,4198
+1672821289,RIVN,"Rivian Automotive, Inc.",True,1153
+709423890,ASTS,"AST SpaceMobile, Inc.",True,1306
+2640332,BKNG,Booking Holdings Inc.,True,4198
+2595170,BSX,Boston Scientific Corporation,True,4198
+2603117,CPRT,"Copart, Inc.",True,4198
+2594156,BRK.A,Berkshire Hathaway Inc.,True,4198
+2623439,KLAC,KLA Corporation,True,4198
+307533788,LITE,Lumentum Holdings Inc.,True,2733
+2597012,CTRA,Coterra Energy Inc.,False,4110
+2611328,FDX,FedEx Corporation,True,4198
+2618950,HON,Honeywell International Inc.,True,4198
+2629108,SPGI,S&P Global Inc.,True,4198

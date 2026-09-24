@@ -1,0 +1,5 @@
+overrideId,caseId,tradingItemId,evidence,source,isEstimate,owner
+X2-108,179,265652371,"PrairieSky Royalty US OTC line (PREK.F, USD, 2014-06-17..) - child of the Canadian Natural 2016-06-01 distribution",xfeed ciqpriceequity,false,X2
+X2-243,3340,1989603359,"Versigent / Electrical Distribution Systems Business of Aptiv (VGNT, NYSE, USD, from 2026-03-27) - child of the Aptiv 2026-04-01 distribution",xfeed ciqpriceequity,false,X2
+X2-255,3523,1795973741,"AMC Preferred Equity Units (APE, NYSE, USD, 2022-08-22..2023-08-24) - child of the AMC 2022-08-22 special dividend",xfeed ciqpriceequity,false,X2
+X2-290,4015,1975438894,"Atrium Therapeutics (RNA, NasdaqGS, USD, 2026-02-27..) - child of the Avidity 2026-02-27 SpinCo distribution (X2-75); ciqpriceequity 141 rows",xfeed ciqpriceequity,false,X2

@@ -148,9 +148,10 @@ struct MCustomScale : Module {
         self.assertEqual(generator.discover(self.root / 'missing'), [])
 
     def test_reserved_tag_and_builtin_class_cannot_be_overridden(self):
-        with self.assertRaisesRegex(generator.DiscoveryError, 'reserved'):
-            self.parse('struct MCustomScale : Module {};', 'Rank.h')
-        (self.root / 'Rank.h').unlink()
+        for builtin in ('Rank.h', 'Neutralize.h'):
+            with self.assertRaisesRegex(generator.DiscoveryError, 'reserved'):
+                self.parse('struct MCustomScale : Module {};', builtin)
+            (self.root / builtin).unlink()
         self.header('struct MTsMean : Module {};')
         with self.assertRaisesRegex(generator.DiscoveryError, 'engine type'):
             generator.discover(self.root)

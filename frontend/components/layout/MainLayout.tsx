@@ -15,8 +15,8 @@ export default function MainLayout({
   topBar,
   leftPanel,
   rightPanel,
-  defaultLeftWidth = 25,
-  minLeftWidth = 30,
+  defaultLeftWidth = 24,
+  minLeftWidth = 20,
   maxLeftWidth = 80,
 }: MainLayoutProps) {
   const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
@@ -58,13 +58,15 @@ export default function MainLayout({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
   }, [isDragging, minLeftWidth, maxLeftWidth]);
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-background">
+    <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
       {/* Top Bar - fixed above the split */}
       {topBar && (
         <div className="flex-shrink-0 w-full">
@@ -76,7 +78,7 @@ export default function MainLayout({
       <div ref={containerRef} className="flex flex-1 min-h-0 w-full overflow-hidden">
         {/* Left Panel - Editor */}
         <div
-          className="h-full min-w-0 overflow-y-auto overflow-x-hidden"
+          className="h-full min-w-0 shrink-0 overflow-hidden"
           style={{ width: `${leftWidth}%` }}
         >
           {leftPanel}
@@ -84,11 +86,15 @@ export default function MainLayout({
 
         {/* Resizer */}
         <div
-          className={`w-[3px] h-full cursor-col-resize transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
+          className={`w-[4px] shrink-0 h-full cursor-col-resize transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
             isDragging ? 'bg-accent' : 'bg-border-strong hover:bg-accent/50'
           }`}
           role="separator"
-          aria-label="Resize panels"
+          aria-label="Resize editor and results panels"
+          aria-orientation="vertical"
+          aria-valuemin={minLeftWidth}
+          aria-valuemax={maxLeftWidth}
+          aria-valuenow={Math.round(leftWidth)}
           tabIndex={0}
           onMouseDown={handleMouseDown}
           onKeyDown={(e) => {
@@ -99,8 +105,7 @@ export default function MainLayout({
 
         {/* Right Panel - Visualization */}
         <div
-          className="h-full overflow-hidden flex flex-col"
-          style={{ width: `${100 - leftWidth}%` }}
+          className="h-full min-w-0 flex-1 overflow-hidden flex flex-col"
         >
           {rightPanel}
         </div>

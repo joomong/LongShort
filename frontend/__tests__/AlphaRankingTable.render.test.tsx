@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import AlphaRankingTable from '@/components/multi-alpha/AlphaRankingTable';
 import { useAlphaStore } from '@/store/alphaStore';
@@ -18,8 +18,8 @@ describe('AlphaRankingTable rendering', () => {
 
     render(<AlphaRankingTable />);
 
-    expect(screen.getByText('Alpha Ranking (2)')).toBeInTheDocument();
-    expect(screen.getByText('sortedBy=sharpe')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Alpha results' })).toBeInTheDocument();
+    expect(screen.queryByText(/Alpha Ranking/)).not.toBeInTheDocument();
 
     // Rows identified by rank-based ID (0, 1), no Name column
     const rows = screen.getAllByRole('button');
@@ -36,10 +36,88 @@ describe('AlphaRankingTable rendering', () => {
     expect(headers[2]).toHaveTextContent('avgBet');
     expect(cells[2]).toHaveTextContent('3.50');
     expect(headers[5]).toHaveTextContent('minBet');
-    expect(cells[5]).toHaveTextContent('2.00');
-    expect(headers[11]).toHaveTextContent('avgBet');
-    expect(cells[11]).toHaveTextContent('5.25');
-    expect(headers[14]).toHaveTextContent('minBet');
-    expect(cells[14]).toHaveTextContent('1.00');
+    expect(cells[5]).toHaveTextContent('2');
+    expect(headers[12]).toHaveTextContent('avgBet');
+    expect(cells[12]).toHaveTextContent('5.25');
+    expect(headers[15]).toHaveTextContent('minBet');
+    expect(cells[15]).toHaveTextContent('1');
+  });
+});
+
+
+describe('Reference table formatting', () => {
+  it('keeps sign criteria as underlines, neutral turnover, and both Sharpe horizons', () => {
+    const alpha = multiAlphaMetricFixture.alphas[0];
+    useAlphaStore.setState({ result: { ...multiAlphaMetricFixture, alphas: [{
+      ...alpha,
+      isMetrics: { ...alpha.isMetrics, avgMaxBet: 2.875, sharpe400: 1.234, sharpe80: -0.236 },
+      osMetrics: { ...alpha.osMetrics, sharpe80: 0 },
+    }] } });
+    render(<AlphaRankingTable />);
+    const row = screen.getByRole('button', { name: `View ${alpha.name}` });
+    const cells = within(row).getAllByRole('cell');
+    expect(cells[3]).toHaveTextContent('2.88%');
+    expect(cells[4]).toHaveTextContent('60.00%');
+    expect(cells[5]).toHaveTextContent(/^2$/);
+    expect(cells[7]).toHaveTextContent('+947.50%');
+    expect(cells[9]).toHaveTextContent('1.23');
+    expect(cells[10]).toHaveTextContent('-0.24');
+    expect(cells[11]).toHaveTextContent('26.70%');
+    expect(cells[7].firstElementChild).toHaveClass('decoration-metric-positive', 'underline');
+    expect(cells[10].firstElementChild).toHaveClass('decoration-metric-negative', 'underline');
+    expect(cells[17].firstElementChild).toHaveClass('decoration-metric-negative');
+    expect(cells[20].firstElementChild).not.toHaveClass('underline');
+    expect(cells[11].querySelector('.underline')).toBeNull();
+    expect(cells[7]).toHaveClass('text-[#111111]');
+    expect(row.querySelector('.text-metric-positive, .text-metric-negative')).toBeNull();
+    expect(screen.getAllByRole('columnheader', { name: 'sharpe400' })).toHaveLength(2);
+    expect(screen.getAllByRole('columnheader', { name: 'sharpe80' })).toHaveLength(2);
+    expect(screen.getByRole('columnheader', { name: 'IS' })).toHaveAttribute('colspan', '10');
+  });
+
+  it('keeps save selection independent of detail row activation', () => {
+    useAlphaStore.setState({ result: multiAlphaMetricFixture });
+    render(<AlphaRankingTable />);
+    const row = screen.getByRole('button', { name: 'View alpha_0' });
+    const saveSelection = within(row).getByRole('button', { name: 'Select alpha' });
+    fireEvent.click(saveSelection);
+    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([0]);
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBeNull();
+    fireEvent.keyDown(saveSelection, { key: 'Enter' });
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBeNull();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBe(0);
+    expect(row).toHaveClass('bg-[#e0ddf5]');
+    expect(saveSelection).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+
+describe('Batch save selection', () => {
+  it('places IDs before circles and selects all without switching the detail alpha', () => {
+    const combined = { ...multiAlphaMetricFixture.alphas[0], name: 'combined' };
+    useAlphaStore.setState({ result: { ...multiAlphaMetricFixture, combined } });
+    render(<AlphaRankingTable />);
+    const batch = screen.getByRole('button', { name: 'View combined alpha' });
+    const cells = within(batch).getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent(/^batch$/);
+    const selectAll = within(cells[1]).getByRole('button', { name: 'Select all alphas' });
+    const alphaRow = screen.getByRole('button', { name: 'View alpha_0' });
+    const alphaCells = within(alphaRow).getAllByRole('cell');
+    expect(alphaCells[0]).toHaveTextContent(/^0$/);
+    fireEvent.click(within(alphaCells[1]).getByRole('button', { name: 'Select alpha' }));
+    expect(selectAll).toHaveAttribute('aria-pressed', 'mixed');
+    fireEvent.keyDown(selectAll, { key: 'Enter' });
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBeNull();
+    fireEvent.click(selectAll);
+    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([0, 1]);
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBeNull();
+    expect(selectAll).toHaveAttribute('aria-pressed', 'true');
+    expect(selectAll).toHaveAccessibleName('Deselect all alphas');
+    fireEvent.click(selectAll);
+    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([]);
+    expect(selectAll).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(within(batch).getByText('batch'));
+    expect(useAlphaStore.getState().selectedAlphaIndex).toBe(-1);
   });
 });

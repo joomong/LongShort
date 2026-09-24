@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAlphaStore } from '@/store/alphaStore';
 import { selectSignalSource } from '@/lib/signalSelection';
@@ -25,18 +25,21 @@ const response = (value: number) => ({ batches: [], yearly: [], timeseries: { ti
 beforeEach(() => { vi.clearAllMocks(); useAlphaStore.setState(initial, true); });
 
 describe('selected alpha signals', () => {
-  it('loads only missing selected signals using the original run dates and reuses the cache', async () => {
-    useAlphaStore.getState().setResult(result());
-    useAlphaStore.getState().selectSignalAlpha(1);
+  it('loads missing single alpha signals using original run dates and reuses the cache', async () => {
+    const data = result();
+    data.alphas = [data.alphas[1]];
+    useAlphaStore.getState().setResult(data);
     vi.mocked(runSimulate).mockResolvedValue(response(-7));
-    render(<SignalPanelSelector />);
+    const view = render(<SignalPanelSelector />);
     await waitFor(() => expect(selectSignalSource(useAlphaStore.getState())?.heatmap).toEqual(heatmap(-7)));
     expect(runSimulate).toHaveBeenCalledWith('<data expr="-close" delay="1"/>', '2020-01-01', '2021-01-01', '2023-01-01', expect.any(AbortSignal), 2, 0);
     expect(selectSignalSource(useAlphaStore.getState())?.distribution).toEqual([1]);
     expect(useAlphaStore.getState().selectedSymbol).toBe('A');
-    fireEvent.change(screen.getByLabelText('Signals'), { target: { value: '0' } });
-    expect(selectSignalSource(useAlphaStore.getState())?.heatmap).toEqual(heatmap(5));
-    fireEvent.change(screen.getByLabelText('Signals'), { target: { value: '1' } });
+    view.unmount();
+    render(<SignalPanelSelector />);
+    expect(screen.queryByText('alpha_1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Signals')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(selectSignalSource(useAlphaStore.getState())?.heatmap).toEqual(heatmap(-7));
     expect(runSimulate).toHaveBeenCalledTimes(1);
   });
@@ -44,8 +47,9 @@ describe('selected alpha signals', () => {
   it('does not attach a stale signal response to a new backtest', async () => {
     let resolve!: (value: StarBatchResponse) => void;
     vi.mocked(runSimulate).mockReturnValue(new Promise(done => { resolve = done; }));
-    useAlphaStore.getState().setResult(result());
-    useAlphaStore.getState().selectSignalAlpha(1);
+    const data = result();
+    data.alphas = [data.alphas[1]];
+    useAlphaStore.getState().setResult(data);
     render(<SignalPanelSelector />);
     await waitFor(() => expect(runSimulate).toHaveBeenCalledTimes(1));
     const signal = vi.mocked(runSimulate).mock.calls[0][4];
@@ -54,6 +58,14 @@ describe('selected alpha signals', () => {
     expect(signal?.aborted).toBe(true);
     expect(useAlphaStore.getState().result?.alphas[1].heatmap).toBeUndefined();
     expect(selectSignalSource(useAlphaStore.getState())?.heatmap).toEqual(heatmap(5));
+  });
+
+  it('does not render or request signals for a multi alpha result', () => {
+    useAlphaStore.getState().setResult(result());
+    useAlphaStore.getState().selectSignalAlpha(1);
+    const view = render(<SignalPanelSelector />);
+    expect(view.container).toBeEmptyDOMElement();
+    expect(runSimulate).not.toHaveBeenCalled();
   });
 
   it('selects combined and individual payloads without borrowing another alpha signal', () => {

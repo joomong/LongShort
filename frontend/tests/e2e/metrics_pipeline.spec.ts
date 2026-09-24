@@ -1,66 +1,84 @@
 import { test, expect } from '@playwright/test';
-import fixture from '../../__tests__/fixtures/cpp_multi.json';
+import multi from '../../__tests__/fixtures/cpp_multi.json';
+import single from '../../__tests__/fixtures/cpp_single.json';
 import captured from '../../__tests__/fixtures/capture.json';
-import type { StarBatchResponse } from '../../types';
 
-// Actual C++ values; omit one upfront payload to exercise the lazy path.
-test('real C++ contract renders signals, uses the selected batch and restores charts after detail', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  const batchResponse = structuredClone(fixture) as StarBatchResponse;
-  const second = batchResponse.batches[1];
-  const secondSignals = { signalPlot: second.signalPlot, signalRange: second.signalRange, distribution: second.distribution };
-  delete second.signalPlot; delete second.signalRange; delete second.distribution;
-  let requests = 0;
-  await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-  await page.route('**/api/simulate', async route => {
-    requests++;
-    const body = route.request().postDataJSON();
-    expect(body.collectSignals).toBe(true);
-    expect(body.collectSignalsTopK).toBe(5);
-    expect(body.mode).toBe(1);
-    if (requests === 1) {
-      await route.fulfill({ json: batchResponse });
+for (const kind of ['single', 'multi'] as const) {
+  test(`${kind} run preserves analysis/detail workflow and original editor`, async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    let requests = 0;
+    const fixture = kind === 'single' ? single : multi;
+    await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
+    await page.route('**/api/simulate', route => {
+      requests++;
+      return route.fulfill({ json: fixture });
+    });
+    await page.goto('/');
+    await page.getByLabel('IS start date').fill(captured.settings.isStart);
+    await page.getByLabel('OS start date').fill(captured.settings.osStart);
+    await page.getByLabel('Sim start date').fill(captured.settings.simStart);
+    await page.getByLabel('Run Backtest (Shift+Enter)').click();
+    await expect(page.getByRole('table', { name: 'Alpha results' })).toBeVisible();
+    await expect(page.getByText(/Alpha Ranking/)).toHaveCount(0);
+    const rightGap = await page.getByRole('table', { name: 'Alpha results' }).evaluate(table => {
+      const last = table.querySelector('thead tr:last-child th:last-child')!;
+      return table.parentElement!.getBoundingClientRect().right - last.getBoundingClientRect().right;
+    });
+    expect(rightGap).toBeGreaterThanOrEqual(23);
+    if (kind === 'single') {
+      await expect(page.getByLabel('Signal heatmap')).toBeVisible();
+      await expect(page.getByLabel('Signal distribution')).toBeVisible();
+      await expect(page.getByText('Signals', { exact: true })).toHaveCount(0);
+      await expect(page.getByText('+ Long / − Short', { exact: true })).toHaveCount(0);
+      await expect(page.getByText(/Sampled .* bars/)).toHaveCount(0);
     } else {
-      expect(body.xml).toBe(second.xml);
-      expect(body.simStart).toBe(captured.settings.simStart);
-      expect(body.osStart).toBe(captured.settings.osStart);
-      await route.fulfill({ json: { ...secondSignals, batches: [{ ...second, ...secondSignals }], yearly: second.yearly, timeseries: second.timeseries, isStartIndex: second.isStartIndex, osStartIndex: second.osStartIndex } });
+      await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+      await expect(page.getByTestId('result-placeholder')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'View combined alpha', exact: true })).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByRole('region', { name: 'Selected alpha XML' }).locator('pre')).toHaveText('No XML available for this alpha.');
+      await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
     }
+    const editor = page.locator('.monaco-editor').first();
+    await expect(editor).toBeVisible({ timeout: 20000 });
+    await expect(editor.locator('.view-lines')).toContainText('delay="0"/>');
+    const original = await editor.locator('.view-lines').innerText();
+    await page.screenshot({ path: `test-results/reference-${kind}-results.png`, fullPage: true });
+    for (const batch of fixture.batches) {
+      await page.getByRole('button', { name: `View alpha_${batch.index}`, exact: true }).click();
+      await expect(page.getByRole('table', { name: 'Yearly performance' })).toBeVisible();
+      await expect(page.getByTestId('alpha-detail')).toBeVisible();
+      await expect(page.getByTitle('Close detail view')).toHaveCount(0);
+      await expect(page.getByText('Alpha XML', { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId('alpha-detail').getByText(/^#\d+ alpha_/)).toHaveCount(0);
+      await expect(page.getByRole('region', { name: 'Selected alpha XML' }).getByText(`alpha_${batch.index}`, { exact: true })).toHaveCount(0);
+      await expect(page.getByLabel('Signal heatmap')).not.toBeVisible();
+      for (const name of ['PnL', 'Turnover%', 'Non-zero Pos', 'Max Weight%', 'Drawdown']) {
+        await page.getByRole('button', { name, exact: true }).click();
+        await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
+      }
+      await page.getByRole('button', { name: 'PnL', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'PnL', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => page.locator('.uplot:visible canvas').evaluate(el => (el as HTMLCanvasElement).width)).toBeGreaterThan(100);
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      const plot = await page.locator('.uplot:visible .u-over').boundingBox();
+      expect(plot!.width).toBeLessThanOrEqual(820);
+      expect(plot!.width / plot!.height).toBeGreaterThan(1.66);
+      expect(plot!.width / plot!.height).toBeLessThan(1.74);
+      expect((await page.locator('header').boundingBox())!.height).toBeLessThanOrEqual(76);
+      expect(await editor.locator('.view-lines').evaluate(el => getComputedStyle(el).lineHeight)).toBe('16px');
+      expect((await editor.locator('.margin').boundingBox())!.width).toBeLessThanOrEqual(45);
+      expect(await editor.locator('.view-lines').innerText()).toBe(original);
+      await expect(editor).not.toHaveClass(/readonly/);
+      await expect(page.getByRole('region', { name: 'Selected alpha XML' }).locator('pre')).toHaveText(batch.xml);
+      await page.screenshot({ path: `test-results/reference-${kind}-detail-${batch.index}.png`, fullPage: true });
+      await page.getByRole('button', { name: `View alpha_${batch.index}`, exact: true }).click();
+      if (kind === 'single') await expect(page.getByLabel('Signal heatmap')).toBeVisible();
+      else await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+    }
+    if (kind === 'multi') expect(requests).toBe(1);
+    expect(errors).toEqual([]);
   });
-  await page.goto('/');
-  await page.getByLabel('IS start date').fill(captured.settings.isStart);
-  await page.getByLabel('OS start date').fill(captured.settings.osStart);
-  await page.getByLabel('Sim start date').fill(captured.settings.simStart);
-  await page.getByLabel('Run Backtest (Shift+Enter)').click();
-  await expect(page.getByText('Alpha Ranking (2)')).toBeVisible();
-  await expect(page.getByLabel('Signal heatmap')).toBeVisible();
-  await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
-  await expect(page.getByText('Sampled 10/86 bars · 6/6 symbols')).toBeVisible();
-
-  // Canvas pixels retain actual sign, not cross-sectional rank.
-  const col = fixture.combined.signalPlot.values[0];
-  for (const sign of [1, -1]) {
-    const symbol = col.findIndex(value => value !== null && value * sign > 0);
-    await expect.poll(async () => page.getByLabel('Signal heatmap').evaluate((node, row) => {
-      const canvas = node as HTMLCanvasElement;
-      const pixel = canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 20), Math.floor(canvas.height * (row + 0.5) / 6), 1, 1).data;
-      return pixel[1] > pixel[0] ? 1 : pixel[0] > pixel[1] ? -1 : 0;
-    }, symbol)).toBe(sign);
-  }
-  await page.getByLabel('Bar interval').selectOption('D0'); // Next run setting; cached run stays D1.
-  await page.getByLabel('Signals', { exact: true }).selectOption('1');
-  await expect(page.getByRole('table', { name: 'Signal data' }).locator('tbody tr').first().locator('td').nth(1)).toHaveText(secondSignals.signalPlot!.values[0][0]!.toFixed(4));
-  await expect.poll(() => requests).toBe(2);
-  await expect(page.getByLabel('Signal distribution').locator('[data-count]')).toHaveCount(secondSignals.distribution!.counts.length);
-  await page.getByLabel('Signals', { exact: true }).selectOption('0');
-  await page.getByLabel('Signals', { exact: true }).selectOption('1');
-  expect(requests).toBe(2);
-  await page.getByRole('button', { name: `View alpha_${second.index}`, exact: true }).click();
-  await expect(page.getByText('Yearly Table')).toBeVisible();
-  await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
-  await page.getByTitle('Close detail view').click();
-  await expect(page.getByLabel('Signal heatmap')).toBeVisible();
-  await expect(page.locator('.uplot:visible canvas')).toHaveCount(1);
-  expect(errors).toEqual([]);
-});
+}

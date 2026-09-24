@@ -7,6 +7,7 @@
 #include "compiler/expansion.h"
 #include "compiler/dag_builder.h"
 #include "data/data_panel.h"
+#include "modules/Neutralize.h"
 #include "signal_vector.h"
 
 // ---------------------------------------------------------------------------
@@ -540,4 +541,119 @@ TEST(XmlCompiler, RejectsPartiallyParsedOrOverflowingNumericLiterals) {
                                       std::string(60,'9')}) {
         EXPECT_THROW(compile_xml("<data expr=\""+literal+"\"/>",&dp),std::runtime_error);
     }
+}
+
+// ---------------------------------------------------------------------------
+// <neutralize group="sector|industry"/>
+// ---------------------------------------------------------------------------
+
+// Static classification codes, broadcast over every date like the group panels.
+static void add_group_column(DataPanel& dp, const std::string& column,
+                             const std::vector<float>& codes) {
+    auto& arr = dp.arrays[column];
+    arr.resize(static_cast<size_t>(dp.T) * dp.N);
+    for (unsigned t = 0; t < dp.T; ++t)
+        for (unsigned n = 0; n < dp.N; ++n)
+            arr[static_cast<size_t>(t) * dp.N + n] = codes[n];
+}
+
+TEST(XmlCompiler, NeutralizeRequiresGroupAttribute) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><neutralize/>)",
+        dp,
+        {"<neutralize>", "'group'", "sector|industry"});
+}
+
+TEST(XmlCompiler, NeutralizeRejectsUnsupportedGroup) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><neutralize group="country"/>)",
+        dp,
+        {"Unsupported neutralize group 'country'", "supported: sector, industry"});
+}
+
+TEST(XmlCompiler, NeutralizeRejectsGroupWithoutARegisteredField) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+    ASSERT_FALSE(dp.has_column("industry"));
+    expect_compile_error_contains(
+        R"(<data expr="close"/><neutralize group="industry"/>)",
+        dp,
+        {"neutralize group 'industry'", "data field 'industry'", "base: {cache, groups}"});
+}
+
+TEST(XmlCompiler, NeutralizeGroupPipeExpandsIntoOneAlphaPerGroup) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+    add_group_column(dp, "industry", {1, 2, 3});
+
+    auto alphas = compile_xml(
+        R"(<data expr="close"/><rank/><neutralize group="sector|industry"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 2u);
+    EXPECT_NE(alphas[0].source_xml.find("group=\"sector\""), std::string::npos)
+        << alphas[0].source_xml;
+    EXPECT_NE(alphas[1].source_xml.find("group=\"industry\""), std::string::npos)
+        << alphas[1].source_xml;
+    EXPECT_EQ(alphas[0].source_xml.find('|'), std::string::npos);
+    EXPECT_EQ(alphas[1].source_xml.find('|'), std::string::npos);
+
+    auto* first = dynamic_cast<MNeutralize*>(alphas[0].output);
+    auto* second = dynamic_cast<MNeutralize*>(alphas[1].output);
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(first->column_name, "sector");
+    EXPECT_EQ(second->column_name, "industry");
+}
+
+TEST(XmlCompiler, NeutralizeWorksInsideChoice) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+
+    auto alphas = compile_xml(
+        R"(<data expr="close"/><choice><rank/><neutralize group="sector"/></choice>)", &dp);
+    ASSERT_EQ(alphas.size(), 2u);
+    EXPECT_EQ(dynamic_cast<MNeutralize*>(alphas[0].output), nullptr);
+    ASSERT_NE(dynamic_cast<MNeutralize*>(alphas[1].output), nullptr);
+}
+
+TEST(XmlCompiler, NeutralizeReadsTheSavedSignalNamedByInput) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+
+    // `p` holds close; the live chain holds -close. input="p" must win.
+    std::string xml = R"(
+        <data expr="close"/>
+        <signal id="p"/>
+        <data expr="-close"/>
+        <neutralize group="sector" input="p"/>
+    )";
+    auto alphas = compile_xml(xml, &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    ASSERT_NE(dynamic_cast<MNeutralize*>(alphas[0].output), nullptr);
+
+    std::vector<float> buf(dp.N);
+    SignalVector sv{buf.data(), dp.N};
+    for (Module* m : alphas[0].pipeline) { m->numAssets = dp.N; m->init(); }
+    sv.fill_nan();
+    for (Module* m : alphas[0].pipeline) m->calculate(0, sv);
+
+    // close row 0 = [100, 100.1, 100.2]; group {0,1} mean 100.05, {2} alone.
+    EXPECT_NEAR(buf[0], -0.05f, 1e-3f);
+    EXPECT_NEAR(buf[1], 0.05f, 1e-3f);
+    EXPECT_NEAR(buf[2], 0.0f, 1e-3f);
+}
+
+TEST(XmlCompiler, NeutralizeGroupAttributeIsWhitespaceTrimmed) {
+    auto dp = make_panel(30, 3);
+    add_group_column(dp, "sector", {1, 1, 2});
+
+    auto alphas = compile_xml(R"(<data expr="close"/><neutralize group=" sector "/>)", &dp);
+    ASSERT_EQ(alphas.size(), 1u);
+    auto* mod = dynamic_cast<MNeutralize*>(alphas[0].output);
+    ASSERT_NE(mod, nullptr);
+    EXPECT_EQ(mod->group, "sector");
+    EXPECT_EQ(mod->column_name, "sector");
 }

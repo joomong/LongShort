@@ -180,8 +180,9 @@ struct Parser {
         if (cur().kind == TokKind::Ident) {
             std::string name = cur().text;
             consume();
+            // A thin-v1 panel carries `returns` as a cache field; other layouts derive it from close.
             if (name == "returns")
-                return make_returns();
+                return panel && (panel->thin_layout || panel->has_column("returns")) ? make_data("returns") : make_returns();
             return make_data(name);
         }
         if (cur().kind == TokKind::LParen) {

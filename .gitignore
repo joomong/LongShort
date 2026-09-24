@@ -221,6 +221,8 @@ data/
 !cpp-engine/src/data/
 !cpp-engine/src/data/*.h
 !cpp-engine/src/data/*.cpp
+!cpp-engine/tools/data/
+!cpp-engine/tools/data/*.py
 
 # Claude Code / OMC
 .omc/

@@ -32,8 +32,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
-                const theme = localStorage.getItem('theme') ||
-                  (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                const theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
                 if (theme === 'dark') document.documentElement.classList.add('dark');
                 document.documentElement.style.colorScheme = theme;
               })();
@@ -43,7 +42,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
         <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
       </head>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-mono font-medium antialiased`}>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <ThemeProvider>
           {children}
         </ThemeProvider>

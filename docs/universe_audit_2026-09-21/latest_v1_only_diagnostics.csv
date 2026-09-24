@@ -1,0 +1,6 @@
+id,tradingItemId,symbol,companyName,exchangeId,inV1Rule,firstPriceDate,lastPriceDate,in_v2_cache,v1_member_days,v2_member_days,v1_only_member_days,v2_only_member_days,latest_close,latest_current_primary,mcap_21d_median,mean_close100_times_mean_volume100,sticky_eligible_streak,positive_current_mcap,calculated_ALL
+1854830766,1854830766.0,LZMH,LZ Technology Holdings Limited,173,True,2025-02-27,2026-09-11,True,165,160,6,1,1.26,1.0,10863985.0,717739.0494268376,0,True,False
+1856785919,1856785919.0,NAKA,Nakamoto Inc.,104,True,2024-05-31,2026-09-11,True,204,193,11,0,8.19,1.0,128843592.0,1423975.3448766167,0,True,False
+1979399313,1979399313.0,FAC,Factorial Inc.,104,True,2025-06-24,2026-09-11,True,7,0,7,0,5.31,1.0,535116224.0,3623861.1807158818,60,True,False
+1990989904,1990989904.0,HQ,Horizon Quantum Computing Pte. Ltd.,173,True,2022-12-07,2026-09-11,True,2,0,2,0,15.22,1.0,899714560.0,8351787.22186063,59,True,False
+553814981,553814981.0,LNAI,Renovaro Inc.,173,True,2018-02-20,2026-09-11,True,103,91,17,5,2.38,1.0,10314597.0,2174214.2512766826,0,True,False

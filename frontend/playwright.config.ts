@@ -23,7 +23,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run ${process.env.PLAYWRIGHT_USE_BUILD ? 'start' : 'dev'} -- --hostname 127.0.0.1 --port ${port}`,
+    command: `${process.env.PLAYWRIGHT_USE_BUILD ? '' : 'NEXT_DIST_DIR=.next-playwright '}npm run ${process.env.PLAYWRIGHT_USE_BUILD ? 'start' : 'dev'} -- --hostname 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: !process.env.PLAYWRIGHT_PORT,
     timeout: 60000,

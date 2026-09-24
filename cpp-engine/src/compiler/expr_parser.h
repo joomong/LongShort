@@ -13,7 +13,7 @@ struct DataPanel;
 // Allowed identifiers: fields registered in the DataPanel, plus derived returns
 // Allowed operators: +, -, *, /
 // Numeric literals produce MConstant modules.
-// Special: "returns" expands to close / Delay(close, 1) - 1.0
+// Special: "returns" is the panel field when it has one (thin-v1), else close / Delay(close, 1) - 1.0
 // Throws std::runtime_error on invalid syntax or unknown identifier.
 Module* parse_expr(const std::string& expr,
                    const DataPanel* panel,

@@ -1,0 +1,707 @@
+tradingItemId,symbol,companyName,exchangeId,companyTypeId,everMainExchange,reason,ALL_days_before,Top1000_days_before,Top700_days_before,Top500_days_before,Top300_days_before,Top200_days_before,Top100_days_before,Top10_days_before
+28624458,DBC,Invesco DB Commodity Index Tracking Fund,117,13.0,True,public_fund_company,5123,1761,1221,578,0,0,0,0
+31783758,DJP,iPath Bloomberg Commodity Index Total Return ETN,117,13.0,True,public_fund_company,4584,1103,113,0,0,0,0,0
+28687040,OILN.F,iPath S&P GSCI Crude Oil Total Return Index ETN,134,13.0,True,public_fund_company,2976,0,0,0,0,0,0,0
+2607273,DSL,Downey Financial Corp.,117,5.0,True,fund_venue,1934,596,0,0,0,0,0,0
+31786937,INPT.F,iPath MSCI India Index ETN,134,13.0,True,public_fund_company,1743,0,0,0,0,0,0,0
+29156155,DBV,Invesco DB G10 Currency Harvest Fund,117,13.0,True,public_fund_company,1331,0,0,0,0,0,0,0
+40628225,JJCT.F,iPath Bloomberg Copper Subindex Total Return ETN,134,13.0,True,public_fund_company,853,0,0,0,0,0,0,0
+40615026,JJGT.F,iPath Bloomberg Grains Subindex Total Return ETN,134,13.0,True,public_fund_company,681,0,0,0,0,0,0,0
+39361658,USL,"United States 12 Month Oil Fund, LP",117,13.0,True,public_fund_company,332,0,0,0,0,0,0,0
+11224242,AX,"Archipelago Holdings, Inc.",117,5.0,True,fund_venue,211,121,0,0,0,0,0,0
+31783748,GSP,iPath S&P GSCI Total Return Index ETN,117,13.0,True,public_fund_company,207,0,0,0,0,0,0,0
+40613942,,iPath Bloomberg Natural Gas Subindex Total Return ETN,117,13.0,True,public_fund_company,151,0,0,0,0,0,0,0
+130256838,SVVC,"Firsthand Technology Value Fund, Inc.",134,13.0,True,public_fund_company,50,0,0,0,0,0,0,0
+1945578924,RGLO,Russell Investments Exchange Traded Funds - Global Equity Active Etf,104,13.0,True,public_fund_company,13,0,0,0,0,0,0,0
+40643373,GSCE,GS Connect S&P GSCI Enhanced Commodity Total Return ETN,134,13.0,True,public_fund_company,4,0,0,0,0,0,0,0
+37284826,KIE,SPDR Series Trust - SPDR S&P Insurance ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284834,XSD,SPDR Series Trust - SPDR S&P Semiconductor ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284832,SPMD,SPDR Series Trust - SPDR Portfolio S&P 400 Mid Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284831,MDYV,SPDR Series Trust - SPDR S&P 400 Mid Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284830,MDYG,SPDR Series Trust - SPDR S&P 400 Mid Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284835,XHB,SPDR Series Trust - SPDR S&P Homebuilders ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284829,SLY,SPDR Series Trust - SPDR S&P 600 Small Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284828,SPTM,SPDR Series Trust - SPDR Portfolio S&P 1500 Composite Stock Market ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37457032,PFP,PowerShares International Listed Private Equity Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37457057,PWD,PowerShares Exchange-Traded Fund Trust II - PowerShares FTSE RAFI Europe Small-Mid Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37457135,PXH,Invesco Exchange-Traded Fund Trust II - Invesco FTSE RAFI Emerging Markets ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37457188,PDN,Invesco Exchange-Traded Fund Trust II - Invesco FTSE RAFI Developed Markets ex-U.S. Small-Mid ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284827,KBE,SPDR Series Trust - SPDR S&P Bank ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37457189,PDQ,PowerShares FTSE RAFI Asia Pacific ex-Japan Small-Mid Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284833,SPYM,SPDR Series Trust - SPDR Portfolio S&P 500 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284822,XES,SPDR Series Trust - SPDR S&P Oil & Gas Equipment & Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284825,KCE,SPDR Series Trust - SPDR S&P Capital Markets ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284814,SPTL,SPDR Series Trust - SPDR Portfolio Long Term Treasury ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284807,XNTK,SPDR Series Trust - SPDR NYSE Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284808,SLYG,SPDR Series Trust - SPDR S&P 600 Small Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284809,SLYV,SPDR Series Trust - SPDR S&P 600 Small Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284810,SPYG,SPDR Series Trust - SPDR Portfolio S&P 500 Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284811,SPYV,SPDR Series Trust - SPDR Portfolio S&P 500 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284812,RWR,SPDR Series Trust - SPDR Dow Jones REIT ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284813,SPAB,SPDR Series Trust - SPDR Portfolio Aggregate Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284815,SPTI,SPDR Series Trust - SPDR Portfolio Intermediate Term Treasury ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284824,SDY,SPDR Series Trust - SPDR S&P Dividend ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284816,BIL,SPDR Series Trust - SPDR Bloomberg 1-3 Month T-Bill ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284817,KRE,SPDR Series Trust - SPDR S&P Regional Banking ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284818,DGT,SPDR Series Trust - SPDR Global Dow ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284819,XRT,SPDR Series Trust - SPDR S&P Retail ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284820,XPH,SPDR Series Trust - SPDR S&P Pharmaceuticals ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284821,XOP,SPDR Series Trust - SPDR S&P Oil & Gas Exploration & Production ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284823,XME,SPDR Series Trust - SPDR S&P Metals & Mining ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37802428,NYF,iShares Trust - iShares New York Muni Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37982827,PCY,Invesco Exchange-Traded Fund Trust II - Invesco Emerging Markets Sovereign Debt ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37802439,CMF,iShares Trust - iShares California Muni Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+39179500,FGD,First Trust Exchange-Traded Fund II - First Trust Dow Jones Global Select Dividend Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38842442,RMM,Rydex ETF Trust - Rydex 2x S&P MidCap 400 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38842443,RSW,Rydex ETF Trust - Guggenheim Inverse 2x S&P 500 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38842447,RSU,Rydex ETF Trust - Guggenheim 2x S&P 500 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38894938,CUT,Invesco Exchange-Traded Fund Trust II - Invesco MSCI Global Timber ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38894951,FXP,ProShares Trust - ProShares UltraShort FTSE China 50,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38894957,EWV,ProShares Trust - ProShares UltraShort MSCI Japan,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38989272,PVI,Invesco Exchange-Traded Fund Trust II - Invesco Floating Rate Municipal Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38989273,IFLN,Invesco Exchange-Traded Fund Trust II - Invesco Fundamental High Yield Corporate Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+39346185,JNK,SPDR Series Trust - SPDR Bloomberg High Yield Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37821350,BWX,SPDR Series Trust - SPDR Bloomberg International Treasury Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+39364561,ITM,VanEck ETF Trust - VanEck Intermediate Muni ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+39417145,EDV,Vanguard World Fund - Vanguard Extended Duration Treasury ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+39861115,MLN,VanEck ETF Trust - VanEck Long Muni ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40208569,DHFT,"Diamond Hill Financial Trends Fund, Inc.",134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40330537,GCC,WisdomTree Trust - WisdomTree Enhanced Commodity Strategy Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40486916,HAO,Invesco Exchange-Traded Fund Trust II - Invesco China Small Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40611773,JYNF.F,iPath JPY/USD Exchange Rate ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40626128,EROT.F,iPath EUR/USD Exchange Rate ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38842440,RRY,Rydex ETF Trust - Rydex 2x Russell 2000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38842439,RRZ,Rydex ETF Trust - Rydex Inverse 2x Russell 2000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38781659,EUM,ProShares Trust - ProShares Short MSCI Emerging Markets,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38781633,EEV,ProShares Trust - ProShares UltraShort MSCI Emerging Markets,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37982729,PWZ,Invesco Exchange-Traded Fund Trust II - Invesco California AMT-Free Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37982758,PZT,Invesco Exchange-Traded Fund Trust II - Invesco New York AMT-Free Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284805,RWX,SPDR Index Shares Funds - SPDR Dow Jones International Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38019998,SHM,SPDR Series Trust - SPDR Nuveen Bloomberg Short Term Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38020008,INY,SPDR Series Trust - SPDR Nuveen Barclays New York Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38020214,CXA,SPDR Series Trust - SPDR Nuveen Barclays California Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245408,SFV,SPA ETF Trust - SPA Marketgrader 40 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245409,SIH,SPA ETF Trust - SPA Marketgrader 100 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245410,SNB,SPA ETF Trust - SPA Marketgrader 200 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245411,SSK,SPA ETF Trust - SPA Marketgrader Small Cap 100 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245412,SVD,SPA ETF Trust - SPA Marketgrader Mid Cap 100 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38245413,SZG,SPA ETF Trust - SPA Marketgrader Large Cap 100 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38294159,PZA,Invesco Exchange-Traded Fund Trust II - Invesco National AMT-Free Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38574098,EFU,ProShares Trust - ProShares UltraShort MSCI EAFE,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38574099,EFZ,ProShares Trust - ProShares Short MSCI EAFE,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38653381,IRO,Claymore Exchange-Traded Fund Trust - Claymore/Zacks Dividend Rotation ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+38702763,DGS,WisdomTree Trust - WisdomTree Emerging Markets SmallCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284806,SPDW,SPDR Index Shares Funds - SPDR Portfolio Developed World ex-US ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284802,JPP,SPDR Index Shares Funds - SPDR Russell/Nomura PRIME Japan ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284804,GII,SPDR Index Shares Funds - SPDR S&P Global Infrastructure ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205233,UKK,ProShares Trust - ProShares Ultra Russell2000 Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205225,MVV,ProShares Trust - ProShares Ultra MidCap400,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205226,SJH,Proshares Trust - ProShares UltraShort Russell2000 Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205227,SKK,ProShares Trust - ProShares UltraShort Russell2000 Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205228,SJL,ProShares Trust - ProShares UltraShort Russell MidCap Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205229,SDK,ProShares Trust - ProShares UltraShort Russell MidCap Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205230,SJF,ProShares Trust - ProShares UltraShort Russell1000 Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205231,SFK,ProShares Trust - ProShares UltraShort Russell1000 Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34205232,UVT,ProShares Trust - ProShares Ultra Russell2000 Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34276721,SMOG,VanEck ETF Trust - VanEck Low Carbon Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33938315,HRW,HealthShares (TM) Inc. - HealthShares Dermatology and Wound Care Exchange-Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295597,FRI,First Trust Exchange-Traded Fund - First Trust S&P REIT Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295599,FXD,First Trust Exchange-Traded AlphaDEX Fund - First Trust Consumer Discretionary AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295600,FXG,First Trust Exchange-Traded AlphaDEX Fund - First Trust Consumer Staples AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295601,FXN,First Trust Exchange-Traded AlphaDEX Fund - First Trust Energy AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295602,FXO,First Trust Exchange-Traded AlphaDEX Fund - First Trust Financials AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295603,FXH,First Trust Exchange-Traded AlphaDEX Fund - First Trust Health Care AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295604,FXR,First Trust Exchange-Traded AlphaDEX Fund - First Trust Industrials/Producer Durables AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295605,FXZ,First Trust Exchange-Traded AlphaDEX Fund - First Trust Materials AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34117361,RSX,VanEck Vectors ETF Trust - VanEck Vectors Russia ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33757859,HYG,iShares Trust - iShares iBoxx $ High Yield Corporate Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284803,CWI,SPDR Index Shares Funds - SPDR MSCI ACWI ex-US ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167707,HHR,"HealthShares, Inc. - HealthShares Respiratory/Pulmonary Exchange-Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167699,HHK,"HealthShares, Inc.- HealthShares Cancer Exchange Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167700,HHQ,HealthShares (TM) Inc. - HealthShares Composite Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167701,HHN,"HealthShares, Inc.- HealthShares Neuroscience Exchange Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167702,HHA,"HealthShares, Inc. - HealthShares Autoimmune-Inflammation Exchange-Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167703,HRD,HealthShares (TM) Inc. - HealthShares Cardiology Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167704,HHM,HealthShares (TM) Inc. - HealthShares Metabolic - Endocrine Disorders Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167705,HHU,"HealthShares, Inc.-HealthShares GI/Gender Health Exchange Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33167706,HHZ,HealthShares (TM) Inc. - HealthShares Ophthalmology Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33444114,QGP,"The Quantum Group, Inc.",117,5.0,True,fund_venue,0,0,0,0,0,0,0,0
+33733517,BSV,Vanguard Bond Index Funds - Vanguard Short-Term Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33536795,CZA,Invesco Exchange-Traded Fund Trust - Invesco Zacks Mid-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33536797,OTR,Claymore Exchange-Traded Fund Trust - Guggenheim Ocean Tomo Growth Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33536798,XGC,Claymore Exchange-Traded Fund Trust - Guggenheim International Small Cap LDRs ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33568841,HHG,HealthShares (TM) Inc. - Healthshares Infectious Disease Exchange-Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33568842,HRJ,"HealthShares, Inc.-Healthshares European Drugs Exchange-Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33651904,NXT,Ziegler Exchange Traded Trust - NYSE Arca Tech 100 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33733515,BLV,Vanguard Bond Index Funds - Vanguard Long-Term Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33733516,BIV,Vanguard Bond Index Funds - Vanguard Intermediate-Term Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295606,FXL,First Trust Exchange-Traded AlphaDEX Fund - First Trust Technology AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34295607,FXU,First Trust Exchange-Traded AlphaDEX Fund - First Trust Utilities AlphaDEX Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34358646,CGW,Invesco Exchange-Traded Fund Trust II - Invesco S&P Global Water Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284792,SPEU,SPDR Index Shares Funds - SPDR Portfolio Europe ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36474913,MZG,Claymore Exchange-Traded Fund Trust - Claymore/Morningstar Manufacturing Super Sector Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36474914,MZO,Claymore Exchange-Traded Fund Trust - Claymore/Morningstar Services Super Sector Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36474915,MZN,Claymore Exchange-Traded Fund Trust - Claymore/Morningstar Information Super Sector Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36593663,FDD,First Trust Exchange-Traded Fund II - First Trust STOXX European Select Dividend Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36593664,DTRE,First Trust Exchange-Traded Fund II - First Trust Alerian Disruptive Technology Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36682903,MOO,VanEck ETF Trust - VanEck Agribusiness ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36796575,MUB,iShares Trust - iShares National Muni Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36869276,TFI,SPDR Series Trust - SPDR Nuveen Bloomberg Municipal Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284793,FEZ,SPDR Index Shares Funds - SPDR EURO STOXX 50 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34578784,FBDC,First Trust Specialty Finance and Financial Opportunities Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284794,GMF,SPDR Index Shares Funds - SPDR S&P Emerging Asia Pacific ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284795,GXC,SPDR Index Shares Funds - SPDR S&P China ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284796,SPEM,SPDR Index Shares Funds - SPDR Portfolio Emerging Markets ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284797,GUR,SPDR Index Shares Funds - SPDR S&P Emerging Europe ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284798,GML,SPDR Index Shares Funds - SPDR S&P Emerging Latin America ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284799,BIK,SPDR Index Shares Funds - SPDR S&P BRIC 40 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284800,GAF,SPDR Index Shares Funds - SPDR S&P Emerging Middle East & Africa ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+37284801,JSC,SPDR Index Shares Funds - SPDR Russell/Nomura Small Cap Japan ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36309099,NLR,VanEck ETF Trust - VanEck Uranium and Nuclear ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36101787,WPS,iShares Trust - iShares International Developed Property ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36030852,XBI,SPDR Series Trust - SPDR S&P Biotech ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36030827,SPIP,SPDR Series Trust - SPDR Portfolio TIPS ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34691177,HHT,"HealthShares, Inc. - HealthShares European Medical Products and Devices Exchange-Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34761286,WTRE,WisdomTree Trust - WisdomTree New Economy Real Estate Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34946114,PUA,PowerShares Dynamic Asia Pacific Opportunities Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34946115,PEH,PowerShares Exchange-Traded Fund Trust II - PowerShares Dynamic Europe Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34946116,PBD,Invesco Exchange-Traded Fund Trust II - Invesco Global Clean Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+34946118,IDHQ,Invesco Exchange-Traded Fund Trust II - Invesco S&P International Developed Quality ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35186476,FVL,First Trust Exchange-Traded Fund - First Trust Value Line 100 Exchange-Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35221866,LVL,Invesco Exchange-Traded Fund Trust II - Invesco S&P Global Dividend Opportunities Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35267457,EXB,"Claymore/Beacon Global Exchanges, Brokers & Assets Managers Index ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35410709,ENY,Invesco Exchange-Traded Fund Trust II - Invesco Canadian Energy Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35573242,CRO,Claymore Exchange-Traded Fund Trust 2 - Claymore/Zacks Country Rotation ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35573243,HGI,Invesco Exchange-Traded Fund Trust II - Invesco Zacks International Multi-Asset Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35607260,HHP,"HealthShares, Inc.- HealthShares Orthopedic Repair Exchange-Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35609459,DEM,WisdomTree Trust - WisdomTree Emerging Markets High Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35918048,VEA,Vanguard Tax-Managed Funds - Vanguard FTSE Developed Markets ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+35983391,ROB,Claymore Exchange-Traded Fund Trust 2 - Claymore/Robb Report Global Luxury Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+36030821,GWX,SPDR Index Shares Funds - SPDR S&P International Small Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40627646,JJNT.F,iPath Bloomberg Nickel Subindex Total Return ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+2586684,ACLO,Accelio Corporation,117,5.0,True,fund_venue,0,0,0,0,0,0,0,0
+40628502,GBBE.F,iPath GBP/USD Exchange Rate ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32980992,EEN,Claymore Exchange-Traded Fund Trust 2 - Guggenheim EW Euro-Pacific LDRs ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+374486195,ESG,FlexShares Trust - FlexShares STOXX US ESG Select Index Fund,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+374486196,ESGG,FlexShares Trust - FlexShares STOXX Global ESG Select Index Fund,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+415854389,DWLD,Davis Fundamental ETF Trust - Davis Select Worldwide ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+415854390,DUSA,Davis Fundamental ETF Trust - Davis Select U.S. Equity ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+415854391,DFNL,Davis Fundamental ETF Trust - Davis Select Financial ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+424861543,MEXX,Direxion Shares ETF Trust - Direxion Daily MSCI Mexico Bull 3X Shares,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+424861548,UTSL,Direxion Shares ETF Trust - Direxion Daily Utilities Bull 3X Shares,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+427185800,DFEN,Direxion Shares ETF Trust - Direxion Daily Aerospace & Defense Bull 3X Shares,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+427185801,TPOR,Direxion Shares ETF Trust - Direxion Daily Transportation Bull 3X Shares,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+537792106,VICE,AdvisorShares Trust - AdvisorShares Vice ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+544597240,DWCR,Arrow Investments Trust - Arrow DWA Tactical: International ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+545262000,CEF,Sprott Physical Gold and Silver Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+554482015,DINT,Davis Fundamental ETF Trust - Davis Select International ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+574512506,OSCV,ETF Series Solutions - Opus Small Cap Value ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+618436522,NERD,Listed Funds Trust - Roundhill Video Games ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+622116841,HBTC,Listed Funds Trust - Fortuna Hedged Bitcoin Fund,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+648782252,NUSI,NEOS ETF Trust - NEOS Nasdaq-100 Hedged Equity Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+692752090,JOET,Virtus ETF Trust II - Virtus Terranova U.S. Quality Momentum ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1679717684,BUDX,Investment Managers Series Trust II - Cannabis Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+369071667,OILU,AccuShares Trust I - AccuShares S&P GSCI Crude Oil Excess Return Up Shares,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+369071666,OILD,AccuShares Trust I - AccuShares S&P GSCI Crude Oil Excess Return Down Shares,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+347249801,FITS,Janus Detroit Street Trust - The Health and Fitness ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+275149097,SCTO,Global X Funds - Global X | JPMorgan U.S. Sector Rotator Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+248647446,ROBO,Exchange Traded Concepts Trust - ROBO Global Robotics and Automation Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+249115710,VIDI,ETF Series Solutions - Vident International Equity Strategy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+254470960,VUSE,ETF Series Solutions - Vident U.S. Equity Strategy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+267320817,TAPR,iPath Inverse US Treasury Composite ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+271646939,MBSD,FlexShares Trust - FlexShares Disciplined Duration MBS Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+273623914,DWAT,Arrow Investments Trust - Arrow DWA Tactical: Macro ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+274605383,VBND,ETF Series Solutions - Vident U.S. Bond Strategy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+275149096,EFFE,Global X Funds - Global X | JPMorgan Efficiente Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+275843106,GMOM,Cambria ETF Trust - Cambria Global Momentum ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+331450070,IBUY,Amplify ETF Trust - Amplify Online Retail ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+280038843,BBC,ETFis Series Trust I - Virtus LifeSci Biotech Clinical Trials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+280038844,BBP,ETFis Series Trust I - Virtus LifeSci Biotech Products ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+301559084,FSEN,FS Energy and Power Fund,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+312053531,UTES,ETFis Series Trust I - Virtus Reaves Utilities ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+312053583,LKOR,FlexShares Trust - FlexShares Credit-Scored US Long Corporate Bond Index Fund,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+312053584,QLC,FlexShares Trust - FlexShares US Quality Large Cap Index Fund,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+315949682,ITEQ,Amplify ETF Trust - Amplify BlueStar Israel Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+326898246,JHD,Nuveen High Income December 2019 Target Term Fund,106,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1780713219,TSLI,GraniteShares ETF Trust - GraniteShares 1x Short TSLA Daily ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1821203405,MAGS,Listed Funds Trust - Roundhill Magnificent Seven ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1839824176,TSLZ,ETF Opportunities Trust - T-Rex 2X Inverse Tesla Daily Target ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143686,HOOG,Themes Etf Trust - Leverage Shares 2x Long HOOD Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918142788,PLTG,Themes Etf Trust - Leverage Shares 2x Long Pltr Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918142789,PANG,Themes Etf Trust - Leverage Shares 2x Long Panw Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143097,AALG,Themes Etf Trust - Leverage Shares 2x Long AAL Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143098,CMGG,Themes Etf Trust - Leverage Shares 2x Long CMG Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143099,CRMG,Themes Etf Trust - Leverage Shares 2x Long CRM Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143422,ADBG,Themes Etf Trust - Leverage Shares 2x Long ADBE Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143555,AVGG,Themes Etf Trust - Leverage Shares 2x Long AVGO Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143685,PYPG,Themes Etf Trust - Leverage Shares 2x Long PYPL Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1918143730,XYZG,Themes Etf Trust - Leverage Shares 2x Long SQ Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1916381810,OOQB,Volatility Shares Trust - Oneplus one Nasdaq-100 and Bitcoin Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1931049645,QCML,Graniteshares ETF Trust - 2X Long QCOM Daily ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1945579755,REMG,Russell Investments Exchange Traded Funds - Emerging Markets Equity Active Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1946977996,RTXG,Themes Etf Trust - Leverage Shares 2x Long RTX Daily Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1948542877,EXUS,Macquarie ETF Trust - Focused International Core ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1953453544,HFEQ,Tidal Etf Trust - Unlimited Hfeq Equity Long/ Short Return Tracker Etf,106,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1953453545,HFMF,Tidal Etf Trust - Unlimited Hfmf Managed Futures Return Tracker Etf,106,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1967752095,FAAA,Fidelity Merrimack Street Trust - Aaa Clo ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1973154469,WAGN,Professionally Managed Portfolios - Pabrai Wagons ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1916381812,OOSB,Volatility Shares Trust - Oneplus one SandP 500 and Bitcoin Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1916381802,NCIQ,Hashdex Nasdaq CME Crypto Index ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1839824177,TSLT,ETF Opportunities Trust - T-Rex 2X Long Tesla Daily Target ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1899899221,QBIG,Invesco Actively Managed Exchange-Traded Fund Trust - Invesco Top QQQ ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1841469129,AGQI,First Trust Exchange-Traded Fund VIII - First Trust Active Global Quality Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1867647261,MAGX,Roundhill ETF Trust - Roundhill Daily 2X Long Magnificent Seven ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1888407058,PEPS,Morgan Stanley ETF Trust - Parametric Equity Plus ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1888935474,PATN,Pacer Funds Trust - Nasdaq International Patent Leaders ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1891124491,QSIX,Pacer Funds Trust - Metaurus Nasdaq 100 Dividend Multiplier 600 ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1891138445,BTGD,Tidal Trust Ii - Stkd Bitcoin and Gold Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1892409161,GPT,EA Series Trust - Intelligent Livermore ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1898603154,GFLW,Victory Portfolios II - Victoryshares Free Cash Flow Growth ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1899900384,PCMM,Bondbloxx ETF Trust - Bondbloxx Private Credit CLO ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1916111691,MST,Tidal Trust II - Defiance Leveraged Long & Income MSTR Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1905582171,VBIL,Vanguard Institutional Index Fund - 0-3 Months Treasury Bill ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1905791108,SDTY,Tidal Trust II - Yieldmax SandP 500 500 0dte Covered Call Strategy ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1905791109,QDTY,Tidal Trust II - Yieldmax Nasdaq 100 0dte Call Strategy ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1912162466,RAA,ETF Opportunities Trust - SMI 3fourteen Real Asset Allocation ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1912442977,HEQQ,J P Morgan Exchange-Traded Fund Trust - JPMorgan Nasdaq Hedged Equity Laddered Overlay ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1913236254,AGEM,Abrdn Funds - Emerging Markets Dividend Active Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1913357568,RIFR,Russell Investments Exchange Traded Funds - Global Infrastructure Active Etf,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+1915339237,TXUE,Thornburg ETF Trust - International Equity ETF,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+247581729,USLV.F,VelocityShares 3x Long Silver ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+245125410,VIIX.F,VelocityShares Daily Long VIX Short-Term ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+243935332,KWEB,KraneShares Trust - KraneShares CSI China Internet ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45036538,PCA,PowerShares Exchange-Traded Fund Trust II- PowerShares RiverFront Tactical Growth & Income Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44707675,JNB,NETS Trust - NETS FTSE/JSE Top 40 Index Fund (South Africa),117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44707676,SGT,NETS Trust - NETS FTSE Singapore Straits Times Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44707677,ITL,NETS Trust - NETS S&P/MIB Index Fund (Italy),117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44744219,RWO,SPDR Index Shares Funds - SPDR Dow Jones Global Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44744220,MDD,SPDR Index Shares Funds - SPDR S&P International Mid Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44919334,EWX,SPDR Index Shares Funds - SPDR S&P Emerging Markets Small Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45036536,PTO,PowerShares Exchange-Traded Fund Trust II - PowerShares Ibbotson Alternative Completion Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45036537,PAO,PowerShares RiverFront Tactical Balanced Growth Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45079637,GLD,SPDR Gold Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44311252,PST,ProShares Trust - ProShares UltraShort 7-10 Year Treasury,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835453,RHO,Rydex ETF Trust - Rydex Inverse 2x S&P Select Sector Health Care ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835454,RHM,Rydex ETF Trust - Rydex 2x S&P Select Sector Health Care ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835455,RTW,Rydex ETF Trust - Rydex Inverse 2x S&P Select Sector Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835456,RTG,Rydex ETF Trust - Rydex 2x S&P Select Sector Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835457,RFN,Rydex ETF Trust - Rydex Inverse 2x S&P Select Sector Financial ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835490,RFL,Rydex ETF Trust - Rydex 2x S&P Select Sector Financial ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835491,REC,Rydex ETF Trust - Rydex Inverse 2x S&P Select Sector Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835492,REA,Rydex ETF Trust - Rydex 2x S&P Select Sector Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44681101,RDOG,ALPS ETF Trust - ALPS REIT Dividend Dogs ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+44311251,TBT,ProShares Trust - ProShares UltraShort 20+ Year Treasury,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835715,SEF,ProShares Trust - ProShares Short Financials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41377642,EOH,Opta Lehman Brothers Commodity Index Pure Beta Agriculture Total Return ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40674920,PGX,Invesco Exchange-Traded Fund Trust II - Invesco Preferred ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40675365,FUE,ELEMENTS Linked to the ICE BofAML Commodity index eXtra Biofuels Exchange Series - Total Return,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+40676631,JEMT.F,iPath GEMS Index ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41075888,UEM,Claymore Exchange-Traded Fund Trust - Claymore U.S.-1-The Capital Markets Index ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41075889,GSY,Invesco Actively Managed Exchange-Traded Fund Trust - Invesco Ultra Short Duration ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41075890,GIY,Claymore Exchange-Traded Fund Trust - Guggenheim Enhanced Core Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41317734,DWX,SPDR Index Shares Funds - SPDR S&P International Dividend ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41377641,RAW,Opta Lehman Brothers Commodity Index Pure Beta Total Return ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41623261,SMB,VanEck ETF Trust - VanEck Short Muni ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+43970785,DAX,NETS Trust - NETS DAX Index Fund (Germany),117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+41946684,IMVP,Invesco India Exchange-Traded Fund Trust - Invesco India ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+42680233,YYY,Bear Stearns Active ETF Trust - Bear Sterns Current Yield Fund,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+42749714,TLL,ProShares Trust - ProShares UltraShort Telecommunications,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+42749715,LTL,ProShares Trust - ProShares Ultra Communication Services,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+43288740,AUS,NETS Trust - NETS S&P/ASX 200 Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+43288741,LDN,NETS Trust - NETS FTSE 100 Index Fund (United Kingdom),117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+43288877,UHN,"United States Diesel-Heating Oil Fund, LP",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+43952473,KWT,VanEck Vectors ETF Trust - VanEck Vectors Solar Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+45835714,DDG,ProShares Trust - ProShares Short Oil & Gas,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46447075,DOY,MacroShares $100 Oil Down Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+225218877,FLAG,Exchange Traded Concepts Trust - FLAG-Forensic Accounting Long-Short ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+137298020,DFVL,iPath US Treasury 5-year Bull ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895398,DTUL,iPath US Treasury 2-year Bull ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895399,STPP,iPath US Treasury Steepener ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895400,FLAT,iPath US Treasury Flattener ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895401,DTYL,iPath US Treasury 10-Year Bull ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895402,DTUS,iPath US Treasury 2-Year Bear ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895403,DLBL.F,iPath US Treasury Long Bond Bull ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+118468469,TVIX.F,VelocityShares Daily 2x VIX Short-Term ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+137298019,DFVS,iPath US Treasury 5-year Bear ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141379781,SCTR.L,Russell Exchange Traded Funds Trust- Russell Small Cap Contrarian ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895396,DLBS,iPath US Treasury Long Bond Bear ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767639,IPLT,VelocityShares 2x Inverse Platinum ETN,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767640,LPLT,VelocityShares 2x Long Platinum ETN,104,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767641,DSLV.F,VelocityShares 3x Inverse Silver ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767642,USLV,VelocityShares 3x Long Silver ETN,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767643,DGLD.F,VelocityShares 3x Inverse Gold ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+141767644,UGLD.F,VelocityShares 3x Long Gold ETN,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+144995812,BBH,VanEck ETF Trust - VanEck Biotech ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+217443613,HYSA,BondBloxx ETF Trust - BondBloxx USD High Yield Bond Sector Rotation ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+111895397,DTYS,iPath US Treasury 10-year Bear ETN,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+82762772,CHIC,Global X Funds - Global X MSCI China Communication Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46447121,UOY,MacroShares $100 Oil Up Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46986001,IPS,SPDR Index Shares Funds - SPDR S&P International Consumer Staples Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985741,IPU,SPDR Index Shares Funds - SPDR S&P International Utilities Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985742,IST,SPDR Index Shares Funds - SPDR S&P International Telecommunications Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985743,IPK,SPDR Index Shares Funds - SPDR S&P International Technology Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985744,IRV,SPDR Index Shares Funds - SPDR S&P International Materials Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985745,IPN,SPDR Index Shares Funds - SPDR S&P International Industrial Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985998,IRY,SPDR Index Shares Funds - SPDR S&P International Health Care Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46985999,IPF,SPDR Index Shares Funds - SPDR S&P International Financial Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46986000,IPW,SPDR Index Shares Funds - SPDR S&P International Energy Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+46986002,IPD,SPDR Index Shares Funds - SPDR S&P International Consumer Discretionary Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+62647579,TOU,Treasury 2 FITR ETF,102,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+47898078,HAP,VanEck ETF Trust - VanEck Natural Resources ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+47935982,UPGD,Invesco Exchange-Traded Fund Trust - Invesco Bloomberg Analyst Rating Improvers ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+48976468,SH,ProShares Trust - ProShares Short S&P500,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+49576001,FF,"First Opportunity Fund, Inc.",134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+53511730,UKW,ProShares Trust - ProShares Ultra Russell MidCap Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+53561363,UVG,ProShares Trust - ProShares Ultra Russell1000 Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+53567612,WIP,SPDR Series Trust - SPDR FTSE International Government Inflation-Protected Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+60024645,VUG,Vanguard Index Funds - Vanguard Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+33101976,VEU,Vanguard International Equity Index Funds - Vanguard FTSE All-World ex-US ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808965,WTV,WisdomTree Trust - WisdomTree U.S. Value Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32980986,UUP,Invesco DB US Dollar Index Trust - Invesco DB US Dollar Index Bullish Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813329,VBK,Vanguard Index Funds - Vanguard Small-Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8056905,TIP,iShares Trust - iShares TIPS Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8662701,ITOT,iShares Trust - iShares Core S&P Total U.S. Stock Market ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813322,VCR,Vanguard World Fund - Vanguard Consumer Discretionary ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813323,VDC,Vanguard World Fund - Vanguard Consumer Staples ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813324,VFH,Vanguard World Fund - Vanguard Financials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813325,VHT,Vanguard World Fund - Vanguard Health Care ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813326,VGT,Vanguard World Fund - Vanguard Information Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813327,VAW,Vanguard World Fund - Vanguard Materials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813330,VBR,Vanguard Index Funds - Vanguard Small-Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179837,WMH,Wireless HOLDRS Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813331,VO,Vanguard Index Funds - Vanguard Mid-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813332,VV,Vanguard Index Funds - Vanguard Large-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813334,VTV,Vanguard Index Funds - Vanguard Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+8813335,VB,Vanguard Index Funds - Vanguard Small-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+9559845,NY,iShares Trust - iShares NYSE 100 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+9559846,NYC,iShares Trust - iShares NYSE Composite ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633470,ILCG,iShares Trust - iShares Morningstar Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633471,ILCB,iShares Trust - iShares Morningstar U.S. Equity ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+7320179,IYT,iShares Trust - iShares U.S. Transportation ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179831,VTI,Vanguard Index Funds - Vanguard Total Stock Market ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633473,IMCB,iShares Trust - iShares Morningstar Mid-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179735,XLY,The Select Sector SPDR Trust - The Consumer Discretionary Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179673,MUO,Pioneer Interest Shares,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179674,BMVP,Invesco Exchange-Traded Fund Trust - Invesco Bloomberg MVP Multi-factor ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179701,RKH,Market Vectors ETF Trust - Market Vectors Bank and Brokerage ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179707,RSP,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179710,SPY,SPDR S&P 500 ETF Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179732,XLB,The Select Sector SPDR Trust - The Materials Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179733,XLV,The Select Sector SPDR Trust - The Health Care Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179734,XLP,The Select Sector SPDR Trust - The Consumer Staples Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179736,XLE,The Select Sector SPDR Trust - The Energy Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179830,VXF,Vanguard Index Funds - Vanguard Extended Market ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179737,XLF,The Select Sector SPDR Trust - The Financial Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179738,XLI,The Select Sector SPDR Trust - The Industrial Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179739,XLK,The Select Sector SPDR Trust - The Technology Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179740,XLU,The Select Sector SPDR Trust - The Utilities Select Sector SPDR Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179745,SMH,VanEck ETF Trust - VanEck Semiconductor ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179749,SWH,Software HOLDRS Trust,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179776,TTH,Telecom HOLDRs Trust,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179790,UTH,Utilities HOLDRs Trust,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633472,ILCV,iShares Trust - iShares Morningstar Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633474,IMCG,iShares Trust - iShares Morningstar Mid-Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32980985,UDN,Invesco DB US Dollar Index Trust - Invesco DB US Dollar Index Bearish Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+23565247,IWC,iShares Trust - iShares Micro-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813862,PSI,Invesco Exchange-Traded Fund Trust - Invesco Semiconductors ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813863,PJP,Invesco Exchange-Traded Fund Trust - Invesco Pharmaceuticals ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813864,KNCT,Invesco Exchange-Traded Fund Trust - Invesco Next Gen Connectivity ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813865,GGME,Invesco Exchange-Traded Fund Trust - Invesco Next Gen Media and Gaming ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813866,PBJ,Invesco Exchange-Traded Fund Trust - Invesco Food & Beverage ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813867,PBE,Invesco Exchange-Traded Fund Trust - Invesco Biotechnology & Genome ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+23428271,EFV,iShares Trust - iShares MSCI EAFE Value ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+23428272,EFG,iShares Trust - iShares MSCI EAFE Growth ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+23597570,PZI,Invesco Exchange-Traded Fund Trust - Invesco Zacks Micro Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813860,PEJ,Invesco Exchange-Traded Fund Trust - Invesco Leisure and Entertainment ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+23895644,PHJ,PowerShares Exchange-Traded Fund Trust - PowerShares High Growth Rate Dividend Achievers Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24155388,FDM,First Trust Exchange-Traded Fund - First Trust Dow Jones Select MicroCap Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454509,PMR,Invesco Exchange-Traded Fund Trust - Invesco Dynamic Retail ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454510,PXJ,Invesco Exchange-Traded Fund Trust - Invesco Oil & Gas Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454511,PXN,PowerShares Exchange-Traded Fund Trust - PowerShares Lux Nanotech Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454512,PIC,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Insurance Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454513,PXE,Invesco Exchange-Traded Fund Trust - Invesco Energy Exploration & Production ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454514,PKB,Invesco Exchange-Traded Fund Trust - Invesco Building & Construction ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22813861,IGPT,Invesco Exchange-Traded Fund Trust - Invesco AI and Next Gen Software ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+22297459,XLG,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Top 50 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633476,ISCG,iShares Trust - iShares Morningstar Small-Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20476038,ISCB,iShares Trust - iShares Morningstar Small-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+10633477,ISCV,iShares Trust - iShares Morningstar Small-Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+11882010,VDE,Vanguard World Fund - Vanguard Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+11882011,VIS,Vanguard World Fund - Vanguard Industrials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+11882012,VOX,Vanguard World Fund - Vanguard Communication Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+11882013,VNQ,Vanguard Specialized Funds - Vanguard Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+12048361,FXI,iShares Trust - iShares China Large-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20328799,IAU,iShares Gold Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20328800,SUSA,iShares Trust - iShares MSCI USA ESG Select ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800656,PBW,Invesco Exchange-Traded Fund Trust - Invesco WilderHill Clean Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20903124,VGK,Vanguard International Equity Index Funds - Vanguard FTSE Europe ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800657,PWB,Invesco Exchange-Traded Fund Trust - Invesco Large Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800658,PWV,Invesco Exchange-Traded Fund Trust - Invesco Large Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800659,XMMO,Invesco Exchange-Traded Fund Trust - Invesco S&P MidCap Momentum ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800660,XSVM,Invesco Exchange-Traded Fund Trust - Invesco S&P SmallCap Value with Momentum ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800661,XSMO,Invesco Exchange-Traded Fund Trust - Invesco S&P SmallCap Momentum ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20800662,XMVM,Invesco Exchange-Traded Fund Trust - Invesco S&P MidCap Value with Momentum ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20903122,VWO,Vanguard International Equity Index Funds - Vanguard FTSE Emerging Markets ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+20903123,VPL,Vanguard International Equity Index Funds - Vanguard FTSE Pacific ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179660,PPH,VanEck ETF Trust - VanEck Pharmaceutical ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179650,OIHY.L,VanEck ETF Trust - VanEck Oil Services ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179477,MDY,State Street SPDR S&P MIDCAP 400 ETF Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179378,EWW,"iShares, Inc. - iShares MSCI Mexico ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179370,EWT,"iShares, Inc. - iShares MSCI Taiwan ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179371,EWL,"iShares, Inc. - iShares MSCI Switzerland ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179372,EWD,"iShares, Inc. - iShares MSCI Sweden ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179373,EWP,"iShares, Inc. - iShares MSCI Spain ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179374,EWY,"iShares, Inc. - iShares MSCI South Korea ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179375,EZA,"iShares, Inc. - iShares MSCI South Africa ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179376,EWG,"iShares, Inc. - iShares MSCI Germany ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179377,EWN,"iShares, Inc. - iShares MSCI Netherlands ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179379,EWM,"iShares, Inc. - iShares MSCI Malaysia ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179368,EWU,iShares Trust - iShares MSCI United Kingdom ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179380,EWJ,"iShares, Inc. - iShares MSCI Japan ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179381,EWI,"iShares, Inc. - iShares MSCI Italy ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179382,EWH,"iShares, Inc. - iShares MSCI Hong Kong ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179383,OEF,iShares Trust - iShares S&P 100 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179384,IVV,iShares Trust - iShares Core S&P 500 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179385,EEM,"iShares, Inc. - iShares MSCI Emerging Markets ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179386,LQD,iShares Trust - iShares iBoxx $ Investment Grade Corporate Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179387,IXP,iShares Trust - iShares Global Comm Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179369,EWQ,"iShares, Inc. - iShares MSCI France ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179367,EWS,"iShares, Inc. - iShares MSCI Singapore ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179438,IJS,iShares Trust - iShares S&P Small-Cap 600 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179355,IIH,Internet Infrastructure HOLDRs Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+2610309,EKH,Europe 2001 HOLDRs Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+2643037,RTH,VanEck ETF Trust - VanEck Retail ETF,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179148,BHH,B2B Internet HOLDRS Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179203,BDH,Broadband HOLDRs Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179212,BXSY,Bexil Investment Trust,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179254,DIA,SPDR Dow Jones Industrial Average ETF Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179288,EGX,"Engex, Inc.",134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179321,GIFD,"Self Storage Group, Inc., Prior to Change in Line of Business",134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179356,HHH,Internet HOLDRs Trust,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179366,EPP,"iShares, Inc. - iShares MSCI Pacific ex Japan ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179357,IAH,Internet Architecture HOLDRS Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179358,FXBY,Foxby Corp.,134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179360,EWA,"iShares, Inc. - iShares MSCI Australia ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179361,EWO,"iShares, Inc. - iShares MSCI Austria ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179362,EWK,"iShares, Inc. - iShares MSCI Belgium ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179363,EWZ,"iShares, Inc. - iShares MSCI Brazil ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179364,EWC,"iShares, Inc. - iShares MSCI Canada ETF",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179365,EZU,"iShares, Inc. - iShares MSCI Eurozone ETF",810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179388,IXN,iShares Trust - iShares Global Tech ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179389,IVW,iShares Trust - iShares S&P 500 Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179390,IXJ,iShares Trust - iShares Global Healthcare ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179428,IYJ,iShares Trust - iShares U.S. Industrials ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179418,IWO,iShares Trust - iShares Russell 2000 Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179419,IWM,iShares Trust - iShares Russell 2000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179422,IWV,iShares Trust - iShares Russell 3000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179423,IDU,iShares Trust - iShares U.S. Utilities ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179424,IJJ,iShares Trust - iShares S&P Mid-Cap 400 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179425,IYZ,iShares Trust - iShares U.S. Telecommunications ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179426,IYW,iShares Trust - iShares U.S. Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179427,IYR,iShares Trust - iShares U.S. Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179429,IYH,iShares Trust - iShares U.S. Healthcare ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179391,IXG,iShares Trust - iShares Global Financials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179430,IYG,iShares Trust - iShares U.S. Financial Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179431,IYF,iShares Trust - iShares U.S. Financials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179432,IYE,iShares Trust - iShares U.S. Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179433,IJR,iShares Trust - iShares Core S&P Small-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179434,IYK,iShares Trust - iShares U.S. Consumer Staples ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179435,IYM,iShares Trust - iShares U.S. Basic Materials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179436,IYY,iShares Trust - iShares Dow Jones U.S. ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179437,IEV,iShares Trust - iShares Europe ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179417,IWN,iShares Trust - iShares Russell 2000 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179416,IWB,iShares Trust - iShares Russell 1000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179415,IWF,iShares Trust - iShares Russell 1000 Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179414,IJK,iShares Trust - iShares S&P Mid-Cap 400 Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179392,IXC,iShares Trust - iShares Global Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179393,IGE,iShares Trust - iShares North American Natural Resources ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179394,JPXN,iShares Trust - iShares JPX-Nikkei 400 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179395,ILF,iShares Trust - iShares Latin America 40 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179396,IVE,iShares Trust - iShares S&P 500 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179400,EFA,iShares Trust - iShares MSCI EAFE ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179401,IWS,iShares Trust - iShares Russell Mid-Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179402,IWP,iShares Trust - iShares Russell Mid-Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179403,IWR,iShares Trust - iShares Russell Mid-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179404,IJH,iShares Trust - iShares Core S&P Mid-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179405,IGV,iShares Trust - iShares Expanded Tech-Software Sector ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179407,IDGT,iShares Trust - iShares U.S. Digital Infrastructure and Real Estate ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179408,IGM,iShares Trust - iShares Expanded Tech Sector ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179410,ICF,iShares Trust - iShares Cohen & Steers REIT ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179411,IOO,iShares Trust - iShares Global 100 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179412,IYC,iShares Trust - iShares U.S. Consumer Discretionary ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+6179413,IWD,iShares Trust - iShares Russell 1000 Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+24454515,PPA,Invesco Exchange-Traded Fund Trust - Invesco Aerospace & Defense ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+25035089,SPHQ,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Quality ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+25035090,PTE,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Telecommunications & Wireless Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30705354,POWA,Invesco Exchange-Traded Self-Indexed Fund Trust - Invesco Bloomberg Pricing Power ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30454941,PYH,PowerShares Exchange-Traded Fund Trust - PowerShares Morningstar StockInvestor Core Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30454942,PGF,Invesco Exchange-Traded Fund Trust - Invesco Financial Preferred ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30454943,EQWS,Invesco Exchange-Traded Fund Trust - Invesco Russell 2000 Equal Weight ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30454944,XMHQ,Invesco Exchange-Traded Fund Trust - Invesco S&P MidCap Quality ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30454945,EQWL,Invesco Exchange-Traded Fund Trust - Invesco S&P 100 Equal Weight ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30560959,FVI,First Trust Exchange-Traded Fund - First Trust Dividend Strength ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30705351,CSD,Invesco Exchange-Traded Fund Trust - Invesco S&P Spin-Off ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30705352,OTP,Claymore Exchange-Traded Fund Trust - Guggenheim Ocean Tomo Patent ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30741562,FVD,First Trust Exchange-Traded Fund - First Trust Value Line Dividend Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30236209,VYM,Vanguard Whitehall Funds - Vanguard High Dividend Yield ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30789672,PGZ,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Aggressive Growth Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30789673,PVM,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Deep Value Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984518,DBE,Invesco DB Multi-Sector Commodity Trust - Invesco DB Energy Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984519,DBP,Invesco DB Multi-Sector Commodity Trust - Invesco DB Precious Metals Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984520,DBS,Invesco DB Multi-Sector Commodity Trust - Invesco DB Silver Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984521,DBA,Invesco DB Multi-Sector Commodity Trust - Invesco DB Agriculture Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984522,DBO,Invesco DB Multi-Sector Commodity Trust - Invesco DB Oil Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984523,DGL,Invesco DB Multi-Sector Commodity Trust - Invesco DB Gold Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30252196,DSI,iShares Trust - iShares MSCI KLD 400 Social ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050338,RSPD,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Consumer Discretionary ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581434,DDI,WisdomTree Trust - WisdomTree International Industrial Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29780617,PUW,Invesco Exchange-Traded Fund Trust - Invesco WilderHill Progressive Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581436,DRF,WisdomTree Trust - WisdomTree International Financial Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581437,GNAT,WisdomTree Trust - WisdomTree Global Natural Resources Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581438,DPN,WisdomTree Trust - WisdomTree International Consumer Staples Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581439,DPC,WisdomTree Trust - WisdomTree International Consumer Discretionary Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581440,DGG,WisdomTree Trust - WisdomTree International Communications Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581441,CCXE,WisdomTree Trust - WisdomTree Commodity Country Equity Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29618824,EVX,VanEck ETF Trust - VanEck Environmental Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29618825,SLX,VanEck ETF Trust - VanEck Steel ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29780618,PSP,Invesco Exchange-Traded Fund Trust - Invesco Global Listed Private Equity ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050337,RSPS,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Consumer Staples ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29780619,ERTH,Invesco Exchange-Traded Fund Trust - Invesco MSCI Sustainable Future ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050330,RSPU,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Utilities ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050331,RSPT,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Technology ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050332,RSPM,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Materials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050333,RSPN,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Industrials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050334,RSPH,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Health Care ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050335,RSPF,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Financials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30050336,RSPG,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Equal Weight Energy ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+30984524,DBB,Invesco DB Multi-Sector Commodity Trust - Invesco DB Base Metals Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31091212,AGGM,iShares Trust - iShares Government/Credit Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31091213,GVI,iShares Trust - iShares Intermediate Government/Credit Bond ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385931,UGE,ProShares Trust - ProShares Ultra Consumer Staples,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385923,UYM,ProShares Trust - ProShares Ultra Materials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385924,SCC,ProShares Trust - ProShares UltraShort Consumer Discretionary,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385925,UCC,ProShares Trust - ProShares Ultra Consumer Discretionary,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385926,ROM,ProShares Trust - ProShares Ultra Technology,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385927,UYG,ProShares Trust - ProShares Ultra Financials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385928,DUG,ProShares Trust - ProShares UltraShort Energy,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385929,DIG,ProShares Trust - ProShares Ultra Energy,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385930,RXL,ProShares Trust - ProShares Ultra Health Care,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385932,UXI,ProShares Trust - ProShares Ultra Industrials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31091217,TLH,iShares Trust - iShares 10-20 Year Treasury Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385933,RXD,ProShares Trust - ProShares UltraShort Health Care,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385934,REW,ProShares Trust - ProShares UltraShort Technology,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32604615,FXY,Invesco CurrencyShares Japanese Yen Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808961,EES,WisdomTree Trust - WisdomTree U.S. SmallCap Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808962,EZM,WisdomTree Trust - WisdomTree U.S. MidCap Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808963,RESP,WisdomTree Trust - WisdomTree U.S. ESG Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808964,EEZ,WisdomTree Trust - Wisdomtree Earnings Top 100 Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32808966,EPS,WisdomTree Trust - WisdomTree U.S. LargeCap Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385922,UPW,ProShares Trust - ProShares Ultra Utilities,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385921,URE,ProShares Trust - ProShares Ultra Real Estate,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385920,SZK,ProShares Trust - ProShares UltraShort Consumer Staples,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385919,SMN,ProShares Trust - ProShares UltraShort Materials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31311137,HHD,HealthShares (TM) Inc. - HealthShares Diagnostics Index Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31311138,HHJ,"HealthShares, Inc.-HealthShares Emerging Cancer Index Exchange Traded Fund",117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31311139,HHV,HealthShares (TM) Inc. - HealthShares Enabling Technologies Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31311140,HHE,HealthShares (TM) Inc. - HealthShares Cardio Devices Index Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31311141,HHB,HealthShares (TM) Inc. - HealthShares Patient Care Services Index Exchange Traded Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355617,SBB,ProShares Trust - ProShares Short SmallCap600,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355618,SDD,ProShares Trust - ProShares UltraShort SmallCap600,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355619,SAA,ProShares Trust - ProShares Ultra SmallCap600,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355620,RWM,ProShares Trust - ProShares Short Russell2000,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355621,TWM,ProShares Trust - ProShares UltraShort Russell2000,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+31355622,UWM,ProShares Trust - ProShares Ultra Russell2000,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385913,SKF,ProShares Trust - ProShares UltraShort Financials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385914,SIJ,ProShares Trust - ProShares UltraShort Industrials,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385915,SDP,ProShares Trust - ProShares UltraShort Utilities,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385916,USD,ProShares Trust - ProShares Ultra Semiconductors,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385917,SRS,ProShares Trust - ProShares UltraShort Real Estate,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+32385918,SSG,ProShares Trust - ProShares UltraShort Semiconductors,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581435,DBR,WisdomTree Trust - WisdomTree International Health Care Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581433,DBT,WisdomTree Trust - WisdomTree International Technology Sector Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+25035091,PHW,PowerShares Exchange Traded Fund Trust-PowerShares Dynamic Hardware & Consumer Electronics Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666969,DWM,WisdomTree Trust - WisdomTree International Equity Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069141,IEO,iShares Trust - iShares U.S. Oil & Gas Exploration & Production ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27307185,GDX,VanEck ETF Trust - VanEck Gold Miners ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666963,DTD,WisdomTree Trust - WisdomTree U.S. Total Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666964,DHS,WisdomTree Trust - WisdomTree U.S. High Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666965,DLN,WisdomTree Trust - WisdomTree U.S. LargeCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666966,AIVL,WisdomTree Trust - WisdomTree U.S. AI Enhanced Value Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666967,DON,WisdomTree Trust - WisdomTree U.S. MidCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666968,DES,WisdomTree Trust - WisdomTree U.S. SmallCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666970,DLS,WisdomTree Trust - WisdomTree International SmallCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069139,IHE,iShares Trust - iShares U.S. Pharmaceuticals ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666971,DIM,WisdomTree Trust - WisdomTree International MidCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666972,AIVI,WisdomTree Trust - WisdomTree International AI Enhanced Value Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666973,DOL,WisdomTree Trust - WisdomTree International LargeCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666974,DTH,WisdomTree Trust - WisdomTree International High Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666975,AUSE,WisdomTree Trust - WisdomTree Australia Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666976,AXJL,WisdomTree Trust - WisdomTree Asia Pacific ex-Japan Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666977,DFJ,WisdomTree Trust - WisdomTree Japan SmallCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666978,DNL,WisdomTree Trust - WisdomTree Global ex-U.S. Quality Dividend Growth Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069140,IEZ,iShares Trust - iShares U.S. Oil Equipment & Services ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069138,IHF,iShares Trust - iShares U.S. Healthcare Providers ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29581432,DBU,WisdomTree Trust - WisdomTree Global ex-U.S. Utilities Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26337300,AGG,iShares Trust - iShares Core U.S. Aggregate Bond ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+25181490,PRF,Invesco Exchange-Traded Fund Trust - Invesco FTSE RAFI US 1000 ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+25959811,PZJ,PowerShares Exchange-Traded Fund Trust - PowerShares Zacks Small Cap Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268875,RPV,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Pure Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268876,RPG,Invesco Exchange-Traded Fund Trust - Invesco S&P 500 Pure Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268877,RFV,Invesco Exchange-Traded Fund Trust - Invesco S&P MidCap 400 Pure Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268878,RFG,Invesco Exchange-Traded Fund Trust - Invesco S&P MidCap 400 Pure Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268879,RZV,Invesco Exchange-Traded Fund Trust - Invesco S&P SmallCap 600 Pure Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26268880,RZG,Invesco Exchange-Traded Fund Trust - Invesco S&P SmallCap 600 Pure Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26360127,FDL,First Trust Exchange-Traded Fund - First Trust Morningstar Dividend Leaders Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069137,IHI,iShares Trust - iShares U.S. Medical Devices ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26735768,FPX,First Trust Exchange-Traded Fund - First Trust US Equity Opportunities ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26953469,VIG,Vanguard Specialized Funds - Vanguard Dividend Appreciation ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+26971802,SLV,iShares Silver Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069132,ITB,iShares Trust - iShares U.S. Home Construction ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069133,ITA,iShares Trust - iShares U.S. Aerospace & Defense ETF,810,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069134,IAT,iShares Trust - iShares U.S. Regional Banks ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069135,IAK,iShares Trust - iShares U.S. Insurance ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27069136,IAI,iShares Trust - iShares U.S. Broker-Dealers & Securities Exchanges ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666979,DXJ,WisdomTree Trust - WisdomTree Japan Hedged Equity Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666980,DFE,WisdomTree Trust - WisdomTree Europe SmallCap Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666981,DEW,WisdomTree Trust - WisdomTree Global High Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29226605,NFO,Invesco Exchange-Traded Fund Trust - Invesco Insider Sentiment ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28800093,VOE,Vanguard Index Funds - Vanguard Mid-Cap Value ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28800094,VOT,Vanguard Index Funds - Vanguard Mid-Cap Growth ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29156147,MXI,iShares Trust - iShares Global Materials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29156148,JXI,iShares Trust - iShares Global Utilities ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29156149,EXI,iShares Trust - iShares Global Industrials ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29156150,KXI,iShares Trust - iShares Global Consumer Staples ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29156151,RXI,iShares Trust - iShares Global Consumer Discretionary ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29226604,EEB,Invesco Exchange-Traded Fund Trust - Invesco BRIC ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29226606,WMCR,Invesco Exchange-Traded Fund Trust - Invesco Wilshire Micro-Cap ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27666982,DEB,WisdomTree Trust - WisdomTree Europe Total Dividend Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29226607,XRO,Claymore Exchange-Traded Fund Trust - Guggenheim Sector Rotation ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29226608,CVY,Invesco Exchange-Traded Fund Trust - Invesco Zacks Multi-Asset Income ETF,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29291918,FXE,Invesco CurrencyShares Euro Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29379960,MYF,BlackRock MuniYield Investment Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29380031,PEFX,"BlackRock S&P 500 Protected Equity Fund, Inc.",134,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29557320,PTJ,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Healthcare Services Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29557321,PJB,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic Banking Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+29557330,PIQ,PowerShares Exchange-Traded Fund Trust - PowerShares Dynamic MagniQuant Portfolio,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28261965,GSG,iShares S&P GSCI Commodity-Indexed Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28010353,SDS,ProShares Trust - ProShares UltraShort S&P500,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28010352,QID,ProShares Trust - ProShares UltraShort QQQ,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28010351,DXD,ProShares Trust - ProShares UltraShort Dow30,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737009,SSO,ProShares Trust - ProShares Ultra S&P500,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737010,QLD,ProShares Trust - ProShares Ultra QQQ,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737011,DDM,ProShares Trust - ProShares Ultra Dow30,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737012,UVU,ProShares Trust - ProShares Ultra Russell MidCap Value,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737013,UKF,ProShares Trust - ProShares Ultra Russell1000 Growth,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737014,PSQ,ProShares Trust - ProShares Short QQQ,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737015,DOG,ProShares Trust - ProShares Short Dow30,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27737016,MYY,ProShares Trust - ProShares Short MidCap400,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27768824,FBT,First Trust Exchange-Traded Fund - First Trust NYSE Arca Biotechnology Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27768825,FDN,First Trust Exchange-Traded Fund - First Trust Dow Jones Internet Index Fund,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792841,FXS,Invesco CurrencyShares Swedish Krona Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792842,FXB,Invesco CurrencyShares British Pound Sterling Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792843,FXA,Invesco CurrencyShares Australian Dollar Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792844,FXF,Invesco CurrencyShares Swiss Franc Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792845,FXC,Invesco CurrencyShares Canadian Dollar Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+27792846,FXM,CurrencyShares Mexican Peso Trust,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+28010350,MZZ,ProShares Trust - ProShares UltraShort MidCap400,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0
+2013838066,FFLX,First Trust Senior Floating Rate Income Fund II,117,13.0,True,public_fund_company,0,0,0,0,0,0,0,0

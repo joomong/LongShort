@@ -7,6 +7,10 @@ export function dateStrToUnix(date: string): number {
 }
 export const fmtDate = (seconds: number): string => Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString().slice(0, 10) : '';
 export const fmtMonth = (seconds: number): string => fmtDate(seconds).slice(0, 7);
+export function timeAxisValues(plot: uPlot, values: number[]): string[] {
+  const span = (plot.scales.x.max ?? 0) - (plot.scales.x.min ?? 0);
+  return values.map(v => span > 86400 * 365 * 4 ? fmtDate(v).slice(0, 4) : span > 86400 * 120 ? fmtMonth(v) : fmtDate(v));
+}
 export const getDPR = (): number => typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
 const finiteValue = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
 
@@ -34,7 +38,7 @@ export function buildUPlotAxes(colors: ThemeColors): [uPlot.Axis, uPlot.Axis] {
     grid: { stroke: colors.chartGrid, width: 1 },
     ticks: { stroke: colors.chartGrid, width: 1 },
   };
-  return [{ ...shared, values: (_plot, values) => values.map(fmtMonth) }, { ...shared, size: 55 }];
+  return [{ ...shared, values: timeAxisValues, space: 100, size: 44 }, { ...shared, size: 55 }];
 }
 export const TOOLTIP_STYLE: React.CSSProperties = {
   position: 'absolute', display: 'none', pointerEvents: 'none', zIndex: 20,

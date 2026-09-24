@@ -40,6 +40,7 @@ export interface StarTimeseries {
 }
 
 export interface StarYearly {
+  winLose?: number | null; // positive-return bars / valid return bars, percentage points
   year: number;
   longSM: number;
   shortSM: number;
@@ -52,16 +53,27 @@ export interface StarYearly {
 }
 
 export interface StarDistribution {
+  linear?: StarDistribution; // full-range companion with the same observation population
+  scale?: 'log' | 'negative-log' | 'symlog' | 'linear';
+  linthresh?: number;
+  totalCount?: number;
+  exampleValue?: (number | null)[];
+  edges?: number[];
+  rangeLo?: number; // inner histogram range; outer bins retain the tails
+  rangeHi?: number;
   bins: number[];
   counts: number[];
   min: number;
   max: number;
+  exampleSymbol?: (string | null)[]; // per bin: the cell with the largest |value|
+  exampleDate?: (string | null)[];
 }
 
 export interface StarSignalPayload {
   signalPlot?: HeatmapData;
   signalRange?: SignalRange;
   distribution?: StarDistribution;
+  signalDistributionLog?: StarDistribution;
 }
 
 export interface StarBatchEntry extends StarSignalPayload {
@@ -86,6 +98,7 @@ export interface StarBatchResponse extends StarSignalPayload {
 
 export interface StarConfigResponse {
   symbols: string[];
+  symbolLabels?: Record<string, string>; // panel symbol -> ticker
   simStart: string;
   simEnd: string;
   feeRate: number;
@@ -176,6 +189,10 @@ export interface SignalPayload {
   heatmap?: HeatmapData | null;
   signalRange?: SignalRange | null;
   distribution?: number[] | null;
+  distributionBins?: number[] | null;
+  distributionRange?: SignalRange | null;
+  signalDistributionLog?: StarDistribution | null;
+  distributionExamples?: { symbol: (string | null)[]; date: (string | null)[] } | null;
 }
 
 export interface BacktestAlphaResult extends SignalPayload {

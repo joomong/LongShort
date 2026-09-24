@@ -12,9 +12,11 @@
 
 #include "module.h"
 #include "signal_vector.h"
+#include "data/data_panel.h"
 #include "metrics/summary_metrics.h"
 #include "modules/Decay.h"
 #include "modules/Delay.h"
+#include "modules/Neutralize.h"
 #include "modules/Rank.h"
 #include "modules/TsMean.h"
 #include "modules/TsRank.h"
@@ -271,6 +273,47 @@ TEST_F(GoldenCrossval, ZscoreMatchesNumpy)
     Matrix actual = run_module(mod, input);
 
     expect_matrix_match(actual, expected, "Zscore");
+}
+
+TEST_F(GoldenCrossval, NeutralizeMatchesNumpy)
+{
+    if (!available_)
+        GTEST_SKIP() << "golden files not found";
+
+    for (const char* name : {"neutralize_sector", "neutralize_sector_unclassified"}) {
+        SCOPED_TRACE(name);
+        const auto& entry = modules_[name];
+        Matrix input = json_to_matrix(entry["input"]);
+        Matrix expected = json_to_matrix(entry["expected"]);
+        ASSERT_FALSE(input.empty());
+
+        const unsigned T = static_cast<unsigned>(input.size());
+        const unsigned N = static_cast<unsigned>(input[0].size());
+        const Json::Value& json_codes = entry["params"]["codes"];
+        ASSERT_EQ(json_codes.size(), static_cast<Json::ArrayIndex>(N));
+
+        // The group panel broadcasts the static codes over every date.
+        DataPanel dp;
+        dp.T = T;
+        dp.N = N;
+        auto& codes = dp.arrays["sector"];
+        codes.resize(static_cast<size_t>(T) * N);
+        for (unsigned t = 0; t < T; ++t) {
+            for (unsigned n = 0; n < N; ++n) {
+                codes[static_cast<size_t>(t) * N + n] =
+                    json_codes[n].isNull() ? std::numeric_limits<float>::quiet_NaN()
+                                           : static_cast<float>(json_codes[n].asDouble());
+            }
+        }
+
+        MNeutralize mod;
+        mod.panel = &dp;
+        mod.group = entry["params"]["group"].asString();
+        mod.column_name = mod.group;
+        Matrix actual = run_module(mod, input);
+
+        expect_matrix_match(actual, expected, name);
+    }
 }
 
 // ── Metrics test: C++ compute_summary vs numpy/pandas golden ──

@@ -95,6 +95,7 @@ add_library(engine STATIC
 
     # Phase 4: Simulator
     src/engine/simulator.cpp
+    src/engine/costs.cpp
 
     # Phase 5: Metrics
     src/metrics/summary_metrics.cpp
@@ -190,6 +191,10 @@ add_engine_test(test_config_loader    tests/test_config_loader.cpp)
 add_engine_test(test_parquet_loader   tests/test_parquet_loader.cpp)
 add_engine_test(test_modules          tests/test_modules.cpp)
 add_engine_test(test_simulator        tests/test_simulator.cpp)
+add_engine_test(test_corporate_actions tests/test_corporate_actions.cpp)
+add_engine_test(test_thin_loader      tests/test_thin_loader.cpp)
+add_engine_test(test_thin_moves       tests/test_thin_moves.cpp)
+add_engine_test(test_costs            tests/test_costs.cpp)
 add_engine_test(test_summary_metrics  tests/test_summary_metrics.cpp)
 add_engine_test(test_module_oracles   tests/test_module_oracles.cpp)
 add_engine_test(test_metrics_oracle   tests/test_metrics_oracle.cpp)
@@ -211,4 +216,15 @@ foreach(tool_test test_generate_modules test_run_engine test_module_build test_a
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
 endforeach()
+
+# The group panel tool needs numpy/pandas/pyarrow, which ${Python3_EXECUTABLE} need not have.
+# Prefer the interpreter whose PyArrow already backs this build; the test itself exits 77 when
+# those modules are missing, so CTest reports a skip instead of a pass.
+set(group_panel_python "${Python3_EXECUTABLE}")
+if(LONGSHORT_PYARROW_PYTHON)
+    set(group_panel_python "${LONGSHORT_PYARROW_PYTHON}")
+endif()
+add_test(NAME test_build_group_panels
+    COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_group_panels.py")
+set_tests_properties(test_build_group_panels PROPERTIES SKIP_RETURN_CODE 77)
 endif()

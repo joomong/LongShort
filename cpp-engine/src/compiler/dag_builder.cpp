@@ -12,6 +12,7 @@
 #include "../modules/Event.h"
 #include "../modules/Rank.h"
 #include "../modules/Zscore.h"
+#include "../modules/Neutralize.h"
 #include "../modules/Ops.h"
 #include "../modules/Constant.h"
 #include "../modules/SignalCache.h"
@@ -224,6 +225,33 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             m->ddof = IntParameter(get_int(a, "ddof", 1));
             m->min_count = IntParameter(get_int(a, "min_count", 2));
             m->eps = FloatParameter(get_double(a, "eps", 1e-12));
+            return m;
+        });
+
+        r.register_module("neutralize", [](const auto& a, const auto* panel) {
+            auto it = a.find("group");
+            if (it == a.end())
+                throw CompileError(
+                    "<neutralize> requires attribute 'group' (sector|industry)");
+            // Trim like parse_bounded_int does for numeric attributes.
+            const std::string group = trim_ascii_whitespace(it->second);
+            if (group != "sector" && group != "industry")
+                throw CompileError(
+                    "Unsupported neutralize group '" + group +
+                    "' (supported: sector, industry)");
+            if (panel == nullptr)
+                throw CompileError(
+                    "DataPanel is required for <neutralize> group validation");
+            // group name == panel field name for every supported group
+            const std::string column = group;
+            if (!panel->has_column(column))
+                throw CompileError(
+                    "neutralize group '" + group + "' needs data field '" + column +
+                    "' (add base: {cache, groups} to the config)");
+            auto m = std::make_unique<MNeutralize>();
+            m->panel = panel;
+            m->group = group;
+            m->column_name = column;
             return m;
         });
 

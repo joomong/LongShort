@@ -29,5 +29,11 @@ FullMetricsResult compute_full_metrics(
     int64_t os_timestamp_ms,
     double fee_rate,
     unsigned bars_per_year = 365,
-    std::size_t start_index = 1
+    std::size_t start_index = 1,
+    const std::vector<double>* frozen_gross = nullptr,
+    const std::vector<double>* settled_gross = nullptr,
+    const std::vector<double>* dividend_pnl = nullptr,
+    const std::vector<double>* distribution_pnl = nullptr,
+    const std::vector<double>* borrow_cost = nullptr,
+    const std::vector<double>* unconfirmed_weight = nullptr
 );

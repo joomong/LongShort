@@ -8,6 +8,7 @@ import { selectSignalSource } from '@/lib/signalSelection';
 export default function SignalPanelSelector() {
   const result = useAlphaStore(s => s.result);
   const hasResult = result !== null;
+  const isSingleAlpha = result?.alphas.length === 1;
   const revision = useAlphaStore(s => s.resultRevision);
   const selected = useAlphaStore(s => s.selectedSignalAlphaIndex);
   const viewMode = useAlphaStore(s => s.viewMode);
@@ -27,7 +28,7 @@ export default function SignalPanelSelector() {
   useEffect(() => {
     setError('');
     setLoading(false);
-    if (!hasResult || viewMode === 'detail' || heatmap || index < 0) return;
+    if (!hasResult || !isSingleAlpha || viewMode === 'detail' || heatmap || index < 0) return;
     if (!xml) {
       setError('This alpha has no saved XML to load its signals.');
       return;
@@ -49,20 +50,12 @@ export default function SignalPanelSelector() {
     return () => { active = false; controller.abort(); };
     // result identity can change when another alpha's signal cache is populated.
     // The revision identifies the original backtest and guards stale responses.
-  }, [hasResult, revision, index, xml, heatmap, simStart, isStart, osStart, mode, threads, viewMode, retry]);
+  }, [hasResult, isSingleAlpha, revision, index, xml, heatmap, simStart, isStart, osStart, mode, threads, viewMode, retry]);
 
-  if (!result || result.alphas.length === 0) return null;
+  if (!result || !isSingleAlpha || (!loading && !error)) return null;
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border text-xs">
-      <label htmlFor="signal-alpha">Signals</label>
-      <select id="signal-alpha" value={index} onChange={event => useAlphaStore.getState().selectSignalAlpha(Number(event.target.value))}
-        className="bg-background-elevated border border-border text-foreground px-2 py-1">
-        {result.combined ? <option value={-1}>Combined</option> : null}
-        {result.alphas.map((item, i) => <option key={item.name} value={i}>#{item.rank} {item.name}</option>)}
-      </select>
-      <span className="text-foreground-muted">+ Long / − Short</span>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 border-b border-border bg-background-secondary text-[11px]">
       {loading ? <span role="status">Loading signals…</span> : null}
-      {heatmap?.sampled ? <span className="text-foreground-muted">Sampled {heatmap.timestamps.length}/{heatmap.originalRows} bars · {heatmap.symbols.length}/{heatmap.originalSymbols ?? heatmap.symbols.length} symbols</span> : null}
       {error ? <span role="alert" className="text-metric-negative">{error} <button onClick={() => setRetry(value => value + 1)} className="underline">Retry signals</button></span> : null}
     </div>
   );

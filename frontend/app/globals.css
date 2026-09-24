@@ -5,34 +5,34 @@
 /* Light theme (default) */
 :root {
   --background: #ffffff;
-  --background-secondary: #f9fafb;
-  --background-tertiary: #f3f4f6;
-  --background-elevated: #e5e7eb;
+  --background-secondary: #fafafa;
+  --background-tertiary: #f2f2f4;
+  --background-elevated: #e4e4e8;
 
-  --foreground: #111827;
-  --foreground-secondary: #4b5563;
-  --foreground-muted: #9ca3af;
+  --foreground: #30303b;
+  --foreground-secondary: #5b5b67;
+  --foreground-muted: #858590;
 
-  --border: #e5e7eb;
+  --border: #e4e4e8;
   --border-strong: #d1d5db;
   --border-hover: #d1d5db;
 
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  --accent: #d88a13;
+  --accent-hover: #b8730d;
 
-  --row-hover: #f3f4f6;
+  --row-hover: #f2f2f4;
 
-  --chart-background: #f9fafb;
-  --chart-grid: #e5e7eb;
-  --chart-text: #4b5563;
-  --chart-line: #2563eb;
+  --chart-background: #ffffff;
+  --chart-grid: #e4e4e8;
+  --chart-text: #5b5b67;
+  --chart-line: #f0a52b;
 
   --metric-positive: #22c55e;
   --metric-neutral:  #f59e0b;
   --metric-negative: #ef4444;
-  --row-active:      #eff6ff;
+  --row-active:      #fff4d9;
 
-  --data-color:           #4b5563;
+  --data-color:           #5b5b67;
   --metric-positive-bg: rgba(34, 197, 94, 0.1);
   --metric-negative-bg: rgba(239, 68, 68, 0.1);
   --metric-neutral-bg:  rgba(245, 158, 11, 0.08);
@@ -85,7 +85,7 @@ body {
 body {
   color: var(--foreground);
   background: var(--background);
-  font-weight: 500;
+  font-weight: 400;
   /* font-family handled by Tailwind font-mono via next/font CSS variables */
 }
 

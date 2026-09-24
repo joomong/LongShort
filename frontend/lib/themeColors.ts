@@ -2,8 +2,8 @@ export type Theme = 'light' | 'dark';
 
 const palettes = {
   light: {
-    backgroundElevated: '#e5e7eb', chartBackground: '#f9fafb', chartGrid: '#e5e7eb',
-    chartText: '#4b5563', chartLine: '#2563eb', accent: '#2563eb',
+    backgroundElevated: '#e5e7eb', chartBackground: '#ffffff', chartGrid: '#e5e7eb',
+    chartText: '#4b5563', chartLine: '#f0a52b', accent: '#d88a13',
     positive: '#22c55e', negative: '#ef4444', neutral: '#9ca3af',
   },
   dark: {
