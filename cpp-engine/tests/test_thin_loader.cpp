@@ -7,6 +7,8 @@
 #include "data/config_loader.h"
 #include "data/data_panel.h"
 #include "data/parquet_reader.h"
+#include "compiler/dag_builder.h"
+#include "engine/simulator.h"
 #include <arrow/api.h>
 #include <arrow/io/file.h>
 #include <parquet/arrow/writer.h>
@@ -312,4 +314,65 @@ TEST(ThinLoader, RetiresSourcesThatEndedBeforeThePanelAtBarZero) {
     EXPECT_EQ(e.destination, -1);
     EXPECT_TRUE(std::isnan(e.value_ratio));
     EXPECT_TRUE(e.source_ends);
+}
+
+// universe.names: the panel loads the union, keeps one signal-date mask per name and a run
+// selects one; rank and target normalization follow the selected mask.
+TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
+    ThinCache cache;
+    // BIG = 101, 102, 103 (until day 6), 107; SMALL = 101, 102 (until day 4) is a subset on every date.
+    cache.write("universe.parquet", {"universe", "tradingItemId", "fromDate", "toDate"},
+                {strings({"BIG", "BIG", "BIG", "BIG", "SMALL", "SMALL"}), ids({101, 102, 103, 107, 101, 102}),
+                 stamps({at(0), at(0), at(0), at(0), at(0), at(0)}),
+                 stamps({std::nullopt, at(9), at(6), at(9), std::nullopt, at(4)})});
+    const std::string names = "universe:\n  path: universe.parquet\n  names: [BIG, SMALL]\n";
+    const auto config = BacktestConfig::from_yaml(cache.config(names));
+    EXPECT_EQ(config.universe.name, "BIG");
+    const auto panel = DataPanel::load(config);
+    EXPECT_EQ(panel.universe_names, (std::vector<std::string>{"BIG", "SMALL"}));
+    EXPECT_EQ(panel.default_universe, "BIG");
+    const auto& big = panel.mask_for("");
+    const auto& small = panel.mask_for("SMALL");
+    EXPECT_EQ(&big, &panel.mask_for("BIG"));
+    EXPECT_EQ(&big, &panel.universe_mask);
+    ASSERT_EQ(small.size(), big.size());
+    EXPECT_NE(small, big);
+    for (size_t i = 0; i < big.size(); ++i) EXPECT_LE(small[i], big[i]) << i;
+    const unsigned a = index_of(panel, "101"), b = index_of(panel, "102"), c = index_of(panel, "103");
+    EXPECT_TRUE(small[4 * panel.N + b]);
+    EXPECT_FALSE(small[5 * panel.N + b]);
+    EXPECT_TRUE(big[5 * panel.N + b]);
+    EXPECT_FALSE(small[0 * panel.N + c]);
+    EXPECT_TRUE(big[0 * panel.N + c]);
+    EXPECT_THROW(panel.mask_for("TOP9"), std::invalid_argument);
+
+    // Rank: symbols outside the selected set are NaN.
+    auto ranked = compile_xml("<data expr=\"close\"/><rank/>", &panel, &small);
+    ASSERT_EQ(ranked.size(), 1u);
+    std::vector<std::vector<float>> rows;
+    SimulatorConfig sc{};
+    sc.T = panel.T; sc.N = panel.N; sc.fee_rate = 0.0; sc.mode = 1; sc.collect_signals = true;
+    sc.universe_mask = &small;
+    const auto out = Simulator(panel, sc).run(ranked[0].pipeline);
+    EXPECT_TRUE(std::isfinite(out.signals[0][a]));
+    EXPECT_TRUE(std::isnan(out.signals[0][c]));
+    auto default_ranked = compile_xml("<data expr=\"close\"/><rank/>", &panel);
+    sc.universe_mask = nullptr;
+    const auto default_out = Simulator(panel, sc).run(default_ranked[0].pipeline);
+    EXPECT_TRUE(std::isfinite(default_out.signals[0][c]));
+
+    // Normalization uses the selected mask.
+    std::vector<float> ones(panel.N, 1.0f);
+    std::vector<double> targets;
+    normalize_signal_row(panel, 0, ones.data(), targets, MissingClosePolicy::Carry, &small);
+    EXPECT_DOUBLE_EQ(targets[a], 0.5);
+    EXPECT_DOUBLE_EQ(targets[c], 0.0);
+    normalize_signal_row(panel, 0, ones.data(), targets, MissingClosePolicy::Carry);
+    EXPECT_DOUBLE_EQ(targets[a], 0.25);
+
+    // name must be one of names; names needs an interval file.
+    EXPECT_THROW(BacktestConfig::from_yaml(cache.config(
+        "universe:\n  path: universe.parquet\n  name: X\n  names: [BIG, SMALL]\n")), std::runtime_error);
+    EXPECT_THROW(DataPanel::load(BacktestConfig::from_yaml(cache.config(
+        "universe:\n  path: universe.parquet\n  names: [BIG, NOPE]\n"))), std::runtime_error);
 }

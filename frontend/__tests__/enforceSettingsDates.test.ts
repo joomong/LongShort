@@ -9,6 +9,7 @@ function makeSettings(overrides: Partial<BacktestSettings> = {}): BacktestSettin
     isStart: '2023-01-01',
     osStart: '2024-01-01',
     barInterval: 'D1',
+    universe: '',
     nJobs: 5,
     gaPopulation: 50,
     ...overrides,

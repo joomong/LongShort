@@ -216,6 +216,8 @@ struct RunOptions {
     std::vector<std::size_t> signal_symbol_subset;  // non-empty: full series for these columns only
     std::string combined_mode;
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
+    std::string universe;                          // selected universe.names entry; empty = default
+    const std::vector<uint8_t>* universe_mask = nullptr; // resolved from g_data
 };
 
 static RunOptions parse_run_options(const Json::Value& body) {
@@ -274,6 +276,15 @@ static RunOptions parse_run_options(const Json::Value& body) {
                             "settlementLog", "distributionLog"})
         if (body.isMember(key))
             throw std::invalid_argument(std::string(key) + " is no longer supported; use a thin-v1 cache");
+    if (body.isMember("universe") && !body["universe"].isNull()) {
+        if (!body["universe"].isString())
+            throw std::invalid_argument("universe must be a string");
+        options.universe = body["universe"].asString();
+        if (!options.universe.empty() && g_data.universe_names.empty())
+            throw std::invalid_argument("universe selection requires universe.names in the config");
+    }
+    options.universe_mask = &g_data.mask_for(options.universe);
+    if (options.universe.empty()) options.universe = g_data.default_universe;
     return options;
 }
 
@@ -287,6 +298,7 @@ static SimulatorConfig simulator_config(const RunOptions& options, bool collect)
     config.collect_signals = collect;
     config.missing_close_policy = options.missing_close_policy;
     config.borrow = g_borrow.enabled() ? &g_borrow : nullptr;
+    config.universe_mask = options.universe_mask;
     return config;
 }
 
@@ -537,6 +549,10 @@ int main(int argc, char* argv[])
             json["mode"] = g_config.mode;
             json["missingClosePolicy"] = missing_close_policy_name(g_missing_close_policy);
             json["thinLayout"] = g_data.thin_layout;
+            Json::Value universes(Json::arrayValue);
+            for (const auto& name : g_data.universe_names) universes.append(name);
+            json["universes"] = universes;  // empty: a single configured universe
+            json["defaultUniverse"] = g_data.default_universe;
             // Cost modules: the borrow block as configured plus the rate table's coverage.
             Json::Value borrow;
             borrow["enabled"] = g_borrow.enabled();
@@ -580,7 +596,7 @@ int main(int argc, char* argv[])
                 const std::string xml = (*body)["xml"].asString();
                 if (xml.empty()) throw std::invalid_argument("Missing 'xml' field");
                 const RunOptions options = parse_run_options(*body);
-                auto alphas = compile_xml(xml, &g_data);
+                auto alphas = compile_xml(xml, &g_data, options.universe_mask);
                 if (alphas.empty()) throw std::invalid_argument("No alpha compiled from XML");
                 const bool single = alphas.size() == 1;
 
@@ -599,7 +615,8 @@ int main(int argc, char* argv[])
                                   diagnostics_payload(single_output, options)};
                 } else {
                     OrderedSignalAccumulator accumulator(
-                        g_data, options.combined_mode, options.missing_close_policy);
+                        g_data, options.combined_mode, options.missing_close_policy,
+                        options.universe_mask);
                     unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
                     const unsigned thread_count = std::max(1u, std::min<unsigned>(
                         options.threads == 0 ? hardware : options.threads,
@@ -667,7 +684,7 @@ int main(int argc, char* argv[])
                     entry["index"] = static_cast<Json::UInt64>(batch.index);
                     entry["xml"] = batch.xml;
                     if (!single && options.collect_signals && i < options.signal_top_k) {
-                        auto selected = compile_xml(batch.xml, &g_data);
+                        auto selected = compile_xml(batch.xml, &g_data, options.universe_mask);
                         auto output = execute_alpha(selected.at(0), options, true);
                         append_signal_payload(entry, output.signals, output.timestamps, options);
                     }
@@ -698,6 +715,7 @@ int main(int argc, char* argv[])
                 }
                 response["combinedMode"] = options.combined_mode;
                 response["mode"] = options.mode;
+                response["universe"] = options.universe;
                 callback(drogon::HttpResponse::newHttpJsonResponse(response));
             } catch (const std::exception& error) {
                 Json::Value json;
@@ -748,7 +766,7 @@ int main(int argc, char* argv[])
                                     auto evaluate = [&](const std::string& candidate_xml) {
                                         if (g_ga_workers.stopping() || !req->connected()) return -1e18;
                                         try {
-                                            auto alphas = compile_xml(candidate_xml, &g_data);
+                                            auto alphas = compile_xml(candidate_xml, &g_data, options.universe_mask);
                                             if (alphas.empty()) return -1e18;
                                             auto output = execute_alpha(alphas[0], options, false,
                                                 [&](unsigned, const float*, unsigned) { require_connection(); });
@@ -767,7 +785,7 @@ int main(int argc, char* argv[])
                                     };
                                     const auto best = engine.run_streaming(evaluate, progress);
                                     require_connection();
-                                    auto alphas = compile_xml(best.best_xml, &g_data);
+                                    auto alphas = compile_xml(best.best_xml, &g_data, options.universe_mask);
                                     if (alphas.empty()) throw std::runtime_error("Best GA alpha did not compile");
                                     auto output = execute_alpha(alphas[0], options, true,
                                         [&](unsigned, const float*, unsigned) { require_connection(); });
@@ -783,6 +801,7 @@ int main(int argc, char* argv[])
                                     complete["bestXml"] = best.best_xml;
                                     complete["combinedMode"] = options.combined_mode;
                                     complete["mode"] = options.mode;
+                                    complete["universe"] = options.universe;
                                     copy_top_metrics(complete, batch);
                                     complete["signalPlot"] = batch["signalPlot"];
                                     complete["signalRange"] = batch["signalRange"];

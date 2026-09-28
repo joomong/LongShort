@@ -6,8 +6,9 @@ struct MZscore : public Module {
     void init() {}
     void calculate(unsigned di, SignalVector &output)
     {
-        const auto* mask = panel && !panel->universe_mask.empty()
-            ? panel->universe_mask.data() + static_cast<size_t>(di) * panel->N : nullptr;
+        const auto* selected = universe ? universe : panel ? &panel->universe_mask : nullptr;
+        const auto* mask = selected && !selected->empty()
+            ? selected->data() + static_cast<size_t>(di) * numAssets : nullptr;
         // Excluded symbols must not influence ranks or cross-sectional moments.
         if (mask) {
             for (unsigned ii = 0; ii < numAssets; ++ii)
@@ -53,6 +54,7 @@ struct MZscore : public Module {
     }
 
     const DataPanel* panel = nullptr;  // optional; null preserves standalone module behavior
+    const std::vector<uint8_t>* universe = nullptr; // run-selected mask (universe.names); null = panel default
     IntParameter ddof{1};
     IntParameter min_count{2};
     FloatParameter eps{1e-12};

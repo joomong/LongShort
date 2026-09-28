@@ -431,7 +431,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
 // compile_xml
 // ---------------------------------------------------------------------------
 
-std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel) {
+std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel,
+                                       const std::vector<uint8_t>* universe) {
     auto elements = parse_xml(xml);
     auto pipelines = expand_pipelines(elements);
 
@@ -440,6 +441,12 @@ std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* 
     for (auto& pipe : pipelines) {
         auto compiled = compile_pipeline(pipe, panel);
         compiled.source_xml = pipeline_to_xml(pipe);
+        if (universe)
+            for (auto& module : compiled.modules) {
+                if (auto* m = dynamic_cast<MRank*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MZscore*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MNeutralize*>(module.get())) m->universe = universe;
+            }
         result.push_back(std::move(compiled));
     }
     return result;

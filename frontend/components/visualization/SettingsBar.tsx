@@ -85,10 +85,22 @@ export default function SettingsBar() {
           <span className={labelClass}>Data end:</span>
           <span className="font-mono">{config?.simEnd ?? '—'}</span>
         </div>
-        <div className={rowClass}>
-          <span className={labelClass}>Universe:</span>
-          <span>{config && config.N > 0 ? `${config.N} symbols` : '—'}</span>
-        </div>
+        {config?.universes && config.universes.length > 0 ? (
+          <label className={rowClass}>
+            <span className={labelClass}>Universe:</span>
+            <select value={settings.universe} onChange={e => handleChange('universe', e.target.value)}
+              aria-label="Universe" className={`${inputClass} w-[76px]`}>
+              {config.universes.map(name => (
+                <option className="bg-[#353446]" key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className={rowClass}>
+            <span className={labelClass}>Universe:</span>
+            <span>{config && config.N > 0 ? `${config.N} symbols` : '—'}</span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -133,10 +133,11 @@ export default function SignalChart() {
     const { simStart, isStart, osStart } = result?.runSettings ?? currentSettings;
     const mode = result?.runSettings?.mode ?? (currentSettings.barInterval === 'D0' ? 0 : 1);
     const threads = result?.runSettings?.threads ?? currentSettings.nJobs;
+    const universe = result?.runSettings?.universe ?? currentSettings.universe;
     const controller = new AbortController();
     let active = true;
     setSeriesState('loading');
-    runSimulate(alphaXml, simStart, isStart, osStart, controller.signal, threads, mode, { signalPlotSymbols: [selectedSymbol] })
+    runSimulate(alphaXml, simStart, isStart, osStart, controller.signal, threads, mode, { signalPlotSymbols: [selectedSymbol], universe })
       .then(response => {
         if (!active) return;
         const plot = response.batches[0]?.signalPlot ?? response.signalPlot;

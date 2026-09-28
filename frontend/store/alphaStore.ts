@@ -81,6 +81,7 @@ const defaultSettings: BacktestSettings = {
   isStart: '2023-01-01',
   osStart: '2024-01-01',
   barInterval: 'D1',
+  universe: '',
   nJobs: 5,
   gaPopulation: 50,
 };
@@ -255,6 +256,7 @@ export const useAlphaStore = create<AlphaState>((set) => ({
       set((state) => {
         let s = { ...state.settings };
         if (config.mode === 0 || config.mode === 1) s.barInterval = config.mode === 0 ? 'D0' : 'D1';
+        if (!config.universes?.includes(s.universe)) s.universe = config.defaultUniverse ?? '';
         const minDate = config.simStart;
         const maxDate = config.simEnd;
         // If current settings are outside data range, compute fresh defaults

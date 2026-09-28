@@ -19,7 +19,7 @@ datasets:
 # Interval membership (universe, tradingItemId, fromDate, toDate); `name` selects the universe.
 universe:
   path: /home/base/cache/cache_v2_cash_1d/universe.parquet
-  name: TOP3000
+  names: [TOP3000, TOP2000, TOP1000, TOP500]
 
 backtest:
   start_date: '2016-01-01'

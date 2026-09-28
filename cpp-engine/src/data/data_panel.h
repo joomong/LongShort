@@ -34,6 +34,13 @@ struct DataPanel {
     // Populated before publication; each shared column loads exactly once. Aliases share values.
     std::unordered_map<std::string, std::shared_ptr<LazyColumn>> lazy_columns;
     std::vector<uint8_t> universe_mask; // T*N membership on the signal date; empty means all
+    // Selectable named sets (universe.names): universe_mask holds default_universe, the others
+    // live here. universe_names is empty when the config has a single universe.
+    std::vector<std::string> universe_names;
+    std::string default_universe;
+    std::unordered_map<std::string, std::vector<uint8_t>> universe_masks;
+    // Mask for a run: empty name = default; unknown name throws std::invalid_argument.
+    const std::vector<uint8_t>& mask_for(const std::string& name) const;
     // Thin cache (docs/backtest_cache_simplification_plan_2026-09-23.md §3, §6). The loader
     // sets these when base.cache is a thin-v1 layout; the simulator then books holding P&L
     // as carried weight x returns_total and applies move_events, and nothing else.

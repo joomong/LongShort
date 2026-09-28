@@ -45,4 +45,6 @@ struct CompiledAlpha {
 CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel);
 
 // Compile XML string → list of compiled alphas (one per expanded variant).
-std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel);
+// `universe` overrides the panel's default signal-date mask for rank/zscore/neutralize.
+std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel,
+                                       const std::vector<uint8_t>* universe = nullptr);

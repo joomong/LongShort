@@ -24,6 +24,7 @@ export default function SignalPanelSelector() {
   const { simStart, isStart, osStart } = result?.runSettings ?? currentSettings;
   const mode = result?.runSettings?.mode ?? (currentSettings.barInterval === 'D0' ? 0 : 1);
   const threads = result?.runSettings?.threads ?? currentSettings.nJobs;
+  const universe = result?.runSettings?.universe ?? currentSettings.universe;
 
   useEffect(() => {
     setError('');
@@ -36,7 +37,7 @@ export default function SignalPanelSelector() {
     const controller = new AbortController();
     let active = true;
     setLoading(true);
-    runSimulate(xml, simStart, isStart, osStart, controller.signal, threads, mode).then(response => {
+    runSimulate(xml, simStart, isStart, osStart, controller.signal, threads, mode, { universe }).then(response => {
       if (!active) return;
       const batch = response.batches[0];
       const signals = adaptSignalPayload(batch?.signalPlot ? batch : response);
@@ -50,7 +51,7 @@ export default function SignalPanelSelector() {
     return () => { active = false; controller.abort(); };
     // result identity can change when another alpha's signal cache is populated.
     // The revision identifies the original backtest and guards stale responses.
-  }, [hasResult, isSingleAlpha, revision, index, xml, heatmap, simStart, isStart, osStart, mode, threads, viewMode, retry]);
+  }, [hasResult, isSingleAlpha, revision, index, xml, heatmap, simStart, isStart, osStart, mode, threads, universe, viewMode, retry]);
 
   if (!result || !isSingleAlpha || (!loading && !error)) return null;
   return (

@@ -60,6 +60,7 @@ describe('fetchConfig', () => {
         isStart: '2018-01-01',
         osStart: '2018-07-01',
         barInterval: 'D1',
+        universe: '',
         nJobs: 5,
         gaPopulation: 50,
       },
@@ -71,6 +72,19 @@ describe('fetchConfig', () => {
     expect(settings.isStart >= mockConfig.simStart).toBe(true);
     expect(settings.osStart >= mockConfig.simStart).toBe(true);
     expect(settings.isStart < settings.osStart).toBe(true);
+  });
+
+  it('selects the default universe and keeps a still-valid choice', async () => {
+    const mockConfig = {
+      symbols: ['A'], simStart: '2020-01-01', simEnd: '2025-01-28', feeRate: 0.001, barsPerYear: 252,
+      T: 10, N: 1, columns: [], universes: ['TOP3000', 'TOP2000', 'TOP1000', 'TOP500'], defaultUniverse: 'TOP3000',
+    };
+    vi.mocked(getConfig).mockResolvedValue(mockConfig);
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings.universe).toBe('TOP3000');
+    useAlphaStore.getState().setSettings({ universe: 'TOP500' });
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings.universe).toBe('TOP500');
   });
 
   it('should keep config null on API failure', async () => {

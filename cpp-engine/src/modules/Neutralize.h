@@ -15,8 +15,9 @@ struct MNeutralize : public Module {
     }
     void calculate(unsigned di, SignalVector &output)
     {
-        const auto* mask = panel && !panel->universe_mask.empty()
-            ? panel->universe_mask.data() + static_cast<size_t>(di) * panel->N : nullptr;
+        const auto* selected = universe ? universe : panel ? &panel->universe_mask : nullptr;
+        const auto* mask = selected && !selected->empty()
+            ? selected->data() + static_cast<size_t>(di) * numAssets : nullptr;
         // Excluded symbols must not influence group means.
         if (mask) {
             for (unsigned ii = 0; ii < numAssets; ++ii)
@@ -75,4 +76,5 @@ struct MNeutralize : public Module {
     std::string column_name;           // panel field holding the group codes
     std::string group;                 // public group name from the XML attribute
     const DataPanel* panel = nullptr;  // required; the factory rejects a null panel
+    const std::vector<uint8_t>* universe = nullptr; // run-selected mask (universe.names); null = panel default
 };

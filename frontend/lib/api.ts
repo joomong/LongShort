@@ -228,12 +228,12 @@ export async function runSimulate(
   signal?: AbortSignal,
   threads?: number,
   mode: 0 | 1 = 1,
-  extra: { signalPlotSymbols?: string[] } = {},
+  extra: { signalPlotSymbols?: string[]; universe?: string } = {},
 ): Promise<StarBatchResponse> {
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5, ...extra }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5, ...extra, universe: extra.universe || undefined }),
     signal,
   });
 
@@ -264,11 +264,12 @@ export async function runGAStream(
   onEvent: (event: StarGAEvent) => void,
   signal?: AbortSignal,
   mode: 0 | 1 = 1,
+  universe?: string,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/ga/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads, mode, collectSignals: true }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads, mode, collectSignals: true, universe: universe || undefined }),
     signal,
   });
 

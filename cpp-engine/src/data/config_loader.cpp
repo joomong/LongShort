@@ -256,6 +256,19 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         if (universe["time_col"]) cfg.universe.time_col = universe["time_col"].as<std::string>();
         if (universe["symbols"]) parse_symbols(cfg.universe.symbols, universe["symbols"]);
         if (universe["name"] && !universe["name"].IsNull()) cfg.universe.name = universe["name"].as<std::string>();
+        if (universe["names"]) {
+            if (!universe["names"].IsSequence() || universe["names"].size() == 0)
+                throw std::runtime_error("universe.names must be a nonempty sequence");
+            for (const auto& item : universe["names"]) {
+                const auto value = item.as<std::string>();
+                if (value.empty() || std::find(cfg.universe.names.begin(), cfg.universe.names.end(), value) != cfg.universe.names.end())
+                    throw std::runtime_error("Empty or duplicate universe.names entry: " + value);
+                cfg.universe.names.push_back(value);
+            }
+            if (cfg.universe.name.empty()) cfg.universe.name = cfg.universe.names.front();
+            else if (std::find(cfg.universe.names.begin(), cfg.universe.names.end(), cfg.universe.name) == cfg.universe.names.end())
+                throw std::runtime_error("universe.name must be one of universe.names");
+        }
         cfg.universe.alignment = alignment(universe["alignment"]);
     } else if (universe) throw std::runtime_error("universe must be a sequence or mapping");
 

@@ -62,12 +62,13 @@ export function useBacktest() {
         abortControllerRef.current.signal,
         settings.nJobs,
         mode,
+        { universe: settings.universe },
       );
 
       if (requestId !== requestIdRef.current) return;
 
       const adapted = adaptSimulateResponse(resp);
-      adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs };
+      adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs, universe: settings.universe };
 
       const s = useAlphaStore.getState();
       if (requestId !== requestIdRef.current) return;
@@ -133,7 +134,7 @@ export function useBacktest() {
             });
           } else if (event.type === 'complete') {
             const adapted = adaptGACompleteToResponse(event);
-            adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs };
+            adapted.runSettings = { simStart: settings.simStart, isStart: settings.isStart, osStart: settings.osStart, mode, threads: settings.nJobs, universe: settings.universe };
             if (adapted.alphas.length > 0) {
               adapted.alphas[0].xml = event.bestXml;
             }
@@ -146,6 +147,7 @@ export function useBacktest() {
         },
         abortControllerRef.current.signal,
         mode,
+        settings.universe,
       );
     } catch (error) {
       if (requestId !== requestIdRef.current) return;

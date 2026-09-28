@@ -63,3 +63,10 @@ DataPanel DataPanel::load(const std::string& parquet_path, const std::vector<std
                           const std::string& time_col, const std::string& symbol_col) {
     return parquet_reader::load_parquet(parquet_path, columns, time_col, symbol_col);
 }
+
+const std::vector<uint8_t>& DataPanel::mask_for(const std::string& name) const {
+    if (name.empty() || name == default_universe) return universe_mask;
+    auto it = universe_masks.find(name);
+    if (it == universe_masks.end()) throw std::invalid_argument("Unknown universe: " + name);
+    return it->second;
+}

@@ -230,6 +230,16 @@ describe('useBacktest pipeline behavior', () => {
     expect(useAlphaStore.getState().result?.runSettings).toMatchObject({ mode: 0, threads: 3 });
   });
 
+  it('forwards the selected universe and remembers it with the result', async () => {
+    useAlphaStore.getState().setSettings({ universe: 'TOP1000' });
+    vi.mocked(runSimulate).mockResolvedValue({ batches: [], yearly: [], timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] }, isStartIndex: 0, osStartIndex: 0 });
+    vi.mocked(adaptSimulateResponse).mockReturnValue({ combined: null, alphas: [] });
+    const hook = renderHookHarness();
+    await act(async () => { await hook.run(); });
+    expect(vi.mocked(runSimulate).mock.calls[0][7]).toEqual({ universe: 'TOP1000' });
+    expect(useAlphaStore.getState().result?.runSettings).toMatchObject({ universe: 'TOP1000' });
+  });
+
   it('Stop aborts GA transport and ignores late completion and error events', async () => {
     let observer!: (event: StarGAEvent) => void;
     const completion = deferred<void>();

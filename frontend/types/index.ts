@@ -104,6 +104,8 @@ export interface StarConfigResponse {
   feeRate: number;
   barsPerYear: number;
   mode?: 0 | 1;
+  universes?: string[];      // selectable universe names; empty = a single configured universe
+  defaultUniverse?: string;
   T: number;
   N: number;
   columns: string[];
@@ -220,7 +222,7 @@ export interface BacktestAlphaResult extends SignalPayload {
 }
 
 export interface BacktestRunResponse extends SignalPayload {
-  runSettings?: Pick<BacktestSettings, 'simStart' | 'isStart' | 'osStart'> & { mode: 0 | 1; threads: number };
+  runSettings?: Pick<BacktestSettings, 'simStart' | 'isStart' | 'osStart'> & { mode: 0 | 1; threads: number; universe?: string };
   combined: BacktestAlphaResult | null;
   alphas: BacktestAlphaResult[];
   yearly?: StarYearly[];
@@ -233,6 +235,7 @@ export interface BacktestSettings {
   isStart: string;
   osStart: string;
   barInterval: 'D0' | 'D1' | 'intraday';
+  universe: string; // '' = engine default
   nJobs: number;
   gaPopulation: number;
 }

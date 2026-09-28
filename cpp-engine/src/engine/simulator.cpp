@@ -265,7 +265,8 @@ private:
                     masked_signal_[ii] = std::numeric_limits<float>::quiet_NaN();
             source = masked_signal_.data();
         }
-        normalize_signal_row(data_, di, source, targets_, config_.missing_close_policy);
+        normalize_signal_row(data_, di, source, targets_, config_.missing_close_policy,
+                             config_.universe_mask);
     }
 
     // A corrupt price is never frozen or carried. Under carry the intent gate in
@@ -395,10 +396,12 @@ private:
 } // namespace
 
 void normalize_signal_row(const DataPanel& data, unsigned di, const float* signal,
-                          std::vector<double>& targets, MissingClosePolicy policy) {
+                          std::vector<double>& targets, MissingClosePolicy policy,
+                          const std::vector<uint8_t>* universe) {
     const float* close = data.row("close", di);
-    const auto* mask = data.universe_mask.empty()
-        ? nullptr : data.universe_mask.data() + static_cast<size_t>(di) * data.N;
+    const auto& selected = universe ? *universe : data.universe_mask;
+    const auto* mask = selected.empty()
+        ? nullptr : selected.data() + static_cast<size_t>(di) * data.N;
     const bool require_quote = policy == MissingClosePolicy::Error;
     double absolute_signal_sum = 0.0;
     for (unsigned ii = 0; ii < data.N; ++ii) {
@@ -434,6 +437,9 @@ Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
         throw std::invalid_argument("Simulator start index exceeds the data panel");
     if (!data_.universe_mask.empty() &&
         data_.universe_mask.size() != static_cast<size_t>(data_.T) * data_.N)
+        throw std::invalid_argument("Universe mask dimensions must match the data panel");
+    if (config_.universe_mask && !config_.universe_mask->empty() &&
+        config_.universe_mask->size() != static_cast<size_t>(data_.T) * data_.N)
         throw std::invalid_argument("Universe mask dimensions must match the data panel");
     if (data_.thin_layout) {
         if (data_.returns_total.size() != static_cast<size_t>(data_.T) * data_.N)

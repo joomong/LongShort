@@ -57,6 +57,8 @@ struct SimulatorConfig {
     AccountingRowCallback accounting_row_callback{}; // opt-in for either execution path
     // Borrow financing of the short book (src/engine/costs.h); null = no cost, bit-identical.
     const BorrowCostModel* borrow = nullptr;
+    // Run-selected signal-date mask (universe.names); null = data.universe_mask.
+    const std::vector<uint8_t>* universe_mask = nullptr;
 };
 
 struct SimulatorOutput {
@@ -81,7 +83,8 @@ struct DataPanel;
 // Error retains the original valid-close gate.
 // Signal NaN still means target zero; this function never preserves old orders.
 void normalize_signal_row(const DataPanel& data, unsigned di, const float* signal,
-                          std::vector<double>& targets, MissingClosePolicy policy);
+                          std::vector<double>& targets, MissingClosePolicy policy,
+                          const std::vector<uint8_t>* universe = nullptr);
 
 class Simulator {
 public:

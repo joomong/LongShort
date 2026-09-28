@@ -540,9 +540,11 @@ bool interval_membership(const std::string& path) {
     return true;
 }
 // Interval membership (universe, tradingItemId, fromDate, toDate; both ends inclusive, null
-// toDate = open) for the universe named in the config.
-std::map<std::string, std::vector<uint8_t>> read_interval_universe(const BacktestConfig& config,
+// toDate = open) for each universe named in the config (universe.names, else universe.name).
+std::map<std::string, std::map<std::string, std::vector<uint8_t>>> read_interval_universe(const BacktestConfig& config,
     const std::vector<int64_t>& calendar, const std::map<std::string, int>& price_symbols) {
+    const std::vector<std::string> wanted = config.universe.names.empty()
+        ? std::vector<std::string>{config.universe.name} : config.universe.names;
     const std::string path = resolved(config, config.universe.path);
     auto table = read_table(path, {"universe", "tradingItemId", "fromDate", "toDate"});
     auto names = read_strings(table->GetColumnByName("universe"), "Universe name");
@@ -550,11 +552,12 @@ std::map<std::string, std::vector<uint8_t>> read_interval_universe(const Backtes
     auto from = read_event_dates(table->GetColumnByName("fromDate"), "universe fromDate");
     auto to = read_event_dates(table->GetColumnByName("toDate"), "universe toDate");
     std::set<std::string> requested(config.universe.symbols.begin(), config.universe.symbols.end());
-    std::map<std::string, std::vector<uint8_t>> result;
-    bool named = false;
+    std::map<std::string, std::map<std::string, std::vector<uint8_t>>> sets;
+    std::set<std::string> named;
     for (size_t row = 0; row < ids.size(); ++row) {
-        if (names[row] != config.universe.name) continue;
-        named = true;
+        if (std::find(wanted.begin(), wanted.end(), names[row]) == wanted.end()) continue;
+        named.insert(names[row]);
+        auto& result = sets[names[row]];
         if (!from.present[row]) throw std::runtime_error("Universe interval has no fromDate: " + ids[row]);
         if (!requested.empty() && !requested.count(ids[row])) continue;
         const int64_t first = day_of(from.epoch_ms[row]);
@@ -567,11 +570,13 @@ std::map<std::string, std::vector<uint8_t>> read_interval_universe(const Backtes
             mask[t] = 1;
         }
     }
-    if (!named) throw std::runtime_error("Universe '" + config.universe.name + "' has no rows in " + path);
-    for (const auto& member : result)
-        if (!price_symbols.count(member.first))
-            throw std::runtime_error("Universe contains active symbol absent from close: " + member.first);
-    return result;
+    for (const auto& name : wanted)
+        if (!named.count(name)) throw std::runtime_error("Universe '" + name + "' has no rows in " + path);
+    for (const auto& set : sets)
+        for (const auto& member : set.second)
+            if (!price_symbols.count(member.first))
+                throw std::runtime_error("Universe contains active symbol absent from close: " + member.first);
+    return sets;
 }
 struct ThinEvents {
     std::vector<int64_t> dates;
@@ -709,15 +714,26 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     if (panel.timestamps.size() > std::numeric_limits<unsigned>::max()) throw std::runtime_error("Too many timestamps");
     panel.T = static_cast<unsigned>(panel.timestamps.size());
     std::map<std::string, std::vector<uint8_t>> membership;
+    std::map<std::string, std::map<std::string, std::vector<uint8_t>>> named_sets; // universe.names
     if (!config.universe.path.empty()) {
         const bool intervals = interval_membership(resolved(config, config.universe.path));
         if (intervals && config.universe.name.empty())
             throw std::runtime_error("universe.path is an interval membership file: universe.name is required");
         if (!intervals && !config.universe.name.empty())
             throw std::runtime_error("universe.name applies only to an interval membership file");
-        membership = intervals ? read_interval_universe(config, panel.timestamps, master->symbols)
-                               : read_universe(config, panel.timestamps, master->symbols);
-        for (const auto& member : membership) panel.symbols.push_back(member.first);
+        if (!intervals && !config.universe.names.empty())
+            throw std::runtime_error("universe.names applies only to an interval membership file");
+        if (intervals) {
+            named_sets = read_interval_universe(config, panel.timestamps, master->symbols);
+            membership = named_sets.at(config.universe.name);
+            std::set<std::string> all;
+            for (const auto& set : named_sets)
+                for (const auto& member : set.second) all.insert(member.first);
+            panel.symbols.assign(all.begin(), all.end());
+        } else {
+            membership = read_universe(config, panel.timestamps, master->symbols);
+            for (const auto& member : membership) panel.symbols.push_back(member.first);
+        }
     } else if (!config.universe.symbols.empty()) {
         panel.symbols = config.universe.symbols;
         std::sort(panel.symbols.begin(), panel.symbols.end());
@@ -744,14 +760,23 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     }
     if (panel.symbols.size() > std::numeric_limits<unsigned>::max()) throw std::runtime_error("Too many symbols");
     panel.N = static_cast<unsigned>(panel.symbols.size());
-    if (!membership.empty()) {
-        panel.universe_mask.resize(cell_count(panel.T, panel.N));
+    auto build_mask = [&](const std::map<std::string, std::vector<uint8_t>>& members) {
+        std::vector<uint8_t> mask(cell_count(panel.T, panel.N));
         for (size_t n = 0; n < panel.N; ++n) {
-            auto member = membership.find(panel.symbols[n]);
-            if (member == membership.end()) continue; // added event destination: never a member
-            for (size_t t = 0; t < panel.T; ++t) panel.universe_mask[t * panel.N + n] = member->second[t];
+            auto member = members.find(panel.symbols[n]);
+            if (member == members.end()) continue; // added event destination / other set: never a member
+            for (size_t t = 0; t < panel.T; ++t) mask[t * panel.N + n] = member->second[t];
         }
+        return mask;
+    };
+    if (!membership.empty() || !named_sets.empty()) panel.universe_mask = build_mask(membership);
+    if (!config.universe.names.empty()) {
+        panel.universe_names = config.universe.names;
+        panel.default_universe = config.universe.name;
+        for (const auto& set : named_sets)
+            if (set.first != config.universe.name) panel.universe_masks[set.first] = build_mask(set.second);
     }
+    named_sets.clear();
     // Only coordinates survive into value loaders; release the wide master footer/schema first.
     master.reset();
     auto close_values = read_field(close_source, Coordinates{panel.timestamps, panel.symbols});
@@ -771,6 +796,7 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         panel.timestamps.resize(rows);
         close_values.resize(cell_count(rows, panel.N));
         if (!panel.universe_mask.empty()) panel.universe_mask.resize(cell_count(rows, panel.N));
+        for (auto& named : panel.universe_masks) named.second.resize(cell_count(rows, panel.N));
     }
     panel.arrays.emplace("close", std::move(close_values));
     const auto coordinates = std::make_shared<const Coordinates>(Coordinates{panel.timestamps, panel.symbols});

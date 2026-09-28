@@ -26,6 +26,8 @@ struct UniverseConfig {
     std::string time_col = "__index_level_0__";
     std::vector<std::string> symbols; // optional fixed subset, intersected with membership
     std::string name; // interval membership (universe, tradingItemId, fromDate, toDate): universe to select
+    // Optional selectable sets (universe.names); the panel loads their union, `name` is the default.
+    std::vector<std::string> names;
     FieldAlignment alignment = FieldAlignment::Exact;
 };
 

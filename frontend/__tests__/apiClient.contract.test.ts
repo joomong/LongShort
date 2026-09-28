@@ -53,6 +53,15 @@ describe('api client contract', () => {
     expect(JSON.parse(body)).toMatchObject({ collectSignals: true, collectSignalsTopK: 5, threads: 3, mode: 1 });
   });
 
+  it('runSimulate sends the selected universe and omits an empty one', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, json: async () => ({}) } as unknown as Response);
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, 1, { universe: 'TOP500' });
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, 1, { universe: '' });
+    const bodies = vi.mocked(globalThis.fetch).mock.calls.map(call => JSON.parse((call[1] as RequestInit).body as string));
+    expect(bodies[0].universe).toBe('TOP500');
+    expect('universe' in bodies[1]).toBe(false);
+  });
+
   it('runSimulate forwards abort signal', async () => {
     const payload = { batches: [{ index: 0, summary: { is: {}, os: {} } }], yearly: [], timeseries: {}, isStartIndex: 0, osStartIndex: 100 };
     const ctrl = new AbortController();

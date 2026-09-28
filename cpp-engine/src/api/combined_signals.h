@@ -16,8 +16,9 @@
 class OrderedSignalAccumulator {
 public:
     OrderedSignalAccumulator(const DataPanel& data, const std::string& mode,
-                             MissingClosePolicy policy)
-        : data_(data), normalized_(mode == "normalized"), policy_(policy),
+                             MissingClosePolicy policy,
+                             const std::vector<uint8_t>* universe = nullptr)
+        : data_(data), normalized_(mode == "normalized"), policy_(policy), universe_(universe),
           signals_(data.T, std::vector<float>(data.N, std::numeric_limits<float>::quiet_NaN())),
           next_alpha_(data.T, 0) {
         if (mode != "normalized" && mode != "raw")
@@ -29,7 +30,7 @@ public:
         if (di >= data_.T || n != data_.N)
             throw std::invalid_argument("Combined signal dimensions must match the data panel");
         if (normalized_)
-            normalize_signal_row(data_, di, row, normalized_scratch, policy_);
+            normalize_signal_row(data_, di, row, normalized_scratch, policy_, universe_);
         std::unique_lock<std::mutex> lock(mutex_);
         ready_.wait(lock, [&] { return cancelled_ || next_alpha_[di] == alpha_index; });
         if (cancelled_)
@@ -65,6 +66,7 @@ private:
     const DataPanel& data_;
     bool normalized_;
     MissingClosePolicy policy_;
+    const std::vector<uint8_t>* universe_;
     std::vector<std::vector<float>> signals_;
     std::vector<std::size_t> next_alpha_;
     std::mutex mutex_;
