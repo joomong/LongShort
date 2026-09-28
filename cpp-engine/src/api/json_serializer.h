@@ -19,7 +19,8 @@ Json::Value signal_plot_to_json(
     const std::vector<std::string>& symbols,
     std::size_t start_index = 0,
     std::size_t max_cells = 4000000,
-    const std::vector<std::size_t>* symbol_subset = nullptr);  // subset: every row, only these columns
+    const std::vector<std::size_t>* symbol_subset = nullptr,   // subset: every row, only these columns
+    const std::vector<uint8_t>* universe_mask = nullptr);      // T*N; non-empty adds "membership"
 
 // Signal distribution histogram (fixed 200 bins, rows from start_index). When
 // timestamps/symbols are given, each bin also names one example cell

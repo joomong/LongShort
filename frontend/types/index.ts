@@ -147,6 +147,8 @@ export interface HeatmapData {
   timestamps: string[];
   symbols: string[];
   values: (number | null)[][]; // [time][symbol]
+  /** Per returned row, '1'/'0' per returned symbol: in the run's universe on that signal date. */
+  membership?: string[];
   rowStride?: number;
   symbolStride?: number;
   originalRows?: number;

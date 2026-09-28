@@ -211,6 +211,20 @@ TEST(JsonSerializer, SignalPlotSymbolSubsetReturnsEveryRowForThoseColumns) {
     EXPECT_DOUBLE_EQ(json["values"][8][0].asDouble(), 92.0);
 }
 
+TEST(JsonSerializer, SignalPlotMembershipFollowsSampledCells) {
+    const std::vector<std::vector<float>> signals = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+    const std::vector<int64_t> dates = {0, 86400000, 2 * 86400000};
+    // B leaves the universe on the last row; C is out on the first row.
+    const std::vector<uint8_t> mask = {1, 1, 0, 1, 1, 1, 1, 0, 1};
+    const std::vector<std::size_t> subset = {1, 2};
+    const auto json = signal_plot_to_json(signals, dates, {"A", "B", "C"}, 1, 9, &subset, &mask);
+    ASSERT_EQ(json["membership"].size(), 2u);
+    EXPECT_EQ(json["membership"][0].asString(), "11");
+    EXPECT_EQ(json["membership"][1].asString(), "01");
+    EXPECT_FALSE(signal_plot_to_json(signals, dates, {"A", "B", "C"})
+                     .isMember("membership"));
+}
+
 TEST(JsonSerializer, HistogramNamesLargestCellPerBin) {
     const std::vector<std::vector<float>> signals = {{-100, 1}, {-2, 2}, {50, 3}};
     const std::vector<int64_t> dates = {0, 86400000, 2 * 86400000};

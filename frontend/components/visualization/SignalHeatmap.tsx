@@ -9,6 +9,7 @@ import { zscoreToRgb, parseHex } from '@/lib/colorScale';
 import { symbolLabel, symbolMatches } from '@/lib/symbolLabels';
 import { robustCrossSection } from '@/lib/heatmapStats';
 import { SIGNAL_HEATMAP_HEIGHT } from '@/lib/signalPanelLayout';
+import { isMember, OUT_OF_UNIVERSE_RGB } from '@/lib/universeMembership';
 
 // The whole panel fits the container (no scrolling): the canvas is the container's
 // pixel grid and each pixel shows the cell it lands on.
@@ -129,7 +130,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
 
      const colors = getThemeColors(currentTheme);
      themeColorsRef.current = colors; // Cache for drawSelectionOverlay (avoids getComputedStyle per click)
-     const { timestamps, symbols, values } = currentHeatmap;
+     const { timestamps, symbols, values, membership } = currentHeatmap;
      const numTimestamps = timestamps.length;
      const numSymbols = symbols.length;
      if (numTimestamps === 0 || numSymbols === 0) return;
@@ -168,7 +169,9 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
        let o = y * width * 4;
        for (let x = 0; x < width; x++, o += 4) {
          const z = zRows[colTime[x]][si];
-         if (Number.isNaN(z)) {
+         if (!isMember(membership, colTime[x], si)) {
+           px[o] = OUT_OF_UNIVERSE_RGB[0]; px[o + 1] = OUT_OF_UNIVERSE_RGB[1]; px[o + 2] = OUT_OF_UNIVERSE_RGB[2];
+         } else if (Number.isNaN(z)) {
            px[o] = base[0]; px[o + 1] = base[1]; px[o + 2] = base[2];
          } else {
            const [r, g, b] = zscoreToRgb(z, base);

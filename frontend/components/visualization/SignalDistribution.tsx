@@ -33,9 +33,9 @@ export default function SignalDistribution() {
   const exampleDates = examples?.date;
   const symbolLabels = useAlphaStore(s => s.config?.symbolLabels ?? null);
   const setSelectedCell = useAlphaStore(s => s.setSelectedCell);
-  // Click a bar -> jump the heatmap/chart to the cell with the largest |value| in that bin.
+  // Click a colour-strip cell (or a bar) -> jump the heatmap/chart to the cell with the largest |value| in that bin.
   const handleBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const i = Number(e.currentTarget.dataset.bin);
+    const i = Number(e.currentTarget.dataset.stripBin ?? e.currentTarget.dataset.bin);
     const symbol = exampleSymbols?.[i];
     const date = exampleDates?.[i];
     if (symbol && date) setSelectedCell(symbol, date);
@@ -91,8 +91,20 @@ export default function SignalDistribution() {
           );
         }) : null}
       </div>
-      <div aria-label="Distribution value scale" className="h-1.5 shrink-0 mt-px"
-        style={{ background: 'linear-gradient(to right, #7a27d0, #2746d0, #27b4d0, #27c86c, #a9cf27, #e8bf27, #d52b2b)' }} />
+      {/* Click target: the colour strip, one full-height cell per bin (bars are too thin to hit). */}
+      <div aria-label="Distribution value scale" className="flex h-3.5 shrink-0 mt-px"
+        style={{ background: 'linear-gradient(to right, #7a27d0, #2746d0, #27b4d0, #27c86c, #a9cf27, #e8bf27, #d52b2b)' }}>
+        {distribution ? distribution.map((count, i) => (
+          <div
+            key={i}
+            data-strip-bin={i}
+            onClick={count > 0 ? handleBarClick : undefined}
+            title={count > 0 && exampleSymbols?.[i] && exampleDates?.[i]
+              ? `${symbolLabel(exampleSymbols[i]!, symbolLabels)} @ ${exampleDates[i]}` : undefined}
+            className={`flex-1 min-w-0 ${count > 0 ? 'cursor-pointer hover:bg-black/20' : ''}`}
+          />
+        )) : null}
+      </div>
     </div>
   );
 }

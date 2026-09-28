@@ -402,7 +402,8 @@ static void append_signal_payload(
     const std::size_t begin = options.sim_start_index;
     payload["signalPlot"] = signal_plot_to_json(
         signals, timestamps, g_data.symbols, begin, options.signal_max_cells,
-        options.signal_symbol_subset.empty() ? nullptr : &options.signal_symbol_subset);
+        options.signal_symbol_subset.empty() ? nullptr : &options.signal_symbol_subset,
+        options.universe_mask);
     payload["distribution"] = signal_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
     payload["signalDistributionLog"] = signal_log_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
     float minimum = 0.0f, maximum = 0.0f;

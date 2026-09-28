@@ -18,10 +18,13 @@ import {
 } from '@/lib/uplotUtils';
 import { chartInteraction } from '@/lib/chartInteraction';
 import { useContainerSize, useUPlot } from '@/lib/uplotAdapters';
+import { isMember, splitByMembership, OUT_OF_UNIVERSE_HEX } from '@/lib/universeMembership';
 
 interface ChartDataPoint {
   date: string;
   value: number | null;
+  /** false when the symbol is outside the run's universe on this date. */
+  member: boolean;
 }
 
 // ── Stable constants ──────────────────────────────────────────────────
@@ -112,7 +115,7 @@ export default function SignalChart() {
   const revision = useAlphaStore(s => s.resultRevision);
   const selectedSignalAlphaIndex = useAlphaStore(s => s.selectedSignalAlphaIndex);
   const currentSettings = useAlphaStore(s => s.settings);
-  const [fullSeries, setFullSeries] = useState<{ key: string; timestamps: string[]; values: (number | null)[] } | null>(null);
+  const [fullSeries, setFullSeries] = useState<{ key: string; timestamps: string[]; values: (number | null)[]; members: boolean[] } | null>(null);
   const seriesCache = useRef(new Map<string, NonNullable<typeof fullSeries>>());
   useEffect(() => { seriesCache.current.clear(); }, [revision]);
   const [seriesState, setSeriesState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -142,7 +145,8 @@ export default function SignalChart() {
         if (!active) return;
         const plot = response.batches[0]?.signalPlot ?? response.signalPlot;
         if (!plot || plot.symbols[0] !== selectedSymbol) throw new Error('no series');
-        const series = { key: seriesKey, timestamps: plot.timestamps, values: plot.values.map(row => row[0] ?? null) };
+        const series = { key: seriesKey, timestamps: plot.timestamps, values: plot.values.map(row => row[0] ?? null),
+          members: plot.values.map((_, i) => isMember(plot.membership, i, 0)) };
         seriesCache.current.set(seriesKey, series);
         // Bound memory; a new run invalidates every cached series.
         if (seriesCache.current.size > 32) seriesCache.current.delete(seriesCache.current.keys().next().value!);
@@ -174,7 +178,7 @@ export default function SignalChart() {
     if (needsFull && fullSeries?.key === seriesKey) {
       return fullSeries.timestamps.map((ts, i) => {
         const v = fullSeries.values[i];
-        return { date: ts, value: typeof v === 'number' && Number.isFinite(v) ? v : null };
+        return { date: ts, value: typeof v === 'number' && Number.isFinite(v) ? v : null, member: fullSeries.members[i] };
       });
     }
     const symbolIdx = symbolMap.get(selectedSymbol);
@@ -184,16 +188,20 @@ export default function SignalChart() {
       return {
         date: ts,
         value: typeof v === 'number' && Number.isFinite(v) ? v : null,
+        member: isMember(heatmap.membership, timeIdx, symbolIdx),
       };
     });
   }, [heatmap, selectedSymbol, symbolMap, needsFull, fullSeries, seriesKey]);
 
   // Merge snapshot series into chart data
+  // Out-of-universe dates are drawn as a separate grey series.
   const mergedData = useMemo(() => {
-    if (pinnedSnapshots.length === 0) return data;
+    const { inside, outside } = splitByMembership(data.map(d => d.value), data.map(d => d.member));
+    const base = data.map((pt, i) => ({ date: pt.date, value: inside[i], outside: outside[i] }));
+    if (pinnedSnapshots.length === 0) return base;
     const dateMap = new Map<string, Record<string, number | null>>();
-    for (const pt of data) {
-      dateMap.set(pt.date, { value: pt.value });
+    for (const pt of base) {
+      dateMap.set(pt.date, { value: pt.value, outside: pt.outside });
     }
     for (const snap of pinnedSnapshots) {
       for (const [date, val] of Object.entries(snap.retSeries)) {
@@ -201,7 +209,7 @@ export default function SignalChart() {
         if (existing) {
           existing[`snap_${snap.id}`] = val;
         } else {
-          dateMap.set(date, { value: null, [`snap_${snap.id}`]: val });
+          dateMap.set(date, { value: null, outside: null, [`snap_${snap.id}`]: val });
         }
       }
     }
@@ -214,7 +222,7 @@ export default function SignalChart() {
 
   // Convert to uPlot AlignedData
   const seriesKeys = useMemo(
-    () => ['value', ...pinnedSnapshots.map(s => `snap_${s.id}`)],
+    () => ['value', 'outside', ...pinnedSnapshots.map(s => `snap_${s.id}`)],
     [pinnedSnapshots]
   );
   const uData = useMemo<uPlot.AlignedData>(
@@ -233,6 +241,12 @@ export default function SignalChart() {
         width: 1.25,
         label: 'Signal',
         points: { show: true, size: 4, fill: colors.chartLine, stroke: colors.chartLine },
+      },
+      {
+        stroke: OUT_OF_UNIVERSE_HEX,
+        width: 1.25,
+        label: 'Outside universe',
+        points: { show: true, size: 4, fill: OUT_OF_UNIVERSE_HEX, stroke: OUT_OF_UNIVERSE_HEX },
       },
       ...pinnedSnapshots.map(s => ({
         stroke: s.color,

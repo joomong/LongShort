@@ -38,3 +38,19 @@ describe('log histogram display', () => {
     expect(screen.getByRole('button', { name: 'Linear' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
+
+describe('histogram colour strip', () => {
+  it('selects the bin example by clicking the strip cell under the bars; empty bins are inert', () => {
+    const response: StarBatchResponse = { ...fixture, signalDistributionLog: logarithmic };
+    useAlphaStore.getState().setResult(adaptSimulateResponse(response));
+    const { container } = render(<SignalDistribution />);
+    const strip = screen.getByLabelText('Distribution value scale');
+    const cells = Array.from(strip.querySelectorAll('[data-strip-bin]'));
+    expect(cells).toHaveLength(3);
+    expect(container.querySelectorAll('[data-bin]')).toHaveLength(3); // bars unchanged
+    fireEvent.click(cells[1]);
+    expect(useAlphaStore.getState()).toMatchObject({ selectedSymbol: 'BBB', selectedTimestamp: '2025-09-17' });
+    fireEvent.click(cells[0]);
+    expect(useAlphaStore.getState()).toMatchObject({ selectedSymbol: 'AAA', selectedTimestamp: '2025-09-03' });
+  });
+});

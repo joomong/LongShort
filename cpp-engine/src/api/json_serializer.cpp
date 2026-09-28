@@ -137,10 +137,14 @@ Json::Value signal_plot_to_json(
     const std::vector<std::string>& symbols,
     std::size_t start_index,
     std::size_t max_cells,
-    const std::vector<std::size_t>* symbol_subset)
+    const std::vector<std::size_t>* symbol_subset,
+    const std::vector<uint8_t>* universe_mask)
 {
     if (max_cells == 0)
         throw std::invalid_argument("Signal plot cell budget must be positive");
+    if (universe_mask && !universe_mask->empty() &&
+        universe_mask->size() != signals.size() * symbols.size())
+        throw std::invalid_argument("Signal plot universe mask must be T*N");
     if (signals.size() != timestamps.size())
         throw std::invalid_argument("Signal plot dates must match signal rows");
     SampledIndices columns;
@@ -182,6 +186,17 @@ Json::Value signal_plot_to_json(
         values.append(std::move(row_arr));
     }
     j["values"] = std::move(values);
+    if (universe_mask && !universe_mask->empty()) {
+        // One '1'/'0' string per sampled row, aligned with values: signal-date universe membership.
+        Json::Value membership(Json::arrayValue);
+        for (std::size_t di : rows.indices) {
+            std::string row(columns.indices.size(), '0');
+            for (std::size_t k = 0; k < columns.indices.size(); ++k)
+                if ((*universe_mask)[di * symbols.size() + columns.indices[k]]) row[k] = '1';
+            membership.append(std::move(row));
+        }
+        j["membership"] = std::move(membership);
+    }
     const std::size_t original_rows = signals.size() - std::min(start_index, signals.size());
     j["originalRows"] = static_cast<Json::UInt64>(original_rows);
     j["originalSymbols"] = static_cast<Json::UInt64>(symbols.size());
