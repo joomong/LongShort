@@ -10,9 +10,9 @@ python3 cpp-engine/tools/run_engine.py --config /path/to/my/equities_monthly_afl
 
 ## thin-v1 캐시
 
-`base.cache/manifest.json`의 `layout: thin-v1`을 로더가 판별한다. 이 캐시의 `base_data.parquet`은 조정 전(raw) 가격이며, `returns.parquet`은 신호용 분할조정 종가 수익률이다. 보유 손익에는 별도의 `returns_total.parquet`을 사용한다. `adj_factor.parquet`은 분할 단위 변환에 쓰고, `events.parquet`은 종료·승계·자회사 position 이동만 담는다. 현금·주식 대가를 엔진에서 다시 평가하지 않는다. `universe.parquet`은 구간형 멤버십이므로 `universe.path`와 함께 `universe.name: Top500` 또는 `ALL`을 지정한다. 이동 목적지 종목은 로더가 패널에 추가한다.
+`base.cache/manifest.json`의 `layout: thin-v1`을 로더가 판별한다. 이 캐시의 `base_data.parquet`은 조정 전(raw) 가격이며, `returns.parquet`은 CRSP식 총수익률(배당·분할·분사·합병/상폐 정산 반영)로 기본 신호 `returns`이자 보유 손익 입력이다. `adj_returns.parquet`은 분할조정 가격 수익률로 신호 필드 `adj_returns`로 쓴다. `returns_total.parquet`이 남은 옛 thin 캐시(rc2f3 등)는 설정 로드에서 거부되므로 다시 빌드한다. `adj_factor.parquet`은 분할 단위 변환에 쓰고, `events.parquet`은 종료·승계·자회사 position 이동만 담는다. 현금·주식 대가를 엔진에서 다시 평가하지 않는다. `universe.parquet`은 구간형 멤버십이므로 `universe.path`와 함께 `universe.name: Top500` 또는 `ALL`을 지정한다. 이동 목적지 종목은 로더가 패널에 추가한다.
 
-설정에는 최상위 `events:`나 `backtest.corporate_actions:`를 넣지 않는다. thin은 해당 값들을 `returns_total`과 이동 행에 반영하며, 현재 로더는 옛 설정 블록을 거부한다. 이 예제의 rc2f3 캐시는 전환 검증용으로, 미해결 사건의 임시 정산값과 대기 자회사 사례를 manifest에 기록한다. 새 결과를 확정된 정제 데이터로 해석하지 않는다. 다른 thin 캐시로 바꿀 때는 manifest·구간형 유니버스 이름·그룹 패널 범위를 확인한다. AFL은 별도의 기존 wide 입력으로 유지된다.
+설정에는 최상위 `events:`나 `backtest.corporate_actions:`를 넣지 않는다. thin은 해당 값들을 `returns`(총수익률)와 이동 행에 반영하며, 현재 로더는 옛 설정 블록을 거부한다. 이 예제의 rc2f3 캐시는 전환 검증용으로, 미해결 사건의 임시 정산값과 대기 자회사 사례를 manifest에 기록한다. 새 결과를 확정된 정제 데이터로 해석하지 않는다. 다른 thin 캐시로 바꿀 때는 manifest·구간형 유니버스 이름·그룹 패널 범위를 확인한다. AFL은 별도의 기존 wide 입력으로 유지된다.
 
 아래 `BaseData/*.parquet` 설명은 manifest가 thin-v1이 아닌 기존 wide 캐시에 적용한다. 일반 long/wide `datasets:` 경로도 계속 지원한다.
 
@@ -32,9 +32,10 @@ base:
 | `vwap` | `<cache>/BaseData/VWAP.parquet` | 공개 이름은 소문자 |
 | `cap` | `<cache>/BaseData/marketCap_USD.parquet` | 시가총액(USD) |
 | `sector` `industry` | `<groups>/{sector,industry}.parquet` | 정수 코드를 float로 저장, 미분류는 NaN |
-| `returns` | 없음(wide) / `<cache>/returns.parquet`(thin-v1) | wide에서는 `close`에서 파생, thin에서는 캐시의 분할조정 수익률 |
+| `returns` | 없음(wide) / `<cache>/returns.parquet`(thin-v1) | wide에서는 `close`에서 파생, thin에서는 캐시의 총수익률 |
+| `adj_returns` | `<cache>/adj_returns.parquet`(thin-v1만) | 분할조정 가격 수익률 |
 
-- nonthin wide 캐시는 `base_prices`(7필드, wide)와 `base_groups`(2필드, wide)로 전개된다. thin-v1은 `base_prices`와 신호용 `base_returns`를 long 형식으로 읽고, 같은 `base_groups`를 사용한다. 모두 eager이며 사용자 `datasets:`보다 앞에 놓인다. 이 이름들은 예약되어 있다.
+- nonthin wide 캐시는 `base_prices`(7필드, wide)와 `base_groups`(2필드, wide)로 전개된다. thin-v1은 `base_prices`와 `base_returns`(총수익률)·`base_adj_returns`(분할조정)를 long 형식으로 읽고, 같은 `base_groups`를 사용한다. 모두 eager이며 사용자 `datasets:`보다 앞에 놓인다. 이 이름들은 예약되어 있다.
 - `cache`·`groups`는 둘 다 필수다. 경로 규약은 다른 항목과 같아서 상대경로는 이 YAML이 있는 디렉토리 기준으로 푼다.
 - `base:`가 있으면 `datasets:`는 생략하거나 빈 시퀀스로 둘 수 있다. 둘 다 없으면 기존처럼 `datasets must be a non-empty sequence` 오류다.
 - `datasets:`에서 `close` 같은 기본 필드를 다시 선언하면 로드가 `Duplicate public data field: close`로 실패한다. 추가 데이터셋에는 다른 이름의 필드만 적는다.
@@ -88,6 +89,6 @@ python3 cpp-engine/tools/build_afl_catalog.py \
 
 ## 결측 종가와 일반 nonthin 데이터
 
-`backtest.missing_close_policy: carry`는 보유 종목에 호가가 없을 때 position을 동결하고, 시세가 재개되면 누적 수익을 인식한다. `error`는 결측에서 실행을 중단한다. thin-v1에서는 종료 손익과 자회사 손익이 `returns_total.parquet`에 포함되고, `events.parquet`은 position 이동만 담는다. 이 파일은 최상위 `events:` 설정과 다른 형식이다.
+`backtest.missing_close_policy: carry`는 보유 종목에 호가가 없을 때 position을 동결하고, 시세가 재개되면 누적 수익을 인식한다. `error`는 결측에서 실행을 중단한다. thin-v1에서는 종료 손익과 자회사 손익이 `returns.parquet`(총수익률)에 포함되고, `events.parquet`은 position 이동만 담는다. 이 파일은 최상위 `events:` 설정과 다른 형식이다.
 
-일반 long/wide `datasets:`와 manifest가 thin-v1이 아닌 wide `base.cache`는 계속 읽을 수 있다. 이 경로에서 XML의 `returns`는 종가 비율에서 파생되며, 외부 수익률은 `holding_return` 같은 다른 필드 이름으로 등록한다. 이 일반 데이터 경로에는 thin의 `returns_total`·이동 행이 없으므로 thin 기업행동 손익 계약을 제공하지 않는다. 기존 최상위 `events:`, `backtest.corporate_actions:`, `default_delisting_return`, `stale_quote_settle_bars` 설정은 현재 로더가 거부한다. 이전 계약과 검증 기록은 [과거 기업행동 엔진 문서](../../../docs/corporate_actions_engine_2026-09-17.md)에 남아 있다.
+일반 long/wide `datasets:`와 manifest가 thin-v1이 아닌 wide `base.cache`는 계속 읽을 수 있다. 이 경로에서 XML의 `returns`는 종가 비율에서 파생되며, 외부 수익률은 `holding_return` 같은 다른 필드 이름으로 등록한다. 이 일반 데이터 경로에는 thin의 총수익률 손익·이동 행이 없으므로 thin 기업행동 손익 계약을 제공하지 않는다. 기존 최상위 `events:`, `backtest.corporate_actions:`, `default_delisting_return`, `stale_quote_settle_bars` 설정은 현재 로더가 거부한다. 이전 계약과 검증 기록은 [과거 기업행동 엔진 문서](../../../docs/corporate_actions_engine_2026-09-17.md)에 남아 있다.

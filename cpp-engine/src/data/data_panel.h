@@ -37,6 +37,8 @@ struct DataPanel {
     // Thin cache (docs/backtest_cache_simplification_plan_2026-09-23.md §3, §6). The loader
     // sets these when base.cache is a thin-v1 layout; the simulator then books holding P&L
     // as carried weight x returns_total and applies move_events, and nothing else.
+    // returns_total is read from the thin cache's returns.parquet (total return; also the
+    // `returns` signal field); adj_returns.parquet (split-only) is a signal field only.
     struct MoveEvent {
         unsigned bar = 0;          // panel bar of the event date
         unsigned source = 0;       // panel index of sourceId

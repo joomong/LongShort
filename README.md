@@ -26,7 +26,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 
 - 기존 long Parquet 및 필드별 wide Parquet을 C++이 직접 읽는다. [주식·AFL 설정 예제](cpp-engine/examples/datasets/README.md)는 날짜별 유니버스와 필요한 AFL 필드만 읽는 방법을 설명한다.
 - `base:` 블록(가격 캐시 + 그룹 패널 디렉토리)을 주면 기본 필드 `open high low close volume vwap cap sector industry`가 설정에 나열하지 않아도 시작 시 전부 읽힌다. 파일이 하나라도 없거나 그룹 패널이 가격 달력을 덮지 못하면 기동을 거부한다.
-- 기본은 종가 체결, D1(mode=1), 편도 비용 5bp다. D0/D1과 비용·연환산 설정은 명시된 값으로 계산한다. 기본 연환산은 365이며 주식 예제는 252다.
+- 기본은 종가 체결, D1(mode=1), 편도 비용 1.5bp다. D0/D1과 비용·연환산 설정은 명시된 값으로 계산한다. 기본 연환산은 365이며 주식 예제는 252다.
 - 유니버스는 가격과 별도 마스크다. 신호 날짜에 적용하고 실행 모드의 지연을 함께 받는다.
 - 현재 thin-v1 캐시는 `base.cache/manifest.json`으로 판별한다. `close`는 조정 전 가격, 신호용 `returns`는 분할조정 종가 수익률이며, 보유 손익은 캐시의 `returns_total`과 `events.parquet`의 position 이동으로 처리한다. `universe.name`으로 구간형 유니버스를 고른다. thin 설정에서는 최상위 `events:`와 `backtest.corporate_actions:`를 쓰지 않는다. [thin 예제와 전환 상태](cpp-engine/examples/datasets/README.md)를 본다.
 - 일반 nonthin long/wide 데이터 설정도 계속 읽는다. 이 경로의 XML `returns`는 종가 변화율에서 파생된다. 기업행동 손익을 포함한 thin `returns_total`은 제공되지 않으며, 기존 최상위 `events:`·`backtest.corporate_actions:` 설정은 현재 로더가 거부한다. 결측 종가는 `backtest.missing_close_policy`(기본 `carry`)가 동결하고 시세 재개 시 누적 움직임을 인식한다. 자세한 규칙은 [데이터 예제](cpp-engine/examples/datasets/README.md)에 있다.

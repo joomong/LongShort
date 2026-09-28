@@ -106,6 +106,12 @@ void parse_base(BacktestConfig& cfg, const YAML::Node& node) {
         const YAML::Node layout = YAML::LoadFile(manifest.string())["layout"];
         cfg.base_thin = layout && layout.IsScalar() && layout.as<std::string>() == "thin-v1";
     }
+    // 2026-09-28 naming: returns.parquet is the total return (signal default and holding P&L),
+    // adj_returns.parquet the split-only return. A thin cache still carrying returns_total.parquet
+    // predates that and its returns.parquet is split-only, so it must be rebuilt, not reinterpreted.
+    if (cfg.base_thin && std::filesystem::exists(manifest.parent_path() / "returns_total.parquet"))
+        throw std::runtime_error("Thin cache " + cfg.base_cache +
+                                 " uses the old returns/returns_total naming; rebuild it with thin_build.py");
     if (cfg.base_thin) {
         DatasetConfig prices = base_dataset("base_prices",
             (std::filesystem::path(cfg.base_cache) / "base_data.parquet").string(),
@@ -113,13 +119,16 @@ void parse_base(BacktestConfig& cfg, const YAML::Node& node) {
              {"volume", "volume"}, {"vwap", "vwap"}, {"cap", "marketCap_USD"}});
         DatasetConfig returns = base_dataset("base_returns",
             (std::filesystem::path(cfg.base_cache) / "returns.parquet").string(), {{"returns", "returns"}});
-        for (DatasetConfig* dataset : {&prices, &returns}) {
+        DatasetConfig adj_returns = base_dataset("base_adj_returns",
+            (std::filesystem::path(cfg.base_cache) / "adj_returns.parquet").string(), {{"adj_returns", "adj_returns"}});
+        for (DatasetConfig* dataset : {&prices, &returns, &adj_returns}) {
             dataset->format = DatasetFormat::Long;
             dataset->time_col = "date";
             dataset->symbol_col = "tradingItemId";
         }
         cfg.datasets.push_back(std::move(prices));
         cfg.datasets.push_back(std::move(returns));
+        cfg.datasets.push_back(std::move(adj_returns));
     } else cfg.datasets.push_back(base_dataset("base_prices",
         (std::filesystem::path(cfg.base_cache) / "BaseData").string(),
         {{"open", "open.parquet"}, {"high", "high.parquet"}, {"low", "low.parquet"},
@@ -261,7 +270,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     if (!cfg.start_date.empty() && cfg.end_date != "latest" && cfg.start_date > cfg.end_date)
         throw std::runtime_error("backtest.start_date must not be after end_date");
     cfg.initial_capital = bt["initial_capital"] ? bt["initial_capital"].as<double>() : cfg.initial_capital;
-    const double fee_bps = bt["transaction_fee"] ? bt["transaction_fee"].as<double>() : 5.0;
+    const double fee_bps = bt["transaction_fee"] ? bt["transaction_fee"].as<double>() : 1.5;
     if (!std::isfinite(fee_bps) || fee_bps < 0 || !std::isfinite(cfg.initial_capital) || cfg.initial_capital <= 0)
         throw std::runtime_error("Capital must be positive and fees finite/nonnegative");
     cfg.transaction_fee_rate = fee_bps * 0.0001;

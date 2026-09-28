@@ -2,8 +2,8 @@
 # The previous v1 wide-cache configuration is archived in the cache
 # simplification plan. The loader selects the layout from cache/manifest.json.
 base:
-  cache: /home/jgo/longshort/simplify/thin/rc2f3
-  groups: ../../../data/groups/cache_v2_cash_1d
+  cache: /home/base/cache/cache_v2_cash_1d
+  groups: /home/base/cache/cache_v2_cash_1d/groups
 
 datasets:
   - name: AFL
@@ -16,7 +16,7 @@ datasets:
 
 # Named interval membership in the same thin cache.
 universe:
-  path: /home/jgo/longshort/simplify/thin/rc2f3/universe.parquet
+  path: /home/base/cache/cache_v2_cash_1d/universe.parquet
   name: Top500
 
 backtest:
@@ -24,7 +24,7 @@ backtest:
   end_date: latest
   warmup_bars: 252
   initial_capital: 1000000
-  transaction_fee: 5
+  transaction_fee: 1.5
   bars_per_year: 252
   combined_mode: normalized
   mode: 1

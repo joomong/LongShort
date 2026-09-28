@@ -821,7 +821,7 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         if (selected_fields.empty() || selected.count("adj_factor"))
             panel.arrays.emplace("adj_factor", read_adj_factor((dir / "adj_factor.parquet").string(),
                                                                panel.timestamps, panel.symbols));
-        panel.returns_total = read_long_doubles((dir / "returns_total.parquet").string(), "returns_total",
+        panel.returns_total = read_long_doubles((dir / "returns.parquet").string(), "returns",
                                                 panel.timestamps, panel.symbols);
         std::unordered_map<std::string, unsigned> index;
         for (unsigned n = 0; n < panel.N; ++n) index.emplace(panel.symbols[n], n);

@@ -4,8 +4,8 @@
 # P&L uses the cache's returns_total and position moves in events.parquet.
 # No top-level `events:` or backtest.corporate_actions block is allowed here.
 base:
-  cache: /home/jgo/longshort/simplify/thin/rc2f3
-  groups: ../../../data/groups/cache_v2_cash_1d
+  cache: /home/base/cache/cache_v2_cash_1d
+  groups: /home/base/cache/cache_v2_cash_1d/groups
 
 datasets:
   - name: AFL
@@ -18,15 +18,15 @@ datasets:
 
 # Interval membership (universe, tradingItemId, fromDate, toDate); `name` selects the universe.
 universe:
-  path: /home/jgo/longshort/simplify/thin/rc2f3/universe.parquet
-  name: Top500
+  path: /home/base/cache/cache_v2_cash_1d/universe.parquet
+  name: TOP3000
 
 backtest:
   start_date: '2016-01-01'
   end_date: latest
   warmup_bars: 252
   initial_capital: 1000000
-  transaction_fee: 5
+  transaction_fee: 1.5
   bars_per_year: 252
   combined_mode: normalized
   mode: 1

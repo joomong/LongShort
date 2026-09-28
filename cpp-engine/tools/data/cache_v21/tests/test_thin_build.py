@@ -41,6 +41,7 @@ PX = {
     170: [80, 80, 80, 80, 80, 81, N, N, N, N],              # 승계사 시세 없음 → 파일 수익률
     171: [9, 9, 9, 9, 9, 9, N, 9, 9, 9],                    # 승계사(bar 6 무시세)
     180: [90, 90, 90, 90, 90, 91, N, N, N, N],              # 조건 없음 → R=0
+    185: [95, 95, 95, 95, 95, 96, N, N, N, N],              # override 확정 last_close → R=0, 전환기 아님
     190: [11, 11, 11, 11, 11, 12, N, N, N, N],              # 같은 bar 정산 승계사를 가진 대상
     191: [22, 22, 22, 22, 22, 23, N, N, N, N],              # 승계사도 bar 6 정산
     200: [12, 12, 12, 12, 12, 12, 12, 12.5, N, N],          # 종료일(bar 3) 뒤 시세 지속 → 정산 bar 8
@@ -96,6 +97,7 @@ def _events():
         (160, D[5], N, 151, 50.0, 1.0, True, True),
         (170, D[5], 0.1, 171, N, 1.0, False, True),
         (180, D[5], N, None, N, N, False, False),
+        (185, D[5], N, None, N, N, False, False),
         (190, D[5], N, 191, N, 1.0, False, True),
         (191, D[5], N, None, N, N, False, False),
         (200, D[3], N, None, 12.0, N, True, False),
@@ -115,6 +117,7 @@ def _events():
     df.loc[df.tradingItemId == 221, "settlementReturn"] = N
     df["successorTradingItemId"] = df["successorTradingItemId"].astype("Int64")
     df["cacheUnitStatus"] = "ok"
+    df.loc[df.tradingItemId == 185, "cacheUnitStatus"] = "last_close"
     return df
 
 
@@ -220,8 +223,8 @@ def built():
         make_source(tmp / "src")
         thin_build.build(tmp / "src", tmp / "out", tmp / "work")
         _STATE.update(tmp=tmp, out=tmp / "out",
-                      rt=pd.read_parquet(tmp / "out" / "returns_total.parquet"),
-                      ret=pd.read_parquet(tmp / "out" / "returns.parquet"),
+                      rt=pd.read_parquet(tmp / "out" / "returns.parquet"),
+                      ret=pd.read_parquet(tmp / "out" / "adj_returns.parquet"),
                       ev=pd.read_parquet(tmp / "out" / "events.parquet"),
                       base=pd.read_parquet(tmp / "out" / "base_data.parquet"),
                       tr=pd.read_csv(tmp / "work" / "transitional.csv", float_precision="round_trip"),
@@ -231,7 +234,7 @@ def built():
 
 def rt(i, bar):
     df = built()["rt"]
-    v = df[(df.tradingItemId == i) & (df.date == D[bar])]["returns_total"]
+    v = df[(df.tradingItemId == i) & (df.date == D[bar])]["returns"]
     return None if v.empty else float(v.iloc[0])
 
 
@@ -318,6 +321,11 @@ def test_no_terms_default_zero():
     assert pd.isna(events_of(180).destinationId.iloc[0])
 
 
+def test_last_close_confirmed_not_transitional():
+    assert rt(185, 6) == 0.0 and trans_of(185, "default_settlement").empty
+    assert all(trans_of(185, k).empty for k in thin_build.TRANSITIONAL_KINDS)
+
+
 def test_successor_settling_same_bar():
     e = events_of(190)
     assert pd.isna(e.destinationId.iloc[0])                             # 191 도 bar 6 에 은퇴 → 이전 불가
@@ -359,7 +367,7 @@ def test_rights_expiry():
 
 def test_split_day_signal_return_zero():
     r = built()["ret"]
-    v = r[(r.tradingItemId == 240) & (r.date == D[4])]["returns"]
+    v = r[(r.tradingItemId == 240) & (r.date == D[4])]["adj_returns"]
     assert len(v) == 1 and v.iloc[0] == 0.0
     b = built()["base"]
     assert float(b[(b.tradingItemId == 240) & (b.date == D[4])].close.iloc[0]) == 50.0   # raw 유지
@@ -384,6 +392,8 @@ def test_every_end_row_has_returns_total_and_manifest():
     for r in ev[ev.sourceEnds].itertuples():
         assert rt(int(r.sourceId), list(DATES).index(r.date)) is not None
     man = built()["manifest"]
+    assert not (built()["out"] / "returns_total.parquet").exists()
+    assert {"returns.parquet", "adj_returns.parquet"} <= set(man["files"]) and "returns_total.parquet" not in man["files"]
     assert man["layout"] == "thin-v1" and set(man["transitional"]) == set(thin_build.TRANSITIONAL_KINDS)
     assert set(built()["tr"].kind) <= set(thin_build.TRANSITIONAL_KINDS)
 

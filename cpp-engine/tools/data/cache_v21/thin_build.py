@@ -7,8 +7,8 @@ returns_total 은 현행 엔진(src/engine/simulator.cpp settle/book_settlements
 
   thin_build.py --source <발행본> --out <thin 폴더> --work <작업 폴더>
 
-출력(out): manifest.json calendar.parquet base_data.parquet adj_factor.parquet returns.parquet
-           returns_total.parquet events.parquet universe.parquet master.parquet
+출력(out): manifest.json calendar.parquet base_data.parquet adj_factor.parquet returns.parquet(total return,
+           신호 기본값·보유 손익) adj_returns.parquet(분할조정 가격 수익률) events.parquet universe.parquet master.parquet
 작업(work): transitional.csv(date, tradingItemId, kind, detail, value_used), v2_diff.csv, build_log.json
 """
 from __future__ import annotations
@@ -167,7 +167,7 @@ def compute(p: Panel, events: pd.DataFrame, ledger: pd.DataFrame) -> dict:
         return i in term and term[i][0] <= bar
 
     trans, out_ev, excluded = [], [], []
-    stats = dict(settle_rows=0, computed=0, explicit_file_return=0, default_settlement=0, successor_rows=0,
+    stats = dict(settle_rows=0, computed=0, explicit_file_return=0, default_settlement=0, last_close=0, successor_rows=0,
                  expiry_rows=0, child_rows=0, child_rows_on_settlement_bar=0, pending_child=0,
                  pending_ledger_value=0, pending_first_quote=0, value_only_legs=0, legs_deferred_to_events=0,
                  legs_on_settlement_bar=0, legs_without_mark=0, frozen_leg_rows=0, settle_identity_max_absdiff=0.0)
@@ -207,6 +207,9 @@ def compute(p: Panel, events: pd.DataFrame, ledger: pd.DataFrame) -> dict:
                 stats["explicit_file_return"] += 1
                 trans.append(dict(date=p.iso(s), tradingItemId=int(p.ids[i]), kind="explicit_file_return",
                                   detail=f"status={r.cacheUnitStatus} succ_quoted={quoted_succ} mark={m!r}", value_used=R))
+            elif r.cacheUnitStatus == "last_close":
+                R = 0.0                                          # override-confirmed last-close settlement, not transitional
+                stats["last_close"] += 1
             else:
                 R = 0.0
                 stats["default_settlement"] += 1
@@ -421,7 +424,7 @@ def build(source, out, work) -> dict:
     p = Panel(dates_ns, ids, close)
     log = {"panel": [int(p.T), int(p.N)]}
 
-    # returns (D3): 전 거래일 대비 분할조정 종가 변화율, 둘 다 있을 때만. (id, date) 정렬.
+    # adj_returns (D3, 분할조정 가격 수익률): 전 거래일 대비 분할조정 종가 변화율, 둘 다 있을 때만. (id, date) 정렬.
     fin = np.isfinite(close)
     both = np.zeros_like(fin)
     both[1:] = fin[1:] & fin[:-1]
@@ -430,19 +433,19 @@ def build(source, out, work) -> dict:
     ci, ri = np.nonzero(both.T)
     _write(pa.table({"date": pa.array(dates_ns[ri], pa.timestamp("ns")),
                      "tradingItemId": pa.array(ids[ci], pa.int64()),
-                     "returns": pa.array(ret.T[both.T], pa.float64())}), out / "returns.parquet")
-    log["returns_rows"] = int(ci.size)
+                     "adj_returns": pa.array(ret.T[both.T], pa.float64())}), out / "adj_returns.parquet")
+    log["adj_returns_rows"] = int(ci.size)
     del ret, both, fin, ci, ri
 
-    # returns_total (1 단위 보유 기장) + events
+    # returns = total return (1 단위 보유 기장, 신호 기본값·보유 손익) + events
     res = compute(p, pd.read_parquet(source / "engine" / "events_cache.parquet"),
                   pd.read_parquet(source / "engine" / "ca_ledger_cache.parquet"))
     log["moves"] = res["stats"]
     rt = res["rt"]
     ci, ri = np.nonzero(np.isfinite(rt.T))
     _write(pa.table({"date": pa.array(dates_ns[ri], pa.timestamp("ns")), "tradingItemId": pa.array(ids[ci], pa.int64()),
-                     "returns_total": pa.array(rt.T[ci, ri], pa.float64())}), out / "returns_total.parquet")
-    log["returns_total_rows"] = int(ci.size)
+                     "returns": pa.array(rt.T[ci, ri], pa.float64())}), out / "returns.parquet")
+    log["returns_rows"] = int(ci.size)
     del ci, ri
 
     # v2 비교표
@@ -504,7 +507,7 @@ def build(source, out, work) -> dict:
     log["master_rows"] = int(len(ms))
     shutil.copyfile(source / "calendar.parquet", out / "calendar.parquet")
 
-    names = ["calendar.parquet", "base_data.parquet", "adj_factor.parquet", "returns.parquet", "returns_total.parquet",
+    names = ["calendar.parquet", "base_data.parquet", "adj_factor.parquet", "returns.parquet", "adj_returns.parquet",
              "events.parquet", "universe.parquet", "master.parquet"]
     src_manifest = json.loads((source / "manifest.json").read_text()) if (source / "manifest.json").exists() else {}
     manifest = {"layout": "thin-v1", "source_build_id": src_manifest.get("build_id"),

@@ -87,11 +87,11 @@ struct ThinCache {
         write("cache/base_data.parquet", {"date", "tradingItemId", "open", "high", "low", "close", "vwap", "volume", "marketCap_USD"},
               {stamps(date), ids(id), floats(close), floats(close), floats(close), floats(close), floats(close),
                doubles(volume), doubles(cap)});
-        // returns: only 101 and 102 rows, one NaN (row with null value).
-        write("cache/returns.parquet", {"date", "tradingItemId", "returns"},
+        // adj_returns (split-only): only 101 and 102 rows, one NaN (row with null value).
+        write("cache/adj_returns.parquet", {"date", "tradingItemId", "adj_returns"},
               {stamps({at(1), at(2), at(1)}), ids({101, 101, 102}), doubles({0.02, nan, 0.004})});
-        // returns_total: 101 day 1, 103 settlement day 6, 102 day 4; everything else has no row.
-        write("cache/returns_total.parquet", {"date", "tradingItemId", "returns_total"},
+        // returns (total; signal field and holding P&L): 101 day 1, 103 settlement day 6, 102 day 4.
+        write("cache/returns.parquet", {"date", "tradingItemId", "returns"},
               {stamps({at(1), at(6), at(4)}), ids({101, 103, 102}), doubles({0.0125, -0.25, -0.1})});
         // adj_factor: 101 factor 2 before day 5, 1 from day 5 on (open validTo); 102 only from day 2.
         write("cache/adj_factor.parquet", {"tradingItemId", "validFrom", "validTo", "factor"},
@@ -184,11 +184,15 @@ TEST(ThinLoader, DetectsLayoutAndLoadsRawPricesAndFactors) {
     EXPECT_TRUE(std::isnan(panel.at("adj_factor", 1, b)));
     EXPECT_FLOAT_EQ(panel.at("adj_factor", 2, b), 1.0f);
     EXPECT_TRUE(std::isnan(panel.at("adj_factor", 0, index_of(panel, "103"))));
-    // returns: a normal field; null value and absent rows are NaN.
-    EXPECT_FLOAT_EQ(panel.at("returns", 1, a), 0.02f);
+    // adj_returns: a normal field; null value and absent rows are NaN.
+    EXPECT_FLOAT_EQ(panel.at("adj_returns", 1, a), 0.02f);
+    EXPECT_TRUE(std::isnan(panel.at("adj_returns", 2, a)));
+    EXPECT_FLOAT_EQ(panel.at("adj_returns", 1, b), 0.004f);
+    EXPECT_TRUE(std::isnan(panel.at("adj_returns", 5, b)));
+    // returns: the total return field, the same file as holding P&L.
+    EXPECT_FLOAT_EQ(panel.at("returns", 1, a), 0.0125f);
+    EXPECT_FLOAT_EQ(panel.at("returns", 4, b), -0.1f);
     EXPECT_TRUE(std::isnan(panel.at("returns", 2, a)));
-    EXPECT_FLOAT_EQ(panel.at("returns", 1, b), 0.004f);
-    EXPECT_TRUE(std::isnan(panel.at("returns", 5, b)));
     // Groups keep the current wide panel.
     EXPECT_FLOAT_EQ(panel.at("sector", 0, a), 1.0f);
 }
@@ -271,6 +275,17 @@ TEST(ThinLoader, MissingUniverseNameIsRejected) {
         FAIL() << "interval universe accepted without a name";
     } catch (const std::runtime_error& error) {
         EXPECT_NE(std::string(error.what()).find("universe.name"), std::string::npos);
+    }
+}
+
+TEST(ThinLoader, OldReturnsTotalNamingIsRejected) {
+    ThinCache cache;
+    std::ofstream(cache.dir / "cache" / "returns_total.parquet") << "old";
+    try {
+        BacktestConfig::from_yaml(cache.config(top500));
+        FAIL() << "thin cache with returns_total.parquet accepted";
+    } catch (const std::runtime_error& error) {
+        EXPECT_NE(std::string(error.what()).find("rebuild"), std::string::npos);
     }
 }
 
