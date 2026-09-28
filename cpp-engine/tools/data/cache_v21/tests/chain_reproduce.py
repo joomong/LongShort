@@ -2,7 +2,7 @@
 """cache_v21/tests/chain_reproduce.py - D3: daily chain reproduction harness (rc2f3 published copy -> N trading days of
 `update_daily` -> last-asOf full regeneration references -> file-by-file comparison with attribution of every differing cell).
 
-Layout (--root, default /home/jgo/longshort/daily_D3):
+Layout (--root, default /home/jgo/longshort/daily/D3):
   prev_work/            T1/_work files lent to the first build from the published copy (--prev-work)
   b1_<d1>/ b2_<d2>/ ... chain stage builds (update_daily --out-stage), pub_<d>/ their publish dry-runs (--publish-out, no --remote)
   one_<dN>/ pub_one_<dN>/  ONE-STEP reference: rc2f3 -> dN in a single update_daily run with --full-lifecycle (every
@@ -55,11 +55,11 @@ pa.set_cpu_count(8)
 pa.set_io_thread_count(4)
 
 PY = "/home/jgo/usr/venv-3.11/bin/python"
-DEFAULT_ROOT = Path("/home/jgo/longshort/daily_D3")
-DEFAULT_START = Path("/home/jgo/longshort/rc2f_L2/pub_local3")          # local copy of the 61 rc2f3 published build (read only)
-DEFAULT_LEDGER_PREV = Path("/home/jgo/longshort/rc2f_L2/build/R1")       # rc2f apply R1 stage (hand-over files for the ledger builder)
+DEFAULT_ROOT = Path("/home/jgo/longshort/daily/D3")                  # dev run root (created on demand)
+DEFAULT_START = Path("/home/jgo/61/data2/temp_stock/cache_v2.1_cash_1d")   # 61 rc2f3 published build (read only)
+DEFAULT_LEDGER_PREV = Path("/home/jgo/longshort/clean_t4000/C4/final4/R1")   # latest rc2f apply R1 stage (hand-over files for the ledger builder)
 DEFAULT_ORCH = Path("/home/jgo/longshort/daily/orch")
-DEFAULT_PREV_WORK_SRC = Path("/tmp/claude-1008/-home-jgo/3f2abe1d-a2a7-4017-9ac1-2c7cb961e311/scratchpad/stage_v21/T1/_work")
+DEFAULT_PREV_WORK_SRC = Path("/home/jgo/longshort/rebuild_deps/stage_v21/T1/_work")
 PREV_WORK_FILES = ("calendar", "lineage_overlap", "identity", "ciq_agg", "mi_agg", "candidate_negatives")
 DEFAULT_DAYS = ("2026-09-16", "2026-09-17", "2026-09-18")
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -378,7 +378,7 @@ def main(argv=None) -> int:
     ap.add_argument("--overrides-glob", default=str(CV / "overrides" / "rc2f" / "*" / "*.csv"))
     ap.add_argument("--semantic-gate", choices=["fail", "warn"], default="fail", help="value-level checks on the chain end vs the snapshot (new historical |ret|>5 cells, duplicated child legs on linked parents): fail = exit 1")
     ap.add_argument("--exposure-warn-rc", type=int, default=9)
-    ap.add_argument("--tables-out", type=Path, default=Path("/tmp/claude-1008/-home-jgo/3f2abe1d-a2a7-4017-9ac1-2c7cb961e311/scratchpad/stage_daily/D3"))
+    ap.add_argument("--tables-out", type=Path, default=Path("/home/jgo/longshort/rebuild_deps/stage_daily/D3"))
     args = ap.parse_args(argv)
     root = args.root
     for d in ("logs", "state", "probes", "compare", "prev_work"):

@@ -1123,6 +1123,8 @@ def prepare(ctx: Ctx):
     if prev.ledger.exists():
         led_ids = pq.read_table(prev.ledger, columns=["tradingItemId"]).column(0).unique().to_pylist()
     ctx.ovr, ctx.ovr_files, ctx.ovr_issues = dr.load_overrides(ctx.args.overrides_glob, ctx.price_ids(), led_ids)
+    if len(ctx.ovr.get("value", pd.DataFrame())):
+        raise RuntimeError("value_overrides are not supported by the daily path yet; see clean_t4000 C5")
     ctx.price_win = dr.price_windows(ctx.ovr.get("price"))
     (out.rc2f / "overrides").mkdir(parents=True, exist_ok=True)
     for f in ctx.ovr_files:

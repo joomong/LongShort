@@ -1509,10 +1509,10 @@ class CacheV21:
           successorRatioCache  = successorRatioCache_raw × sf_S(t) / sf_T(mark 날짜)
           targetCacheMark      = 대상 split_adj 종가(mark), successorCacheClose = 승계사 split_adj 종가(t)
           cacheUnitFactorTarget = sf_T, cacheUnitFactorSuccessor = sf_S (Date 컬럼은 각각 mark·t)
-        원본의 수락 판정은 존중한다(원본 cache 컬럼이 NaN 인 행 — no_terms·rejected:* — 은 NaN 유지, cacheUnitStatusRaw 에 원본 status).
+        원본의 수락 판정은 존중한다(원본 cache 컬럼이 NaN 인 행 — no_terms·last_close·rejected:* — 은 NaN 유지, cacheUnitStatusRaw 에 원본 status).
         cacheUnitStatus: ok(환산·앵커 완료) / target_not_in_panel / no_mark_in_panel / no_settlement_bar_in_panel(대상이 패널 끝까지 시세 →
         엔진이 정산하지 않음; 비율 NaN) / successor_not_in_panel / no_successor_close_at_settlement(비율 NaN → 엔진은 settlementReturn·기본값)
-        / no_terms / rejected:*. settlementBarDate = 엔진이 정산할 bar(없으면 NaT). 그 밖의 컬럼은 원본 그대로. 반환 manifest."""
+        / no_terms / last_close / rejected:*. settlementBarDate = 엔진이 정산할 bar(없으면 NaT). 그 밖의 컬럼은 원본 그대로. 반환 manifest."""
         if basis != "split_adj":
             raise ValueError("export_events supports basis='split_adj' only (engine panel basis)")
         if cut not in (None, "lifecycle"):
@@ -1598,7 +1598,7 @@ class CacheV21:
             if status[i]:
                 continue
             if not np.isfinite(cash_raw[i]) and not np.isfinite(ratio_raw[i]):
-                status[i] = raw_status[i] if raw_status[i].startswith("rejected:") else "no_terms"
+                status[i] = raw_status[i] if raw_status[i].startswith("rejected:") or raw_status[i] == "last_close" else "no_terms"
             elif not has_t[i]:
                 status[i] = "no_settlement_bar_in_panel"          # 조건은 환산돼 있지만 이 패널에서는 정산되지 않는다
             elif np.isfinite(ratio_raw[i]) and not succ_quoted[i]:

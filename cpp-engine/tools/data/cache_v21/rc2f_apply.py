@@ -26,6 +26,12 @@
   lineage_overrides   R3/master/lineage.parquet: set_ratio(ratio, ratioSource), drop(행 제거), add(행 추가), set_chainable(chainable).
   ledger_overrides    ledger_build.py --overrides: MANUAL_OVERRIDES 와 같은 메커니즘(match/set/add/drop; repairs 로그에 overrideId),
                       평가(value_children) 뒤 status/isEstimate/childValuePerOldShare/childValueSource 는 post-pass 로 재확정.
+  value_overrides     T2/base_data.parquet 또는 R3/base_data_aux.parquet 의 (id, date) 행 field(open,high,low,close,vwap,volume) = value,
+                      기존 행의 qualityFlag 는 그대로(열거형 0~4·8·16·32 와 섞지 않음; 근거는 apply log). 행이 없으면 거래일이고
+                      lifecycle [firstTradeDate, lastTradeDate] 안일 때만 새 행(qualityFlag 64 = QF_VALUE_OVERRIDE, 지정 안 된 필드 NaN).
+                      factors·다른 테이블 불변.
+                      한계: (1) 기존 행의 flag 는 바뀌지 않음(예: flag 3 행에 close 를 넣어도 3 유지).
+                      (2) 새 행의 lifecycle 창은 같은 빌드의 lifecycle_overrides 적용 전 값으로 판정.
 """
 from __future__ import annotations
 
@@ -60,9 +66,10 @@ START = pd.Timestamp("2000-01-01")
 QF_PRICE_OVERRIDE = 8            # base_data.qualityFlag: rc2f 수동 단위 교정(0 confirmed/1 provisional/2 mi_mismatch/3 ciq_null_close/4 post_lifecycle 와 별개)
 QF_PRICE_OVERRIDE_EST = 32       # base_data.qualityFlag: 추정 가격 교정(price_overrides isEstimate true, 예: 옛 단위 프린트 ×1/pf) — returns 행 retFlag ≥ 3, 원장 split 행 estimated (R-Y2 P1 ①)
 QF_SUPPLEMENTED = 16             # base_data.qualityFlag: rc2f extend_prices 로 xfeed 에서 보충한 행(source 1 = ciqpriceequity, 2 = miprice)
+QF_VALUE_OVERRIDE = 64           # base_data.qualityFlag: value_overrides 로 새로 만든 행(기존 행의 flag 는 바꾸지 않음)
 SOURCE_CIQ, SOURCE_MI = 1, 2
 
-KINDS = ("split", "price", "ledger", "lifecycle", "lineage", "aux")
+KINDS = ("split", "price", "ledger", "lifecycle", "lineage", "aux", "value")
 COMMON_COLS = ["overrideId", "caseId", "tradingItemId", "evidence", "source", "isEstimate", "owner"]
 KIND_COLS = {
     "split": ["exDate", "action", "newFactor", "newExDate"],          # 선택: checkBasis (Y2a)
@@ -72,6 +79,7 @@ KIND_COLS = {
                   "cashPerShare", "treatment"],
     "lineage": ["oldId", "newId", "action", "ratio", "effectiveDate", "relation", "chainable"],      # 선택: linkVerified (rc2f-E)
     "aux": [],
+    "value": ["date", "field", "value"],
 }
 # ledger 파일에서는 eventId 또는 match_* 중 하나만 있으면 되므로 필수 컬럼은 action/set 만
 REQUIRED_COLS = {k: COMMON_COLS + KIND_COLS[k] for k in KINDS}
@@ -80,6 +88,7 @@ REQUIRED_COLS["aux"] = ["overrideId", "tradingItemId", "evidence", "owner"]     
 SPLIT_ACTIONS = ("drop", "set_factor", "move_date", "add", "confirm")
 PRICE_OPS = ("multiply", "set_close")
 PRICE_FIELDS = ("close", "open", "high", "low", "vwap")
+VALUE_FIELDS = ("open", "high", "low", "close", "vwap", "volume")
 LEDGER_ACTIONS = ("set", "drop", "add")
 LEDGER_SET_KEYS = ("childRatio", "childTradingItemId", "childValuePerOldShare", "childValueSource", "cashPerShare", "cashCurrency", "eventType",
                    "legType", "status", "isEstimate", "exDate", "payDate", "subscriptionPrice", "expiryDate", "exerciseRatio", "notes", "parentFactor")
@@ -109,10 +118,15 @@ log = logging.getLogger("cache_v21.rc2f_apply")
 # --------------------------------------------------------------------------------------
 # 공통 유틸
 # --------------------------------------------------------------------------------------
-def file_label(path) -> str:
-    """표시용 파일 이름: <task>/<file> (…/<task>/overrides/<file> 배치일 때), 아니면 파일명."""
+def task_dir(path) -> str:
+    """교정 파일의 태스크 폴더 이름: …/<task>/overrides/<file> 이면 <task>, …/<task>/<file>(저장소 overrides/rc2f/<task>/) 이면 <task>."""
     p = Path(path)
-    return f"{p.parent.parent.name}/{p.name}" if p.parent.name == "overrides" else p.name
+    return p.parent.parent.name if p.parent.name == "overrides" else p.parent.name
+
+
+def file_label(path) -> str:
+    """표시용 파일 이름: <task>/<file>."""
+    return f"{task_dir(path)}/{Path(path).name}"
 
 
 def kind_of(path: Path) -> str | None:
@@ -969,6 +983,56 @@ def validate_lineage(df: pd.DataFrame, ref: Ref, iss: Issues, targets: dict) -> 
             targets.setdefault(("any", old, pd.Timestamp(effd)), []).append(f"lineage:{oid}")
 
 
+def validate_value(df: pd.DataFrame, ref: Ref, iss: Issues, targets: dict, cells: list) -> None:
+    """value_overrides: field 이름, 값 유한·양수(volume >= 0), 날짜 거래일, (id, date, field) 중복 금지, lifecycle 밖 날짜는 경고(행이 없으면 적용 시 거부).
+    price_overrides 와 같은 셀 충돌은 validate_files 가 모든 파일을 본 뒤 cells 로 검사."""
+    f = df["x_file"].iloc[0]
+    days = ref.calendar.days
+    lc = ref.lifecycle
+    for r in df.itertuples(index=False):
+        oid, tid = r.overrideId, r.x_tid
+        try:
+            d = parse_date(r.date)
+        except ValueError as e:
+            iss.err(f, r.x_row, oid, f"date: {e}")
+            continue
+        if d is None:
+            iss.err(f, r.x_row, oid, "date required")
+            continue
+        field = str(r.field).strip()
+        if field not in VALUE_FIELDS:
+            iss.err(f, r.x_row, oid, f"field '{field}' not in {VALUE_FIELDS}")
+            continue
+        try:
+            val = parse_float(r.value)
+        except ValueError as e:
+            iss.err(f, r.x_row, oid, f"value: {e}")
+            continue
+        if val is None or not np.isfinite(val) or (val < 0 if field == "volume" else val <= 0):
+            iss.err(f, r.x_row, oid, "value must be finite and " + (">= 0 (volume)" if field == "volume" else "> 0"))
+            continue
+        if field != "volume" and not np.isfinite(np.float32(val)):
+            iss.err(f, r.x_row, oid, f"value {val:g} is not finite as float32 (price fields are stored as float32)")
+            continue
+        d64 = np.datetime64(d, "D")
+        i = int(np.searchsorted(days, d64))
+        if i >= len(days) or days[i] != d64:
+            iss.err(f, r.x_row, oid, f"date {d.date()} is not a trading day")
+            continue
+        if tid is None:
+            continue
+        key = ("value", tid, d, field)
+        if key in targets:
+            iss.err(f, r.x_row, oid, f"duplicate value override ({tid}, {d.date()}, {field}) also in {targets[key]}")
+            continue
+        targets[key] = f"{file_label(f)}:{r.x_row} ({oid})"
+        if tid in lc.index:
+            ft, lt = pd.to_datetime(lc.at[tid, "firstTradeDate"]), pd.to_datetime(lc.at[tid, "lastTradeDate"])
+            if (pd.notna(ft) and d < ft) or (pd.notna(lt) and d > lt):
+                iss.warn(f, r.x_row, oid, f"date {d.date()} outside lifecycle [{ft.date() if pd.notna(ft) else None}, {lt.date() if pd.notna(lt) else None}]: applied only to an existing base_data row (no new row)")
+        cells.append((tid, d, field, f, r.x_row, oid))
+
+
 def validate_aux(df: pd.DataFrame, ref: Ref, iss: Issues, targets: dict) -> None:
     f = df["x_file"].iloc[0]
     for r in df.itertuples(index=False):
@@ -988,6 +1052,7 @@ def validate_files(paths: list, ref: Ref) -> tuple[list, Issues]:
     summary = []
     targets: dict = {}
     ranges: list = []
+    vcells: list = []
     seen_ids: dict = {}
     for p in paths:
         if kind_of(p) == "aux" and Path(p).exists():
@@ -1041,10 +1106,16 @@ def validate_files(paths: list, ref: Ref) -> tuple[list, Issues]:
                     else:
                         seen_ids[r.overrideId] = f"{file_label(p)}:{r.x_row}"
             {"split": validate_split, "price": lambda d, rf, i, t: validate_price(d, rf, i, t, ranges), "ledger": validate_ledger,
-             "lifecycle": validate_lifecycle, "lineage": validate_lineage, "aux": validate_aux}[kind](df, ref, iss, targets)
+             "lifecycle": validate_lifecycle, "lineage": validate_lineage, "aux": validate_aux,
+             "value": lambda d, rf, i, t: validate_value(d, rf, i, t, vcells)}[kind](df, ref, iss, targets)
         n_err = iss.n_err - n0
         summary.append({"file": file_label(p), "kind": kind, "rows": int(len(df)), "errors": n_err,
                         "warnings": sum(1 for x in iss.rows if x["level"] == "WARN" and x["file"] == file_label(p))})
+    # value_overrides 셀이 price_overrides 범위·필드와 겹치면 오류(파일 순서와 무관하게 모든 파일을 본 뒤)
+    for (tid, d, field, vf, vrow, void) in vcells:
+        for (t2, a, b, fl, who) in ranges:
+            if t2 == tid and a <= d <= b and field in fl:
+                iss.err(vf, vrow, void, f"value override ({tid}, {d.date()}, {field}) conflicts with price override {who}")
     # 같은 (id, 날짜) 에 종류가 다른 교정이 겹치면 알림(오류는 아님: split drop + ledger set 은 양립 가능)
     for k, v in targets.items():
         if k[0] == "any" and len(v) > 1 and len({x.split(":")[0] for x in v}) > 1:
@@ -1237,6 +1308,100 @@ def apply_price_overrides(df: pd.DataFrame, src: Path, dst: Path, alog: ApplyLog
         alog.set(rc["oid"], status="applied" if n else "rejected", reason=(f"{rc['op']} {rc['value']:g} on {','.join(rc['fields'])}; qualityFlag={qf_v}{' (estimate: returns retFlag>=3, ledger split rows estimated)' if rc['estimate'] else ''} (was {rc.get('orig_flags', {})})" if n else "no_rows_in_range"),
                  affected_rows=n)
     return {"file": label, "overrides": len(recs), "rows_changed": n_total, "rewritten": True}
+
+
+# --------------------------------------------------------------------------------------
+# value_overrides → base_data (T2 / aux)
+# --------------------------------------------------------------------------------------
+def apply_value_overrides(df: pd.DataFrame, src: Path, dst: Path, alog: ApplyLog, ids_in_file: set, label: str, lc: pd.DataFrame, cal_days: np.ndarray) -> dict:
+    """base_data (tradingItemId, date) 행의 field = value, 기존 행 qualityFlag 유지. 행이 없으면 거래일이고 lifecycle(lc, id 인덱스)
+    [firstTradeDate, lastTradeDate(NaT = 열림)] 안일 때만 새 행(지정 안 된 필드 NaN, source = miprice 출처면 2 아니면 0)을 만들고
+    master_aux.merge_base_data 로 (id, date) 정렬 유지. 아니면 rejected. src 를 읽어 dst 에 쓴다(dst 가 src 링크여도 됨)."""
+    from master_aux import merge_base_data
+    recs = []
+    for r in df.itertuples(index=False):
+        if r.x_tid not in ids_in_file:
+            continue
+        recs.append(dict(oid=r.overrideId, tid=int(r.x_tid), d=np.datetime64(parse_date(r.date), "ns"), field=str(r.field).strip(), value=float(r.value),
+                         caseId=r.caseId, src_mi="miprice" in str(r.source)))
+    if not recs:
+        return {"file": label, "overrides": 0, "rows_set": 0, "rows_new": 0, "rewritten": False}
+    by_id: dict[int, list] = {}
+    for rc in recs:
+        by_id.setdefault(rc["tid"], []).append(rc)
+        alog.set(rc["oid"], caseId=rc["caseId"], kind="value", action=f"set_{rc['field']}", status="rejected", reason="no_row", affected_rows=0,
+                 target=f"{rc['tid']} {str(rc['d'])[:10]} {rc['field']}", file=label)
+    src = Path(src).resolve()
+    pf = pq.ParquetFile(src)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".val.tmp")
+    writer = pq.ParquetWriter(tmp, pf.schema_arrow, compression="zstd", write_statistics=True, use_dictionary=False)
+    done: set = set()
+    rows_set = 0
+    id_idx = pf.schema_arrow.get_field_index("tradingItemId")
+    for rg in range(pf.num_row_groups):
+        st = pf.metadata.row_group(rg).column(id_idx).statistics
+        t = pf.read_row_group(rg)
+        ids = t.column("tradingItemId").to_numpy()
+        lo, hi = (st.min, st.max) if st is not None and st.has_min_max else (int(ids.min()), int(ids.max()))
+        hit = [tid for tid in by_id if lo <= tid <= hi]
+        if hit:
+            dates = t.column("date").to_numpy().astype("datetime64[ns]")
+            cols = {f: t.column(f).to_numpy(zero_copy_only=False).copy() for f in VALUE_FIELDS}
+            setm = {f: np.zeros(len(ids), dtype=bool) for f in VALUE_FIELDS}      # 실제로 값이 설정된 셀(이 외 셀의 null 은 보존)
+            qf = t.column("qualityFlag").to_numpy().copy()
+            changed = np.zeros(len(ids), dtype=bool)
+            for tid in hit:
+                for rc in by_id[tid]:
+                    m = (ids == tid) & (dates == rc["d"])
+                    if not m.any():
+                        continue
+                    v = cols[rc["field"]]
+                    v[m] = np.array(rc["value"], dtype=v.dtype)
+                    setm[rc["field"]] |= m
+                    changed |= m
+                    done.add(rc["oid"])
+                    alog.set(rc["oid"], status="applied", reason=f"set {rc['field']}={rc['value']:g}; qualityFlag kept {int(qf[m][0])}", affected_rows=int(m.sum()))
+            rows_set += int(changed.sum())
+            for f in VALUE_FIELDS:
+                if not setm[f].any():
+                    continue
+                nulls = t.column(f).is_null().to_numpy(zero_copy_only=False) & ~setm[f]
+                t = t.set_column(t.schema.get_field_index(f), f, pa.array(cols[f], type=t.schema.field(f).type, mask=nulls))
+        writer.write_table(t, row_group_size=max(1, t.num_rows))
+    writer.close()
+    # 새 행: 기존 행이 없는 (id, date) — 거래일 ∧ lifecycle 안일 때만
+    days = np.asarray(cal_days).astype("datetime64[D]")
+    new: dict = {}
+    for rc in recs:
+        if rc["oid"] in done:
+            continue
+        d = rc["d"].astype("datetime64[D]")
+        i = int(np.searchsorted(days, d))
+        if i >= len(days) or days[i] != d:
+            alog.set(rc["oid"], reason="no_row; not a trading day (no new row)")
+            continue
+        ft = pd.to_datetime(lc.at[rc["tid"], "firstTradeDate"]) if rc["tid"] in lc.index else pd.NaT
+        lt = pd.to_datetime(lc.at[rc["tid"], "lastTradeDate"]) if rc["tid"] in lc.index else pd.NaT
+        if pd.isna(ft) or pd.Timestamp(rc["d"]) < ft or (pd.notna(lt) and pd.Timestamp(rc["d"]) > lt):
+            alog.set(rc["oid"], reason=f"no_row; outside lifecycle [{ft}, {lt}] (no new row)")
+            continue
+        row = new.setdefault((rc["tid"], rc["d"]), {"date": rc["d"], "tradingItemId": rc["tid"], **{f: np.nan for f in VALUE_FIELDS},
+                                                    "source": SOURCE_MI if rc["src_mi"] else 0, "qualityFlag": QF_VALUE_OVERRIDE})
+        row[rc["field"]] = rc["value"]
+        alog.set(rc["oid"], status="applied", reason=f"new row; set {rc['field']}={rc['value']:g}; qualityFlag={QF_VALUE_OVERRIDE}", affected_rows=1)
+    if new:
+        add = pd.DataFrame(list(new.values()))
+        add_path = dst.with_name(dst.name + ".val_new.parquet")
+        pq.write_table(pa.Table.from_pandas(add[pf.schema_arrow.names], schema=pf.schema_arrow, preserve_index=False), add_path)
+        tmp2 = dst.with_name(dst.name + ".val2.tmp")
+        merge_base_data(tmp, add_path, tmp2)
+        os.replace(tmp2, tmp)
+        add_path.unlink()
+    if dst.is_symlink() or dst.exists():
+        dst.unlink()
+    os.replace(tmp, dst)
+    return {"file": label, "overrides": len(recs), "rows_set": rows_set, "rows_new": len(new), "rewritten": True}
 
 
 # --------------------------------------------------------------------------------------
@@ -1574,7 +1739,7 @@ def _patch_events(ev: pd.DataFrame, tid: int, rec: dict, closes, cal, oid: str) 
       settle_cash        cashPerShare/cashPerShareCache = cash, hasCashLeg, successor 없음, settlementReturn = cash/mark − 1
       convert_successor  successorTradingItemId/successorRatio(+Cache), hasStockLeg, settlementReturn = ratio×succ/mark − 1(승계 종가 없으면 NaN → 엔진 0)
       settle_mixed       현금 + 승계 leg 둘 다(partial 두 leg 를 한 행이 보유), settlementReturn = (cash + ratio×succ)/mark − 1
-      last_close         leg 없음, settlementReturn NaN 유지(엔진 default 0 = 마지막 종가 청산), cacheUnitStatus no_terms
+      last_close         leg 없음, settlementReturn NaN 유지(엔진 0 = 마지막 종가 청산), cacheUnitStatus last_close(근거 있는 확정 — thin 은 전환기 항목으로 세지 않음)
       unresolved         행 유지/생성, leg 없음, settlementReturn NaN + reviewFlag rc2f_unresolved(보유 시 검토 대상; lifecycle_dates.settlementDate 는 비움)
       extend_prices      endDate 를 새 lastTradeDate 로 이동(가격은 apply_extend_prices 가 보충), 조건 불변
     반환 (events, 설명)."""
@@ -1664,7 +1829,7 @@ def _patch_events(ev: pd.DataFrame, tid: int, rec: dict, closes, cal, oid: str) 
         ev.at[i, "cacheUnitFactorSuccessor"] = 1.0 if np.isfinite(succ_close) else np.nan
         ev.at[i, "acquirerPriceDate"] = succ_d
         if eff == "last_close" or (eff == "extend_prices" and not np.isfinite(cash) and succ is None):
-            R, status = np.nan, "no_terms"                     # engine default_delisting_return 0 = last-close liquidation (lead decision)
+            R, status = np.nan, ("last_close" if eff == "last_close" else "no_terms")   # engine 0 = last-close liquidation (lead decision)
         else:
             proceeds = (cash if np.isfinite(cash) else 0.0) + ((ratio * succ_close) if succ is not None else 0.0)
             if np.isfinite(mark) and mark > 0 and np.isfinite(proceeds):
@@ -2160,7 +2325,7 @@ def cmd_apply(args) -> int:
     paths = sorted(set(glob.glob(args.overrides_glob))) if args.overrides_glob else []
     paths = [p for p in paths if kind_of(p)]
     for p in paths:
-        shutil.copy2(p, out / "overrides" / (Path(p).parent.parent.name + "__" + Path(p).name))
+        shutil.copy2(p, out / "overrides" / (task_dir(p) + "__" + Path(p).name))
     ovr, issues = load_all_overrides(paths, ref) if paths else ({k: pd.DataFrame() for k in KINDS}, [])
     alog = ApplyLog()
     info = {"overrides_files": paths, "counts": {k: int(len(v)) for k, v in ovr.items()}, "steps": {}, "rc2_rules": bool(getattr(args, "rc2_rules", False)),
@@ -2209,6 +2374,22 @@ def cmd_apply(args) -> int:
         einfo = apply_extend_prices(ovr["lifecycle"], lc_pre, t2_base_dst, aux_dst, t2_base_src, aux_src, aux_ids_now, alog, out / "R3" / "work_extend_rc2f", cal_pre)
         info["steps"]["extend_prices"] = einfo
         log.info("extend_prices: %s (%.0fs)", einfo, time.time() - t0)
+
+    # ---- 1d) value_overrides → T2 base_data / R3 base_data_aux (price·aux·extend 뒤의 파일에) ----
+    if len(ovr["value"]):
+        lca_now = out / "R3" / "master" / "lifecycle_aux.parquet"
+        lc_v = pd.concat([pd.read_parquet(r3s / "master" / "lifecycle.parquet"), pd.read_parquet(lca_now if lca_now.exists() else r3s / "master" / "lifecycle_aux.parquet")],
+                         ignore_index=True).drop_duplicates("tradingItemId", keep="last").set_index("tradingItemId")
+        cal_v = pd.read_parquet(rc2 / "calendar.parquet"); cal_v = cal_v.loc[cal_v.isTradingDay, "date"].to_numpy(dtype="datetime64[ns]")
+        aux_ids_v = set(int(i) for i in _base_ids_of(aux_dst))
+        t2_ids_v = set(int(i) for i in ref.ids) - aux_ids_v
+        vinfo = [apply_value_overrides(ovr["value"], src, dst, alog, ids, label, lc_v, cal_v)
+                 for src, dst, ids, label in ((t2_base_dst, t2_base_dst, t2_ids_v, "T2/base_data.parquet"), (aux_dst, aux_dst, aux_ids_v, "R3/base_data_aux.parquet"))]
+        for r in ovr["value"].itertuples(index=False):
+            if r.overrideId not in alog.rows:
+                alog.set(r.overrideId, caseId=r.caseId, kind="value", action=f"set_{str(r.field).strip()}", status="rejected", reason="id_not_in_base_data", affected_rows=0, target=str(r.x_tid))
+        info["steps"]["value"] = vinfo
+        log.info("value overrides: %s (%.0fs)", vinfo, time.time() - t0)
 
     # ---- 2) split → T2 factors / R3 factors_aux ----
     t2_split_src, aux_split_src = stage_v21 / "T2" / "factors" / "split.parquet", r3s / "factors_aux" / "split.parquet"
@@ -2321,7 +2502,7 @@ def cmd_apply(args) -> int:
     shutil.copy2(r1s / "work" / "gap_candidates_union.csv", out / "R1" / "work" / "gap_candidates_union.csv")
     ledger_csvs = [p for p in paths if kind_of(p) == "ledger"]
     for p in ledger_csvs:
-        shutil.copy2(p, out / "R1" / "overrides" / (Path(p).parent.parent.name + "__" + Path(p).name))
+        shutil.copy2(p, out / "R1" / "overrides" / (task_dir(p) + "__" + Path(p).name))
     cmd = [PY, str(HERE / "ledger_build.py"), "--root", str(out / "R1" / "root"), "--stage", str(out / "R1"), "--base-data", str(t2_base_dst), "--no-db",
            "--lineage", str(out / "R3" / "master" / "lineage.parquet"), "--lifecycle", str(out / "R3" / "master" / "lifecycle.parquet"),
            "--aux-base-data", str(aux_dst), "--r3-events", str(out / "R3" / "for_R1_events.csv"),

@@ -303,6 +303,103 @@ def test_price_overrides_rewrite(work=None):
 
 
 # --------------------------------------------------------------------------------------
+# value (C5)
+# --------------------------------------------------------------------------------------
+def test_value_overrides_apply(work=None):
+    work = work or workdir()
+    cal = pd.bdate_range("2020-01-02", "2020-12-31")
+    full = work / "base_val_full.parquet"
+    base = base_data(full, cal)
+    gone = (base.tradingItemId == 2) & (base.date == T("2020-12-31"))           # id 2 last day row missing (B4-like)
+    src = work / "base_val.parquet"
+    schema = pq.ParquetFile(full).schema_arrow
+    w = pq.ParquetWriter(src, schema, compression="zstd")
+    for tid, g in base[~gone].groupby("tradingItemId"):
+        w.write_table(pa.Table.from_pandas(g, schema=schema, preserve_index=False), row_group_size=len(g))
+    w.close()
+    lc = lifecycle_table().set_index("tradingItemId")
+    c = dict(caseId="c", source="xfeed:miprice")
+    df = pd.DataFrame([dict(overrideId="VO-1", x_tid=1, date="2020-03-02", field="volume", value="123456", **c),
+                       dict(overrideId="VO-2", x_tid=1, date="2020-03-02", field="close", value="7.5", **c),
+                       dict(overrideId="VO-3", x_tid=2, date="2020-12-31", field="close", value="41.0", **c),          # new row (inside lifecycle)
+                       dict(overrideId="VO-4", x_tid=2, date="2020-12-31", field="volume", value="0", **c),            # same new row
+                       dict(overrideId="VO-5", x_tid=3, date="2020-05-19", field="close", value="5", **c),             # before firstTradeDate -> rejected
+                       dict(overrideId="VO-6", x_tid=1, date="2020-07-04", field="close", value="5", **c)])            # not in the calendar below -> rejected
+    cal_days = cal[cal != T("2020-07-04")].to_numpy(dtype="datetime64[ns]")
+    alog = ra.ApplyLog()
+    dst = work / "base_val_out.parquet"
+    r = ra.apply_value_overrides(df, src, dst, alog, {1, 2, 3}, "T2", lc, cal_days)
+    assert r["rows_set"] == 1 and r["rows_new"] == 1 and r["rewritten"], r
+    lg = alog.frame().set_index("overrideId")
+    assert (lg.loc[["VO-1", "VO-2", "VO-3", "VO-4"], "status"] == "applied").all() and (lg.loc[["VO-5", "VO-6"], "status"] == "rejected").all(), lg
+    assert "lifecycle" in lg.loc["VO-5", "reason"] and "trading day" in lg.loc["VO-6", "reason"]
+    out = pd.read_parquet(dst)
+    assert len(out) == int((~gone).sum()) + 1
+    assert (out.sort_values(["tradingItemId", "date"]).index == out.index).all()                          # (id, date) order kept
+    k = out[(out.tradingItemId == 1) & (out.date == T("2020-03-02"))].iloc[0]
+    kb = base[(base.tradingItemId == 1) & (base.date == T("2020-03-02"))].iloc[0]
+    assert k.volume == 123456.0 and k.close == np.float32(7.5) and k.open == kb.open and int(k.qualityFlag) == int(kb.qualityFlag)   # existing row: flag kept
+    n = out[(out.tradingItemId == 2) & (out.date == T("2020-12-31"))].iloc[0]
+    assert n.close == np.float32(41.0) and n.volume == 0.0 and np.isnan(n.open) and np.isnan(n.vwap) and int(n.qualityFlag) == ra.QF_VALUE_OVERRIDE and int(n.source) == ra.SOURCE_MI
+    rest = out[~(((out.tradingItemId == 1) & (out.date == T("2020-03-02"))) | ((out.tradingItemId == 2) & (out.date == T("2020-12-31"))))].reset_index(drop=True)
+    exp = base[~gone & ~((base.tradingItemId == 1) & (base.date == T("2020-03-02")))].reset_index(drop=True)
+    for col in exp.columns:
+        assert np.array_equal(rest[col].to_numpy(), exp[col].to_numpy()), col
+    # empty -> nothing rewritten (cmd_apply keeps the links: bit identical)
+    assert ra.apply_value_overrides(df.iloc[:0], src, work / "base_val_none.parquet", ra.ApplyLog(), {1, 2, 3}, "T2", lc, cal_days)["rewritten"] is False
+    assert not (work / "base_val_none.parquet").exists()
+
+
+def test_value_overrides_null_preserved(work=None):
+    """C5b P2: row group rewrite keeps the original nulls of cells that were not set."""
+    work = work or workdir()
+    cal = pd.bdate_range("2020-01-02", "2020-03-31")
+    full = work / "base_null_full.parquet"
+    base = base_data(full, cal)
+    schema = pq.ParquetFile(full).schema_arrow
+    src = work / "base_null.parquet"
+    t = pa.Table.from_pandas(base, schema=schema, preserve_index=False)
+    nm = np.zeros(len(base), dtype=bool); nm[::5] = True                                 # nulls in open/close/vwap every 5th row
+    for f in ("open", "close", "vwap"):
+        t = t.set_column(t.schema.get_field_index(f), f, pa.array(base[f].to_numpy(), type=schema.field(f).type, mask=nm))
+    pq.write_table(t, src, row_group_size=len(base))
+    before = {f: pq.read_table(src).column(f).null_count for f in ra.VALUE_FIELDS}
+    tgt = base[nm].iloc[0]                                                                 # set close on a row whose close is null
+    df = pd.DataFrame([dict(overrideId="VN-1", x_tid=int(tgt.tradingItemId), date=str(tgt.date.date()), field="close", value="9.5", caseId="c", source="xfeed:ciq")])
+    dst = work / "base_null_out.parquet"
+    r = ra.apply_value_overrides(df, src, dst, ra.ApplyLog(), set(base.tradingItemId.unique().tolist()), "T2", lifecycle_table().set_index("tradingItemId"), cal.to_numpy(dtype="datetime64[ns]"))
+    assert r["rows_set"] == 1 and r["rows_new"] == 0, r
+    after = pq.read_table(dst)
+    for f in ra.VALUE_FIELDS:
+        assert after.column(f).null_count == before[f] - (1 if f == "close" else 0), (f, before[f], after.column(f).null_count)
+
+
+def test_value_overrides_validator(work=None):
+    work = work or workdir()
+    ref = synth_ref(work)
+    d = work / "vv"; d.mkdir(exist_ok=True)
+    common = dict(caseId="1", evidence="ev", source="xfeed:miprice", isEstimate="false", owner="T")
+    pd.DataFrame([dict(overrideId="VV-1", tradingItemId=1, date="2020-03-05", field="volume", value="0", **common),       # ok (volume 0 allowed)
+                  dict(overrideId="VV-2", tradingItemId=1, date="2020-03-05", field="close", value="10", **common),       # ok (other field)
+                  dict(overrideId="VV-3", tradingItemId=1, date="2020-03-05", field="volume", value="5", **common),       # duplicate cell
+                  dict(overrideId="VV-4", tradingItemId=1, date="2020-03-07", field="close", value="10", **common),       # saturday
+                  dict(overrideId="VV-5", tradingItemId=1, date="2020-03-09", field="shares", value="10", **common),      # bad field
+                  dict(overrideId="VV-6", tradingItemId=1, date="2020-03-09", field="close", value="0", **common),        # price <= 0
+                  dict(overrideId="VV-7", tradingItemId=1, date="2020-03-09", field="volume", value="nan", **common),     # not finite
+                  dict(overrideId="VV-8", tradingItemId=1, date="2020-03-03", field="close", value="10", **common),       # conflicts with price override P
+                  dict(overrideId="VV-9", tradingItemId=1, date="2020-03-03", field="volume", value="10", **common),      # volume: no conflict with price override
+                  dict(overrideId="VV-10", tradingItemId=3, date="2020-05-19", field="close", value="10", **common),      # outside lifecycle -> warning
+                  dict(overrideId="VV-11", tradingItemId=1, date="2020-03-10", field="close", value="1e39", **common)]    # not finite as float32
+                 ).to_csv(d / "value_overrides.csv", index=False)
+    pd.DataFrame([dict(overrideId="P-1", tradingItemId=1, dateFrom="2020-03-02", dateTo="2020-03-04", op="multiply", value="0.5", fields="close", **common)]).to_csv(d / "price_overrides.csv", index=False)
+    _, iss = ra.validate_files(sorted(str(p) for p in d.glob("*.csv")), ref)
+    errs = {(r["overrideId"], r["message"]) for r in iss.rows if r["level"] == "ERROR"}
+    assert {o for o, _ in errs} == {"VV-3", "VV-4", "VV-5", "VV-6", "VV-7", "VV-8", "VV-11"}, sorted(errs)
+    assert any("conflicts with price override" in m for o, m in errs if o == "VV-8") and any("not a trading day" in m for o, m in errs if o == "VV-4")
+    assert any(r["overrideId"] == "VV-10" and "outside lifecycle" in r["message"] for r in iss.rows if r["level"] == "WARN")
+
+
+# --------------------------------------------------------------------------------------
 # lineage
 # --------------------------------------------------------------------------------------
 def lineage_table() -> pd.DataFrame:
@@ -458,7 +555,7 @@ def test_lifecycle_overrides(work=None):
         assert "without a positive successorRatio" in str(e)
     r4 = ra.apply_lifecycle_overrides(df2.iloc[:1], lc, None, dates, ev, ev.copy(), ln, closes, cal, ra.ApplyLog(), set())
     e4 = r4["events_reclass"].set_index("tradingItemId").loc[2]
-    assert np.isnan(e4.settlementReturn) and not e4.hasCashLeg and not e4.hasStockLeg and e4.cacheUnitStatus == "no_terms" and e4.endDate == T("2020-12-31")   # last_close: NaN -> engine default 0
+    assert np.isnan(e4.settlementReturn) and not e4.hasCashLeg and not e4.hasStockLeg and e4.cacheUnitStatus == "last_close" and e4.endDate == T("2020-12-31")   # last_close: NaN -> engine 0, status last_close (confirmed, not transitional)
     r5 = ra.apply_lifecycle_overrides(df2.iloc[1:], lc, None, dates, ev, ev.copy(), ln, closes, cal, ra.ApplyLog(), set())
     e5 = r5["events_reclass"].set_index("tradingItemId").loc[2]
     assert np.isnan(e5.settlementReturn) and "rc2f_unresolved" in e5.reviewFlag and not e5.hasCashLeg and pd.isna(r5["lifecycle_dates"].set_index("tradingItemId").at[2, "settlementDate"])
@@ -721,6 +818,17 @@ def test_recount_diff_and_attribution():
                              cashNew=float("nan"), ratioNew=2.0, statusOld="estimated", statusNew="ok", notesNew="")])
     ld2 = rc.attribute_ledger_rows(ld2, sc2, empty_ledger, empty_ledger, rules=False)
     assert ld2.attributedPrimary.iloc[0] == "N-1" and ld2.how.iloc[0].startswith("same_id_window:lineage"), ld2.iloc[0].to_dict()
+    # C5b P1: value override creating a new row (1, days[12]) -> added cell + next obs (1, days[13]) prev change, all attributed
+    vold = ret([(1, d) for d in days[10:15] if d != days[12]], [0.01] * 4, [0] * 4)
+    vnew = ret([(1, d) for d in days[10:15]], [0.01, 0.01, 0.02, 0.03, 0.01], [0] * 5)
+    vdiff = rc.returns_diff(vold, vnew)
+    assert "added" in set(vdiff.kind) and len(vdiff) == 2, vdiff
+    vobs = rc.ObsDates(vold, vnew)
+    alog3 = pd.DataFrame([dict(overrideId="V-1", caseId="c", kind="value", action="set_close", status="applied", reason="", affected_rows=1, target="", file="", eventIds="")])
+    ov3 = {"value": pd.DataFrame([dict(overrideId="V-1", tradingItemId="1", date=str(days[12].astype("datetime64[D]")), field="close", value="5")])}
+    sc3 = rc.build_scope(alog3, ov3, vobs, empty_ledger, empty_ledger, lineage, lineage, lc_old, lc_old, None)
+    va = rc.attribute_cells(vdiff, sc3, ld.iloc[:0], vobs)
+    assert (va.attributedPrimary == "V-1").all() and (va.attributedTo != "").all(), va
     # 귀속 불가 셀: 창 밖 id 1 days[7]
     stray = ret([(1, int(days[7]))], [0.2], [0])
     d2 = rc.returns_diff(ret([(1, int(days[7]))], [0.1], [0]), stray)
@@ -1088,7 +1196,7 @@ def test_extend_prices_terms_and_scope(work=None):
     assert any(o == "Q-2" and "conflicts with lineage override Q-1" in m for o, m in errs) and any(o == "Q-3" and "conflicts with rc2 lineage ratio 0.5" in m for o, m in errs), sorted(errs)
 
 
-TESTS = [test_split_drop_set_move_add_confirm, test_split_overrides_table_and_log, test_price_overrides_rewrite, test_lineage_overrides, test_lifecycle_overrides,
+TESTS = [test_split_drop_set_move_add_confirm, test_split_overrides_table_and_log, test_price_overrides_rewrite, test_value_overrides_apply, test_value_overrides_null_preserved, test_value_overrides_validator, test_lineage_overrides, test_lifecycle_overrides,
          test_ledger_csv_overrides_pre_post, test_ledger_csv_idempotency, test_ledger_csv_reclassified_target, test_l1_csv_add_vs_stitched_copy_and_absent_drop, test_stitched_copies_map_tagged_keeper, test_attribution_transition_and_reassigned_copy,
          test_vendor_gap_marker_window, test_extend_prices_terms_and_scope, test_validator_synthetic, test_recount_diff_and_attribution, test_real_empty_override_bit_identical]
 

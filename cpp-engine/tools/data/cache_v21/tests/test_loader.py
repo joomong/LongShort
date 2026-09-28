@@ -1075,6 +1075,24 @@ def test_export_events_split_adj():
     (root / "events" / "corporate_actions.parquet").unlink()
 
 
+def test_export_events_status_passthrough():
+    """C5b: terms-less rows (cash·ratio NaN) keep raw status last_close / rejected:*; any other raw status becomes no_terms."""
+    root = workdir() / "fx_events_status"
+    shutil.copytree(fixture("ok"), root, dirs_exist_ok=True)
+    src = _events_fixture(root)
+    for tid, st in ((102, "last_close"), (103, "rejected:bad_ratio"), (105, "something_else")):
+        m = src.tradingItemId == tid
+        src.loc[m, ["cashPerShare", "successorRatio", "cashPerShareCache", "successorRatioCache"]] = np.nan
+        src.loc[m, "cacheUnitStatus"] = st
+    pq.write_table(pa.Table.from_pandas(src, preserve_index=False), root / "events" / "corporate_actions.parquet")
+    out = workdir() / "export_events_status" / "events_cache.parquet"
+    CacheV21(root).export_events(out)
+    E = pd.read_parquet(out).set_index("tradingItemId")
+    assert E.loc[102].cacheUnitStatus == "last_close" and E.loc[103].cacheUnitStatus == "rejected:bad_ratio" and E.loc[105].cacheUnitStatus == "no_terms", E.cacheUnitStatus.to_dict()
+    assert E.loc[105].cacheUnitStatusRaw == "something_else"
+    (root / "events" / "corporate_actions.parquet").unlink()
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
 
 

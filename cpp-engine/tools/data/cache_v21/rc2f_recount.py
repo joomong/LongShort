@@ -298,6 +298,12 @@ def build_scope(alog: pd.DataFrame, overrides: dict, obs: ObsDates, ledger_old: 
                 f = obs.first_day(succ)
                 if f is not None:
                     sc.add_window(succ, f, f, oid, "price->linked_first_row")
+        elif kind == "value" and row is not None and str(row.field).strip() != "volume":   # volume 만 바꾸면 수익률 영향 없음(범위 계산 생략)
+            # 셀 (tid, date) → 다음 관측일까지(새 행이면 returns_total 셀 added + 다음 행 prev 변경)
+            tid = int(row.tradingItemId); d0 = _days(np.array([pd.Timestamp(row.date)], dtype="datetime64[ns]"))[0]
+            nxt = obs.first_on_or_after(tid, d0 + 1)
+            sc.add_window(tid, d0, nxt if nxt is not None else d0, oid, "value_override(+next obs)")
+            sc.add_id(tid, oid, "value_id", d0 - LEDGER_ROW_TOL_DAYS, (nxt if nxt is not None else d0) + LEDGER_ROW_TOL_DAYS)
         elif kind == "split" and row is not None:
             tid = int(row.tradingItemId)
             for dcol in ("exDate", "newExDate"):
@@ -646,7 +652,7 @@ def main(argv=None) -> int:
     overrides = {}
     for p in sorted((a.stage / "overrides").glob("*.csv")) if (a.stage / "overrides").exists() else []:
         name = p.name.split("__", 1)[-1]
-        kind = next((k for k in ("split", "price", "ledger", "lifecycle", "lineage", "aux") if name.startswith(k + "_")), None)
+        kind = next((k for k in ("split", "price", "ledger", "lifecycle", "lineage", "aux", "value") if name.startswith(k + "_")), None)
         if kind:
             df = pd.read_csv(p, dtype=str, keep_default_na=False)
             overrides[kind] = pd.concat([overrides[kind], df], ignore_index=True) if kind in overrides else df

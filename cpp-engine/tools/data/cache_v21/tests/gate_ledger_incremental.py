@@ -8,7 +8,7 @@
   비교  : 원장 행을 (tradingItemId, exDate, eventType, legType, childTradingItemId[, seq]) 로 정렬해 컬럼별 NaN-aware 비트 동일 + 파일 sha256.
           eventId 포함(둘 다 같은 규칙으로 부여). 다르면 행 목록·귀속을 <out>/diff_<date>.csv 에.
 
-사용: gate_ledger_incremental.py --out /home/jgo/longshort/daily_D1 [--dates 2026-09-11,2026-09-14,2026-09-15] [--start 2026-09-10]
+사용: gate_ledger_incremental.py --out /home/jgo/longshort/daily/D1 [--dates 2026-09-11,2026-09-14,2026-09-15] [--start 2026-09-10]
       [--skip-chain] [--skip-full] [--full-mode refresh|scratch|both] [--jobs 3]
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ import ledger_incremental as li  # noqa: E402
 
 PY = "/home/jgo/usr/venv-3.11/bin/python"
 D = HERE.parent
-L2 = Path("/home/jgo/longshort/rc2f_L2/build")
+L2 = Path("/home/jgo/longshort/clean_t4000/C4/final4")   # latest rc2f apply stage
 SP = lb.SCRATCH
 
 
@@ -97,7 +97,7 @@ def compare(a_path: Path, b_path: Path, out_csv: Path) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", type=Path, default=Path("/home/jgo/longshort/daily_D1"))
+    ap.add_argument("--out", type=Path, default=Path("/home/jgo/longshort/daily/D1"))
     ap.add_argument("--baseline", type=Path, default=L2 / "R1")
     ap.add_argument("--extract", type=Path, default=None, help="기본 <out>/extract (없으면 xfeed 에서 추출)")
     ap.add_argument("--start", default="2026-09-10")
