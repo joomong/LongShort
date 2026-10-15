@@ -68,7 +68,7 @@ std::vector<YearlyMetrics> compute_yearly(
         ym.ann_ret = mean_r * static_cast<double>(bars_per_year) * 100.0;
         ym.max_dd = max_drawdown * 100.0;
 
-        // sharpe
+        // IR is the unannualized daily mean/std ratio; Sharpe uses bars_per_year.
         if (yr_ret.size() >= 2) {
             double sq_sum = 0.0;
             for (double v : yr_ret) {
@@ -76,6 +76,7 @@ std::vector<YearlyMetrics> compute_yearly(
                 sq_sum += d * d;
             }
             double std_r = std::sqrt(sq_sum / static_cast<double>(yr_ret.size() - 1));
+            ym.ir = (std_r > 0.0) ? mean_r / std_r : 0.0;
             ym.sharpe = (std_r > 0.0)
                 ? (mean_r / (std_r + 1e-12)) * std::sqrt(static_cast<double>(bars_per_year))
                 : 0.0;
@@ -106,6 +107,11 @@ std::vector<YearlyMetrics> compute_yearly(
 
         // margin
         ym.margin = mean_r / (ym.daily_tvr + 1e-12);
+
+        // WorldQuant-style formula on leverage-1, full gross-book returns.
+        // ann_ret is percentage points; daily_tvr is already a fraction.
+        ym.fitness = ym.sharpe * std::sqrt(
+            std::fabs(ym.ann_ret / 100.0) / std::max(ym.daily_tvr, 0.125));
 
         // long_sm, short_sm
         {

@@ -253,6 +253,8 @@ std::vector<float> read_field(const Source& source, const Coordinates& coordinat
             }
         }
     } else {
+        // Validate the declared source even when no source rows align to this panel.
+        const int value_column = file.index(source.column);
         std::map<int64_t, size_t> dates;
         for (size_t t = 0; t < T; ++t) dates.emplace(coordinates.timestamps[t], t);
         std::map<int, size_t> symbols;
@@ -271,7 +273,7 @@ std::vector<float> read_field(const Source& source, const Coordinates& coordinat
         }
         auto selection = file.select(rows);
         if (!selection.groups.empty()) {
-            auto values = numbers(file.read({file.index(source.column)}, selection)->column(0));
+            auto values = numbers(file.read({value_column}, selection)->column(0));
             for (size_t i = 0; i < rows.size(); ++i) output[destinations[i]] = values[file.selected_index(rows[i], selection)];
         }
     }
@@ -501,7 +503,7 @@ std::map<std::string, std::vector<uint8_t>> read_universe(const BacktestConfig& 
     return result;
 }
 // ---------------------------------------------------------------------------
-// Thin-v1 cache (docs/backtest_cache_simplification_plan_2026-09-23.md §6). Every file is
+// Thin-v1 cache (docs/data_contract.md). Every file is
 // long and keyed by int64 tradingItemId; ids become their decimal string like the prices.
 // ---------------------------------------------------------------------------
 int64_t day_of(int64_t epoch_ms) { return epoch_ms / day_ms - (epoch_ms % day_ms < 0 ? 1 : 0); }
@@ -677,6 +679,8 @@ std::map<std::string, std::string> load_thin_symbol_labels(
 }
 
 DataPanel load_config(const BacktestConfig& config, const std::vector<std::string>& selected_fields) {
+    if (config.execution_price != "close" && config.execution_price != "ohlc4" && config.execution_price != "vwap")
+        throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
     std::map<std::string, std::pair<Source, bool>> sources;
     for (const auto& dataset : config.datasets) if (dataset.enabled) {
         for (const auto& field : dataset.fields) {
@@ -697,6 +701,20 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     for (const auto& field : selected)
         if (!sources.count(field) && !(config.base_thin && field == "adj_factor")) throw std::runtime_error("Requested data field is not registered: " + field);
     selected.insert("close");
+    std::set<std::string> execution_fields;
+    if (config.execution_price != "close") {
+        const bool vwap = config.execution_price == "vwap";
+        const std::string label = vwap ? "VWAP" : "OHLC4";
+        for (const char* name : {vwap ? "vwap" : "open", "high", "low"}) {
+            const auto source = sources.find(name);
+            if (source == sources.end())
+                throw std::runtime_error(label + " execution requires data field: " + name);
+            if (source->second.first.alignment != FieldAlignment::Exact)
+                throw std::runtime_error(label + " execution requires exact alignment for " + name);
+            selected.insert(name);
+            execution_fields.insert(name);
+        }
+    }
     const auto& close_source = close->second.first;
     auto master = std::make_unique<ParquetFile>(close_source.path, close_source.time_col, close_source.symbol_col,
                                                 close_source.format == DatasetFormat::Wide);
@@ -808,7 +826,7 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         const Source source = field.second.first;
         const std::string key = source.path + "\n" + source.time_col + "\n" + source.symbol_col + "\n" +
             (source.format == DatasetFormat::Long ? source.column : "") + "\n" + std::to_string(static_cast<int>(source.alignment));
-        if (!field.second.second) {
+        if (!field.second.second || execution_fields.count(field.first)) {
             panel.arrays.emplace(field.first, read_field(source, *coordinates));
         } else {
             auto& column = shared_sources[key];

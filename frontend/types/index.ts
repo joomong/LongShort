@@ -40,6 +40,10 @@ export interface StarTimeseries {
 }
 
 export interface StarYearly {
+  /** Daily gross-return mean / sample standard deviation, without annualization. */
+  ir?: number | null;
+  /** Sharpe * sqrt(abs(annRet / 100) / max(dailyTvr, 0.125)), on the full gross book. */
+  fitness?: number | null;
   winLose?: number | null; // positive-return bars / valid return bars, percentage points
   year: number;
   longSM: number;
@@ -87,7 +91,9 @@ export interface StarBatchEntry extends StarSignalPayload {
 }
 
 export interface StarBatchResponse extends StarSignalPayload {
-  mode?: 0 | 1;
+  simStart?: string;
+  simEnd?: string;
+  executionPrice?: 'close' | 'ohlc4' | 'vwap';
   batches: StarBatchEntry[];
   yearly: StarYearly[];
   timeseries: StarTimeseries;
@@ -103,9 +109,12 @@ export interface StarConfigResponse {
   simEnd: string;
   feeRate: number;
   barsPerYear: number;
-  mode?: 0 | 1;
+  executionPrice?: 'close' | 'ohlc4' | 'vwap';
+  supportsSimEnd?: boolean;
+  executionPrices?: Array<'close' | 'ohlc4' | 'vwap'>;
   universes?: string[];      // selectable universe names; empty = a single configured universe
   defaultUniverse?: string;
+  alphasDir?: string;         // absolute alpha save directory
   T: number;
   N: number;
   columns: string[];
@@ -122,7 +131,9 @@ export interface StarGAGenerationEvent {
 }
 
 export interface StarGACompleteEvent extends StarSignalPayload {
-  mode?: 0 | 1;
+  simStart?: string;
+  simEnd?: string;
+  executionPrice?: 'close' | 'ohlc4' | 'vwap';
   type: 'complete';
   bestXml: string;
   batches: StarBatchEntry[];
@@ -137,7 +148,23 @@ export interface StarGAErrorEvent {
   error: string;
 }
 
-export type StarGAEvent = StarGAGenerationEvent | StarGACompleteEvent | StarGAErrorEvent;
+export interface StarGACandidate extends Partial<StarBatchEntry> {
+  index: number;
+  xml: string;
+  round: number;
+  origin: string;
+  status: 'completed' | 'failed';
+  error?: string;
+}
+
+export type StarGASearchEvent =
+  | { type: 'search_start'; simStart: string; simEnd: string; executionPrice: 'close' | 'ohlc4' | 'vwap'; universe: string }
+  | { type: 'round_start'; round: number; size: number }
+  | { type: 'candidate'; candidate: StarGACandidate }
+  | { type: 'round_end'; round: number; bestSharpe: number | null }
+  | { type: 'search_complete'; stopReason: string; evaluated: number; bestXml: string };
+
+export type StarGAEvent = StarGAGenerationEvent | StarGACompleteEvent | StarGAErrorEvent | StarGASearchEvent;
 
 // ---------------------------------------------------------------------------
 // Frontend display types (backward-compatible with existing components)
@@ -200,6 +227,11 @@ export interface SignalPayload {
 }
 
 export interface BacktestAlphaResult extends SignalPayload {
+  candidateId?: number;
+  round?: number;
+  error?: string;
+  detailLoaded?: boolean;
+  detailError?: string;
   name: string;
   rank: number;
   isMetrics: ISMetrics;
@@ -209,6 +241,9 @@ export interface BacktestAlphaResult extends SignalPayload {
 
   isRetSeries?: Record<string, number | null>;
   osRetSeries?: Record<string, number | null>;
+  // Gross (pre-fee) daily returns from the engine's cumPnlGross.
+  isGrossRetSeries?: Record<string, number | null>;
+  osGrossRetSeries?: Record<string, number | null>;
 
   isTurnoverSeries?: Record<string, number | null> | null;
   osTurnoverSeries?: Record<string, number | null> | null;
@@ -224,7 +259,11 @@ export interface BacktestAlphaResult extends SignalPayload {
 }
 
 export interface BacktestRunResponse extends SignalPayload {
-  runSettings?: Pick<BacktestSettings, 'simStart' | 'isStart' | 'osStart'> & { mode: 0 | 1; threads: number; universe?: string };
+  runSettings?: Pick<BacktestSettings, 'simStart' | 'isStart' | 'osStart'> & { simEnd?: string; threads: number; universe?: string; executionPrice?: 'close' | 'ohlc4' | 'vwap' };
+  /** Editor XML verbatim that started this run (or the saved alpha.xml for a loaded result). */
+  sourceXml?: string;
+  /** Saved alpha name when rows/detail/batch are read from saved files instead of the engine. */
+  savedSource?: string;
   combined: BacktestAlphaResult | null;
   alphas: BacktestAlphaResult[];
   yearly?: StarYearly[];
@@ -234,29 +273,61 @@ export interface BacktestRunResponse extends SignalPayload {
 
 export interface BacktestSettings {
   simStart: string;
+  simEnd: string;
   isStart: string;
   osStart: string;
-  barInterval: 'D0' | 'D1' | 'intraday';
+  executionPrice: 'close' | 'ohlc4' | 'vwap';
   universe: string; // '' = engine default
   nJobs: number;
   gaPopulation: number;
+  gaFirstSearch?: number;
+  gaStopRound?: number;
+  gaStopAlphas?: number;
+}
+
+export interface GARound {
+  round: number;
+  status: 'running' | 'completed' | 'stopped';
 }
 
 // Alpha CRUD
 
-export interface AlphaInfo {
-  name: string;
-  createdAt?: string;
+export type SavedAlphaLevel = 'xml' | 'results' | 'positions';
+
+/** Toolbar run settings stored with a saved alpha (metadata.yml). */
+export interface SavedAlphaMetadata {
+  simStart: string;
+  simEnd: string;
+  isStart: string;
+  osStart: string;
+  universe: string;
+  executionPrice: 'close' | 'ohlc4' | 'vwap';
 }
 
-export interface AlphaListResponse {
-  alphas: AlphaInfo[];
+export interface SavedAlphaRow {
+  id: number;
+  round: number;
+  xml: string;
 }
 
-export interface AlphaDetailResponse {
+export interface SaveAlphaRequest {
   name: string;
   xml: string;
-  createdAt?: string;
+  level: SavedAlphaLevel;
+  metadata: SavedAlphaMetadata;
+  rows?: SavedAlphaRow[];
+}
+
+export interface SavedAlphaInfo {
+  name: string;
+  xml: string;
+  level: SavedAlphaLevel;
+  metadata: SavedAlphaMetadata;
+}
+
+export interface SavedAlphaResults {
+  rows: StarGACandidate[];
+  hasBatch: boolean;
 }
 
 // Snapshot

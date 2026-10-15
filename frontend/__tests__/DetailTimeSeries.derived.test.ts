@@ -25,7 +25,20 @@ describe('DetailTimeSeries derived data', () => {
     expect(out.pnlData[0].date).toBe('2024-01-02');
     expect(out.pnlData[0].net).toBeCloseTo(1000, 9);
     expect(out.pnlData[0].gross).toBeCloseTo(1050, 9);
-    expect(out.netEquityData[2].value).toBeCloseTo(102000, 9);
+    // Drawdown equity follows gross: 0.0105 - 0.0198 + 0.0301.
+    expect(out.grossEquityData[2].value).toBeCloseTo(102080, 9);
+  });
+
+  it('prefers the engine gross return series over fee reconstruction', () => {
+    const ret = { '2024-01-02': 0.01, '2024-01-03': -0.02 };
+    const turnover = { '2024-01-02': 50, '2024-01-03': 20 };
+    const gross = { '2024-01-02': 0.012, '2024-01-03': -0.015 };
+    const out = buildPnlBundleFromRet(ret, turnover, 100000, 0.001, gross);
+    expect(out.pnlData[1].net).toBeCloseTo(-1000, 9);
+    expect(out.pnlData[1].gross).toBeCloseTo(-300, 9);
+    expect(out.grossEquityData.map(p => p.value)).toEqual([101200, 99700]);
+    const mdd = buildMddDataFromEquity(out.grossEquityData, 100000);
+    expect(mdd[1].value).toBeCloseTo(-1.5, 9);
   });
 
   it('marks gross series unknown when turnover is missing on any bar', () => {

@@ -3,6 +3,7 @@ import type {
   StarBatchResponse,
   StarGAEvent,
   StarGACompleteEvent,
+  StarGACandidate,
   StarSummary,
   StarTimeseries,
   BacktestRunResponse,
@@ -10,8 +11,9 @@ import type {
   PeriodMetrics,
   StarSignalPayload,
   SignalPayload,
-  AlphaListResponse,
-  AlphaDetailResponse,
+  SaveAlphaRequest,
+  SavedAlphaInfo,
+  SavedAlphaResults,
 } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -114,10 +116,18 @@ function buildSplitSeriesFromTimeseries(
 
   const prevIsCumPnl = isStart > 0 ? (ts.cumPnl[isStart - 1] ?? 0) : 0;
   const prevOsCumPnl = osStart > 0 ? (ts.cumPnl[osStart - 1] ?? 0) : 0;
+  const gross = ts.cumPnlGross;
+  const hasGross = Array.isArray(gross) && gross.length === ts.timestamps.length;
 
   return {
     isRetSeries: cumPnlToDailyReturns(isTs, isCumPnl, prevIsCumPnl),
     osRetSeries: cumPnlToDailyReturns(osTs, osCumPnl, prevOsCumPnl),
+    ...(hasGross ? {
+      isGrossRetSeries: cumPnlToDailyReturns(
+        isTs, gross.slice(isStart, osStart), isStart > 0 ? (gross[isStart - 1] ?? 0) : 0),
+      osGrossRetSeries: cumPnlToDailyReturns(
+        osTs, gross.slice(osStart), osStart > 0 ? (gross[osStart - 1] ?? 0) : 0),
+    } : {}),
     isTurnoverSeries: tsArrayToRecord(isTs, ts.turnover.slice(isStart, osStart)),
     osTurnoverSeries: tsArrayToRecord(osTs, ts.turnover.slice(osStart)),
     isMaxWeightSeries: tsArrayToRecord(isTs, ts.maxWeight.slice(isStart, osStart)),
@@ -210,6 +220,22 @@ export function adaptGACompleteToResponse(ev: StarGACompleteEvent): BacktestRunR
   return adaptSimulateResponse(ev);
 }
 
+export function adaptGACandidate(candidate: StarGACandidate): BacktestAlphaResult {
+  const blank: PeriodMetrics = { pnl: NaN, sharpe: NaN, mdd: NaN, turnover: NaN, avgPositionCount: NaN, max_weight: NaN };
+  return {
+    candidateId: candidate.index,
+    round: candidate.round,
+    name: `alpha_${candidate.index}`,
+    rank: candidate.index + 1,
+    xml: candidate.xml,
+    error: candidate.error,
+    isMetrics: candidate.summary ? adaptStarSummary(candidate.summary.is) : blank,
+    osMetrics: candidate.summary ? adaptStarSummary(candidate.summary.os) : blank,
+    yearly: candidate.yearly,
+    detailLoaded: false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // API calls
 // ---------------------------------------------------------------------------
@@ -227,13 +253,12 @@ export async function runSimulate(
   osStart: string,
   signal?: AbortSignal,
   threads?: number,
-  mode: 0 | 1 = 1,
-  extra: { signalPlotSymbols?: string[]; universe?: string } = {},
+  extra: { simEnd?: string; signalPlotSymbols?: string[]; universe?: string; executionPrice?: 'close' | 'ohlc4' | 'vwap'; metricsOnly?: boolean; signalSeriesOnly?: boolean; xmls?: string[]; combinedOnly?: boolean } = {},
 ): Promise<StarBatchResponse> {
   const response = await fetch(`${API_BASE}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, mode, collectSignals: true, collectSignalsTopK: 5, ...extra, universe: extra.universe || undefined }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, threads, collectSignals: true, collectSignalsTopK: 5, ...extra, universe: extra.universe || undefined }),
     signal,
   });
 
@@ -253,6 +278,16 @@ export async function runSimulate(
   return response.json();
 }
 
+export async function runCombinedAlphas(
+  xmls: string[], settings: NonNullable<BacktestRunResponse['runSettings']>, signal?: AbortSignal,
+): Promise<BacktestAlphaResult> {
+  const response = await runSimulate('', settings.simStart, settings.isStart, settings.osStart, signal, settings.threads,
+    { xmls, combinedOnly: true, metricsOnly: true, simEnd: settings.simEnd, universe: settings.universe, executionPrice: settings.executionPrice });
+  if (!response.combined) throw new Error('No combined performance returned.');
+  const detail = adaptSimulateResponse({ ...response, batches: [response.combined] }).alphas[0];
+  return { ...detail, name: 'combined', rank: 0, detailLoaded: true };
+}
+
 export async function runGAStream(
   xml: string,
   simStart: string,
@@ -263,13 +298,15 @@ export async function runGAStream(
   threads: number,
   onEvent: (event: StarGAEvent) => void,
   signal?: AbortSignal,
-  mode: 0 | 1 = 1,
   universe?: string,
+  executionPrice?: 'close' | 'ohlc4' | 'vwap',
+  simEnd?: string,
+  search: { stopAlphas?: number; roundSize?: number } = {},
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/ga/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml, simStart, isStart, osStart, popSize, generations, threads, mode, collectSignals: true, universe: universe || undefined }),
+    body: JSON.stringify({ xml, simStart, isStart, osStart, firstSearch: popSize, stopRound: generations, stopAlphas: search.stopAlphas ?? 400, roundSize: search.roundSize ?? 50, threads, streamCandidates: true, universe: universe || undefined, executionPrice, simEnd: simEnd || undefined }),
     signal,
   });
 
@@ -285,6 +322,12 @@ export async function runGAStream(
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
+  const receive = (line: string) => {
+    const event: StarGAEvent = JSON.parse(line);
+    if (event.type === 'complete' || event.type === 'search_complete' || event.type === 'error') completed = true;
+    onEvent(event);
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -294,55 +337,69 @@ export async function runGAStream(
     buffer = lines.pop() || '';
     for (const line of lines) {
       if (line.trim()) {
-        onEvent(JSON.parse(line));
+        receive(line);
       }
     }
   }
   if (buffer.trim()) {
-    onEvent(JSON.parse(buffer));
+    receive(buffer);
   }
+  if (!completed) throw new Error('GA connection ended before completion.');
 }
 
 // ---------------------------------------------------------------------------
 // Alpha CRUD
 // ---------------------------------------------------------------------------
 
-export async function saveAlpha(name: string, xml: string): Promise<{ success: boolean; name: string }> {
+export class AlphaExistsError extends Error {}
+
+async function alphaError(response: Response, action: string): Promise<Error> {
+  let detail: string | undefined;
+  try { detail = parseApiErrorPayload(await response.json()); } catch { /* ignore */ }
+  return new Error(`${action} (${response.status}): ${detail || response.statusText || `HTTP ${response.status}`}`);
+}
+
+export async function saveAlpha(request: SaveAlphaRequest): Promise<{ name: string; level: string; path?: string }> {
   const response = await fetch(`${API_BASE}/api/alphas`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, xml }),
+    body: JSON.stringify(request),
   });
-
-  if (!response.ok) {
-    const message = response.statusText || `HTTP ${response.status}`;
-    throw new Error(`Failed to save alpha: ${message}`);
-  }
-
-  const data = await response.json();
-  return { success: data.saved, name: data.name };
+  if (response.status === 409) throw new AlphaExistsError(`An alpha named "${request.name}" already exists.`);
+  if (!response.ok) throw await alphaError(response, 'Failed to save alpha');
+  return response.json();
 }
 
-export async function getAlphaList(): Promise<AlphaListResponse> {
+export async function getAlphaList(): Promise<SavedAlphaInfo[]> {
   const response = await fetch(`${API_BASE}/api/alphas`);
   if (!response.ok) throw new Error('Failed to fetch alpha list');
-  const data = await response.json();
-  return { alphas: data };
+  return response.json();
 }
 
-export async function getAlpha(name: string): Promise<AlphaDetailResponse> {
-  // C++ server list endpoint returns [{name, xml}, ...] — no per-item detail endpoint
-  const response = await fetch(`${API_BASE}/api/alphas`);
-  if (!response.ok) throw new Error('Failed to fetch alpha list');
-  const data: Array<{ name: string; xml: string }> = await response.json();
-  const found = data.find((a) => a.name === name);
-  if (!found) throw new Error(`Alpha not found: ${name}`);
-  return { name: found.name, xml: found.xml };
+const alphaPath = (name: string) => `${API_BASE}/api/alphas/${encodeURIComponent(name)}`;
+
+export async function getSavedResults(name: string): Promise<SavedAlphaResults> {
+  const response = await fetch(`${alphaPath(name)}/results`);
+  if (!response.ok) throw await alphaError(response, 'Failed to load saved results');
+  return response.json();
+}
+
+export async function getSavedRow(name: string, id: number, signal?: AbortSignal): Promise<StarBatchResponse> {
+  const response = await fetch(`${alphaPath(name)}/results/rows/${id}`, { signal });
+  if (!response.ok) throw await alphaError(response, 'Failed to load saved row');
+  return response.json();
+}
+
+export async function getSavedBatch(name: string, signal?: AbortSignal): Promise<BacktestAlphaResult> {
+  const response = await fetch(`${alphaPath(name)}/results/batch`, { signal });
+  if (!response.ok) throw await alphaError(response, 'Failed to load saved batch');
+  const body: StarBatchResponse = await response.json();
+  if (!body.combined) throw new Error('No combined performance saved.');
+  const detail = adaptSimulateResponse({ ...body, batches: [body.combined] }).alphas[0];
+  return { ...detail, name: 'combined', rank: 0, detailLoaded: true };
 }
 
 export async function deleteAlpha(name: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/alphas/${encodeURIComponent(name)}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) throw new Error(`Failed to delete alpha: ${response.statusText || `HTTP ${response.status}`}`);
+  const response = await fetch(alphaPath(name), { method: 'DELETE' });
+  if (!response.ok) throw await alphaError(response, 'Failed to delete alpha');
 }

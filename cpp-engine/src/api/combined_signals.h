@@ -3,6 +3,7 @@
 #include "../data/data_panel.h"
 #include "../engine/simulator.h"
 #include <cmath>
+#include <algorithm>
 #include <condition_variable>
 #include <limits>
 #include <mutex>
@@ -48,6 +49,47 @@ public:
             value = sum;
         }
         ++next_alpha_[di];
+        lock.unlock();
+        ready_.notify_all();
+    }
+
+    // Reduce a bounded block of complete rows under one lock. Alpha order
+    // within every row remains identical to add(), with fewer wakeups.
+    void add_block(std::size_t alpha_index, unsigned first_di,
+                   std::vector<float>& rows, unsigned n,
+                   std::vector<double>& scratch) {
+        if (!n || n != data_.N || rows.size() % n || first_di > data_.T ||
+            rows.size() / n > data_.T - first_di)
+            throw std::invalid_argument("Combined signal dimensions must match the data panel");
+        const unsigned count = static_cast<unsigned>(rows.size() / n);
+        if (!count) return;
+        if (normalized_) {
+            for (unsigned offset = 0; offset < count; ++offset) {
+                float* row = rows.data() + static_cast<size_t>(offset) * n;
+                normalize_signal_row(data_, first_di + offset, row, scratch, policy_, universe_);
+                for (unsigned ii = 0; ii < n; ++ii) row[ii] = static_cast<float>(scratch[ii]);
+            }
+        }
+        std::unique_lock<std::mutex> lock(mutex_);
+        ready_.wait(lock, [&] {
+            return cancelled_ || std::all_of(next_alpha_.begin() + first_di,
+                next_alpha_.begin() + first_di + count,
+                [&](size_t next) { return next == alpha_index; });
+        });
+        if (cancelled_) throw std::runtime_error("Combined evaluation cancelled after an alpha failed");
+        for (unsigned offset = 0; offset < count; ++offset) {
+            auto& combined = signals_[first_di + offset];
+            const float* row = rows.data() + static_cast<size_t>(offset) * n;
+            for (unsigned ii = 0; ii < n; ++ii) {
+                if (!std::isfinite(row[ii])) continue;
+                float& value = combined[ii];
+                const float sum = std::isfinite(value) ? value + row[ii] : row[ii];
+                if (!std::isfinite(sum)) throw std::overflow_error("Combined signal sum overflow at bar " +
+                    std::to_string(first_di + offset) + ", asset " + std::to_string(ii));
+                value = sum;
+            }
+            ++next_alpha_[first_di + offset];
+        }
         lock.unlock();
         ready_.notify_all();
     }

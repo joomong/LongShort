@@ -14,7 +14,7 @@ datasets:
   - name: AFL
     enabled: true
     format: wide
-    path: /home/base/cache/cache_v1_cash_1d/AflData_M
+    path: /home/base/cache/cache_v2_cash_1d/AflData
     catalog: afl_catalog.json
     lazy: true
     alignment: asof
@@ -33,5 +33,5 @@ backtest:
   transaction_fee: 1.5
   bars_per_year: 252
   combined_mode: normalized
-  mode: 1
+  execution_price: ohlc4
   missing_close_policy: carry

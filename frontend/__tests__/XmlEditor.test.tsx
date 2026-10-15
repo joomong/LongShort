@@ -50,7 +50,7 @@ describe('original XML editor while viewing alpha details', () => {
     expect(editor).not.toHaveAttribute('readonly');
   });
 
-  it('edits only the original XML and retains those edits after closing detail', () => {
+  it('edits only the original XML and retains those edits while multi-alpha detail stays open', () => {
     useAlphaStore.getState().enterDetailView(0);
     render(<XmlEditor />);
     const editor = screen.getByRole('textbox', { name: 'XML source' });
@@ -64,7 +64,7 @@ describe('original XML editor while viewing alpha details', () => {
     expect(editor).toHaveValue(editedXml);
 
     act(() => useAlphaStore.getState().exitDetailView());
-    expect(useAlphaStore.getState().viewMode).toBe('multi');
+    expect(useAlphaStore.getState().viewMode).toBe('detail');
     expect(editor).toHaveValue(editedXml);
   });
 });

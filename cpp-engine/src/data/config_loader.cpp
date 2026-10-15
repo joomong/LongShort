@@ -40,40 +40,9 @@ void merge_fields(std::map<std::string, std::string>& fields, const YAML::Node& 
         fields[name] = source;
     }
 }
-// Optional backtest.costs mapping; an absent node keeps every module off.
-void parse_costs(CostsConfig& costs, const YAML::Node& node) {
-    if (!node || node.IsNull()) return;
-    if (!node.IsMap()) throw std::runtime_error("backtest.costs must be a mapping");
-    if (node["report_unapplied"] && !node["report_unapplied"].IsNull())
-        costs.report_unapplied = node["report_unapplied"].as<bool>();
-    const YAML::Node borrow = node["borrow"];
-    if (!borrow || borrow.IsNull()) return;
-    if (!borrow.IsMap()) throw std::runtime_error("backtest.costs.borrow must be a mapping");
-    BorrowCostConfig& config = costs.borrow;
-    if (borrow["enabled"] && !borrow["enabled"].IsNull()) config.enabled = borrow["enabled"].as<bool>();
-    if (borrow["default_rate"] && !borrow["default_rate"].IsNull()) {
-        config.default_rate = borrow["default_rate"].as<double>();
-        if (!std::isfinite(config.default_rate) || config.default_rate < 0.0)
-            throw std::runtime_error("backtest.costs.borrow.default_rate must be a finite nonnegative annual rate");
-    }
-    if (borrow["path"] && !borrow["path"].IsNull()) config.path = borrow["path"].as<std::string>();
-    config.day_count = unsigned_option(borrow["day_count"], 360, true);
-    const auto column = [&](const char* key, std::string& target) {
-        if (borrow[key] && !borrow[key].IsNull()) target = borrow[key].as<std::string>();
-        if (target.empty()) throw std::runtime_error(std::string("backtest.costs.borrow.") + key + " must not be empty");
-    };
-    column("symbol_col", config.symbol_col);
-    column("from_col", config.from_col);
-    column("to_col", config.to_col);
-    column("rate_col", config.rate_col);
-    std::set<std::string> named;
-    for (const std::string& name : {config.symbol_col, config.from_col, config.to_col, config.rate_col})
-        if (!named.insert(name).second)
-            throw std::runtime_error("backtest.costs.borrow columns must be distinct: " + name);
-}
 // `base:` names one price cache and one group-panel directory. It expands into two eager wide
 // datasets so every config gets the standard fields without listing them
-// (docs/neutralize_plan_2026-09-16.md 4.3). Both directories follow the usual path convention:
+// (docs/data_contract.md 4.3). Both directories follow the usual path convention:
 // relative values are resolved against the config directory by the loader.
 DatasetConfig base_dataset(const std::string& name, const std::string& path,
                            std::map<std::string, std::string> fields) {
@@ -99,7 +68,7 @@ void parse_base(BacktestConfig& cfg, const YAML::Node& node) {
     };
     cfg.base_cache = directory("cache");
     cfg.base_groups = directory("groups");
-    // A thin-v1 cache (docs/backtest_cache_simplification_plan_2026-09-23.md §6) is identified by
+    // A thin-v1 cache (docs/data_contract.md) is identified by
     // its manifest; its raw prices and signal returns are long files keyed by tradingItemId.
     const auto manifest = std::filesystem::path(cfg.config_dir) / cfg.base_cache / "manifest.json";
     if (std::filesystem::exists(manifest)) {
@@ -288,8 +257,9 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         throw std::runtime_error("Capital must be positive and fees finite/nonnegative");
     cfg.transaction_fee_rate = fee_bps * 0.0001;
     cfg.bars_per_year = unsigned_option(bt["bars_per_year"], 365, true);
-    cfg.mode = bt["mode"] ? bt["mode"].as<int>() : 1;
-    if (cfg.mode != 0 && cfg.mode != 1) throw std::runtime_error("backtest.mode must be 0 or 1");
+    cfg.execution_price = bt["execution_price"] ? bt["execution_price"].as<std::string>() : "close";
+    if (cfg.execution_price != "close" && cfg.execution_price != "ohlc4" && cfg.execution_price != "vwap")
+        throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
     cfg.warmup_bars = unsigned_option(bt["warmup_bars"], 0, false);
     cfg.combined_mode = bt["combined_mode"] ? bt["combined_mode"].as<std::string>() : "normalized";
     if (bt["symbol_labels_path"] && !bt["symbol_labels_path"].IsNull()) {
@@ -297,6 +267,13 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
         cfg.symbol_labels_path = labels.lexically_normal().string();
     }
+    std::filesystem::path alphas = root["alphas_dir"] && !root["alphas_dir"].IsNull()
+        ? root["alphas_dir"].as<std::string>() : "alphas";
+    if (alphas.empty()) throw std::runtime_error("alphas_dir must not be empty");
+    if (alphas.is_relative()) alphas = std::filesystem::path(cfg.config_dir) / alphas;
+    alphas = alphas.lexically_normal();
+    if (!alphas.has_filename() && alphas.has_relative_path()) alphas = alphas.parent_path();
+    cfg.alphas_dir = alphas.string();
     if (cfg.combined_mode != "normalized" && cfg.combined_mode != "raw")
         throw std::runtime_error("combined_mode must be normalized or raw");
     // Missing-close policy applies to ordinary and thin panels.
@@ -304,7 +281,6 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         ? bt["missing_close_policy"].as<std::string>() : "carry";
     if (cfg.missing_close_policy != "carry" && cfg.missing_close_policy != "error")
         throw std::runtime_error("backtest.missing_close_policy must be 'carry' or 'error'");
-    parse_costs(cfg.costs, bt["costs"]);
     if (root["events"] || bt["corporate_actions"] || bt["default_delisting_return"] ||
         bt["stale_quote_settle_bars"])
         throw std::runtime_error("Legacy settlement and corporate-action config is no longer supported; use a thin-v1 cache");

@@ -284,7 +284,7 @@ TEST(Checkpoint, RoundTrip) {
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.001;
-    cfg.mode = 1;
+
 
     // --- Full run (reference) ---
     std::vector<double> ref_ret;

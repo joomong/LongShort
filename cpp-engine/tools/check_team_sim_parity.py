@@ -76,7 +76,7 @@ def server(binary, config, log_path):
                 process.wait()
 
 
-def run_case(root, binary, stats_run, name, mask, start=0, missing_exit_close=False, mode=1):
+def run_case(root, binary, stats_run, name, mask, start=0, missing_exit_close=False, delay=1):
     directory = root/name
     directory.mkdir()
     dates = pd.date_range("2026-01-01",periods=5)
@@ -96,8 +96,8 @@ def run_case(root, binary, stats_run, name, mask, start=0, missing_exit_close=Fa
     }
     config_path = directory/"config.json"
     config_path.write_text(json.dumps(config))
-    payload = {"xml":'<data expr="raw_signal"/>',"simStart":str(dates[start].date()),
-               "isStart":"2026-01-01","osStart":"2026-01-05","mode":mode}
+    payload = {"xml":f'<data expr="raw_signal" delay="{delay}"/>',"simStart":str(dates[start].date()),
+               "isStart":"2026-01-01","osStart":"2026-01-05"}
     with server(binary,config_path,directory/"server.log") as base:
         if missing_exit_close:
             try:
@@ -110,15 +110,14 @@ def run_case(root, binary, stats_run, name, mask, start=0, missing_exit_close=Fa
         response = request(base,"/api/simulate",payload)
         configuration = request(base,"/api/config")
         assert configuration["barsPerYear"] == 252
-    # D1 matches pv_champ_peer: mask signal -> shift(1) -> gross normalization.
-    # D0 exercises the existing undelayed engine mode against the same PnL oracle.
-    delayed = signals.where(membership).shift(mode)
+    # XML delays values; masking and normalization use the execution date.
+    delayed = signals.shift(delay).where(membership)
     positions = delayed.div(delayed.abs().sum(axis=1).replace(0,np.nan),axis=0).fillna(0.0)
     positions = positions.iloc[start:]
     hr = close.div(close.shift(1)).sub(1).fillna(0.0).iloc[start:]
     zeros = hr*0.0
     actual = stats_run(SimpleNamespace(pos=positions,hr=hr,tr=zeros,opr=zeros,cost=0.001))
-    begin = max(start,mode)
+    begin = start
     expected = actual["PnL"].loc[dates[begin:]].to_numpy()
     timeseries = response["timeseries"]
     assert timeseries["timestamps"] == [str(date.date()) for date in dates[begin:]]
@@ -148,12 +147,12 @@ def main():
             run_case(root,binary,stats_run,"delayed_exit",exit_one),
             run_case(root,binary,stats_run,"start_without_prior_holdings",exit_one,start=2),
             run_case(root,binary,stats_run,"empty_universe_exit",[[1,1],[1,1],[0,0],[0,0],[0,0]]),
-            run_case(root,binary,stats_run,"same_close_D0_exit",exit_one,mode=0),
-            run_case(root,binary,stats_run,"same_close_D0_start",exit_one,start=2,mode=0),
+            run_case(root,binary,stats_run,"explicit_delay_zero_exit",exit_one,delay=0),
+            run_case(root,binary,stats_run,"explicit_delay_zero_start",exit_one,start=2,delay=0),
             run_case(root,binary,stats_run,"missing_exit_close",exit_one,missing_exit_close=True),
         ]
     report = {"oracle":str(stats_path),"source_sha256":digest,
-              "scope":"actual StatsHandler.run PnL; trading returns=0; PV signal-date universe mask then D1 shift(1), plus existing D0 mode",
+              "scope":"actual StatsHandler.run PnL; trading returns=0; explicit XML delay followed by current-date universe masking",
               "cases":cases}
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2)+"\n")

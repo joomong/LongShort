@@ -18,7 +18,7 @@ const result = (): BacktestRunResponse => ({
     { name: 'alpha_0', rank: 1, xml: '<data expr="close"/>', isMetrics: { pnl: 1, sharpe: 1 }, osMetrics: { pnl: 1, sharpe: 1 }, heatmap: heatmap(5) },
     { name: 'alpha_1', rank: 2, xml: '<data expr="-close" delay="1"/>', isMetrics: { pnl: -1, sharpe: -1 }, osMetrics: { pnl: -1, sharpe: -1 } },
   ],
-  runSettings: { simStart: '2020-01-01', isStart: '2021-01-01', osStart: '2023-01-01', mode: 0, threads: 2, universe: 'TOP500' },
+  runSettings: { simStart: '2020-01-01', simEnd: '2024-12-31', isStart: '2021-01-01', osStart: '2023-01-01', threads: 2, universe: 'TOP500', executionPrice: 'vwap' },
 });
 const response = (value: number) => ({ batches: [], yearly: [], timeseries: { timestamps: [], cumPnl: [], cumPnlGross: [], turnover: [], maxWeight: [], nonzeroCount: [], drawdown: [] }, isStartIndex: 0, osStartIndex: 0, signalPlot: heatmap(value), signalRange: { min: value, max: value }, distribution: { bins: [value], counts: [1], min: value, max: value } } satisfies StarBatchResponse);
 
@@ -32,7 +32,7 @@ describe('selected alpha signals', () => {
     vi.mocked(runSimulate).mockResolvedValue(response(-7));
     const view = render(<SignalPanelSelector />);
     await waitFor(() => expect(selectSignalSource(useAlphaStore.getState())?.heatmap).toEqual(heatmap(-7)));
-    expect(runSimulate).toHaveBeenCalledWith('<data expr="-close" delay="1"/>', '2020-01-01', '2021-01-01', '2023-01-01', expect.any(AbortSignal), 2, 0, { universe: 'TOP500' });
+    expect(runSimulate).toHaveBeenCalledWith('<data expr="-close" delay="1"/>', '2020-01-01', '2021-01-01', '2023-01-01', expect.any(AbortSignal), 2, { universe: 'TOP500', executionPrice: 'vwap', simEnd: '2024-12-31' });
     expect(selectSignalSource(useAlphaStore.getState())?.distribution).toEqual([1]);
     expect(useAlphaStore.getState().selectedSymbol).toBe('A');
     view.unmount();

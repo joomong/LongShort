@@ -4,10 +4,14 @@
 #include <functional>
 #include <random>
 #include "search_space.h"
+#include "parallel_evaluator.h"
 
 struct GAConfig {
     unsigned population_size  = 50;
-    unsigned generations      = 20;
+    unsigned generations      = 40;
+    unsigned first_search     = 200;
+    unsigned stop_alphas      = 400;
+    double   random_fraction  = 0.2;
     unsigned tournament_size  = 3;
     double   crossover_rate   = 0.8;
     double   mutation_rate    = 0.1;
@@ -19,6 +23,24 @@ struct GAResult {
     std::string best_xml;
     // per-generation record: (best_xml, best_fitness)
     std::vector<std::pair<std::string, double>> history;
+    size_t evaluated = 0;
+    std::string stop_reason;
+};
+
+struct GACandidate {
+    size_t id = 0;
+    unsigned round = 0;
+    std::string xml;
+    std::string origin;
+    double fitness = 0.0;
+    std::string error;
+};
+
+struct GAEvents {
+    std::function<void(unsigned, size_t)> round_start;
+    std::function<void(const GACandidate&)> candidate;
+    std::function<void(unsigned, const std::string&, double)> round_end;
+    ParallelEvaluator::Cancelled cancelled;
 };
 
 class GAEngine {
@@ -38,6 +60,7 @@ public:
 
     // Run GA with per-generation progress callback.
     GAResult run_streaming(EvalFunc evaluate, ProgressCallback cb);
+    GAResult run_detailed(EvalFunc evaluate, const GAEvents& events);
 
 private:
     std::string  xml_template_;
@@ -55,5 +78,5 @@ private:
                                  std::mt19937& rng) const;
 
     // Core loop shared by run() and run_streaming()
-    GAResult run_impl(EvalFunc evaluate, ProgressCallback* cb);
+    GAResult run_impl(EvalFunc evaluate, const GAEvents& events);
 };

@@ -7,8 +7,17 @@ import {
   fmtMonth,
   fmtDate,
 } from '@/lib/uplotUtils';
+import { utcDate } from '@/lib/uplotAdapters';
 
 describe('uplotAdapters', () => {
+  it('utcDate places time-axis splits on UTC calendar boundaries in any browser zone', () => {
+    // uPlot finds year/month ticks from these local fields; the UTC label must name the same day.
+    const d = utcDate(dateStrToUnix('2020-01-01'));
+    expect([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()]).toEqual([2020, 0, 1, 0, 0]);
+    const m = utcDate(dateStrToUnix('2025-10-01'));
+    expect([m.getFullYear(), m.getMonth(), m.getDate(), m.getHours()]).toEqual([2025, 9, 1, 0]);
+  });
+
   it('dateStrToUnix converts YYYY-MM-DD to unix seconds in UTC', () => {
     expect(dateStrToUnix('2024-01-01')).toBe(1704067200);
     expect(dateStrToUnix('2024-06-15')).toBe(1718409600);

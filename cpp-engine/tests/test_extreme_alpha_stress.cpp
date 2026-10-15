@@ -111,7 +111,7 @@ TEST(ExtremeAlphaStress, SimulateAndScoreTwoThousandAlphasWithoutCrash)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = false;
 
     const int64_t is_ms = dp.timestamps[1];
@@ -124,9 +124,9 @@ TEST(ExtremeAlphaStress, SimulateAndScoreTwoThousandAlphasWithoutCrash)
         Simulator sim(dp, cfg);
         auto out = sim.run(alpha.pipeline);
         const auto m = compute_full_metrics(
-            out.timestamps, out.ret, out.turnover, out.max_weight,
+            out.timestamps, out.ret, out.gross_ret, out.turnover, out.max_weight,
             out.long_weight, out.short_weight, out.position_count,
-            is_ms, os_ms, cfg.fee_rate, BARS_PER_YEAR);
+            is_ms, os_ms, BARS_PER_YEAR);
 
         if (std::isfinite(m.is_summary.sharpe) && std::isfinite(m.os_summary.sharpe))
             ++good_batches;

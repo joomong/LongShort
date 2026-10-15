@@ -236,3 +236,6 @@ data/
 
 # Per-config generated engine builds
 .longshort/
+
+# HTTP contract test config copies (tests/test_http_contract.cpp)
+.longshort_http_test_*.yaml

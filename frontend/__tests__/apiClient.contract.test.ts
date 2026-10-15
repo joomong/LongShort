@@ -50,16 +50,33 @@ describe('api client contract', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     const [, init] = vi.mocked(globalThis.fetch).mock.calls[0] ?? [];
     const body = init && typeof init === 'object' ? (init as RequestInit).body as string : '';
-    expect(JSON.parse(body)).toMatchObject({ collectSignals: true, collectSignalsTopK: 5, threads: 3, mode: 1 });
+    expect(JSON.parse(body)).not.toHaveProperty('mode');
+    expect(JSON.parse(body)).toMatchObject({ collectSignals: true, collectSignalsTopK: 5, threads: 3, });
   });
 
   it('runSimulate sends the selected universe and omits an empty one', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, json: async () => ({}) } as unknown as Response);
-    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, 1, { universe: 'TOP500' });
-    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, 1, { universe: '' });
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, { universe: 'TOP500' });
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 1, { universe: '' });
     const bodies = vi.mocked(globalThis.fetch).mock.calls.map(call => JSON.parse((call[1] as RequestInit).body as string));
     expect(bodies[0].universe).toBe('TOP500');
     expect('universe' in bodies[1]).toBe(false);
+  });
+
+  it('serializes the inclusive end and execution price for simulate and GA', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 2, { simEnd: '2024-06-30', executionPrice: 'ohlc4' });
+    vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse([JSON.stringify({ type: 'search_complete', evaluated: 0, stopReason: 'stop_round', bestXml: '' }) + '\n']));
+    await runGAStream('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', 50, 20, 2, () => {}, undefined, '', 'ohlc4', '2024-06-30');
+    const bodies = vi.mocked(globalThis.fetch).mock.calls.map(call => JSON.parse((call[1] as RequestInit).body as string));
+    for (const body of bodies) expect(body).toMatchObject({ simStart: '2020-01-01', simEnd: '2024-06-30', executionPrice: 'ohlc4', });
+    vi.mocked(globalThis.fetch).mockClear();
+    vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+    await runSimulate('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', undefined, 2, { executionPrice: 'vwap' });
+    vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse([JSON.stringify({ type: 'search_complete', evaluated: 0, stopReason: 'stop_round', bestXml: '' }) + '\n']));
+    await runGAStream('<x/>', '2020-01-01', '2021-01-01', '2024-01-01', 50, 20, 2, () => {}, undefined, '', 'vwap');
+    for (const call of vi.mocked(globalThis.fetch).mock.calls)
+      expect(JSON.parse((call[1] as RequestInit).body as string).executionPrice).toBe('vwap');
   });
 
   it('runSimulate forwards abort signal', async () => {
@@ -124,6 +141,13 @@ describe('api client contract', () => {
     expect(events).toHaveLength(2);
     expect((events[0] as Record<string, unknown>).type).toBe('generation_end');
     expect((events[1] as Record<string, unknown>).type).toBe('complete');
+  });
+
+  it('rejects a truncated GA stream while preserving already delivered events', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse([JSON.stringify({ type: 'round_start', round: 1, size: 1 }) + '\n']));
+    const events: unknown[] = [];
+    await expect(runGAStream('<xml/>', '2020-01-01', '2021-01-01', '2024-01-01', 200, 40, 20, event => events.push(event))).rejects.toThrow('before completion');
+    expect(events).toHaveLength(1);
   });
 
   it('runGAStream throws detail on non-2xx response', async () => {

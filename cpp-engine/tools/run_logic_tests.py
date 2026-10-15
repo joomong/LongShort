@@ -4,7 +4,7 @@
 This is a temporary-environment validation path, not a replacement for CMake/CI.
 It uses Boost 1.85 headers already on the machine and builds matching static
 serialization, GoogleTest, JsonCpp, and pugixml libraries from pinned sources.
-See docs/refactor_2026-09-09_validation.md for dependency preparation and scope.
+See docs/build_and_validation.md for dependency preparation and scope.
 """
 
 import argparse

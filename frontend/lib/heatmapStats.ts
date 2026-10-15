@@ -1,4 +1,4 @@
-type SignalRows = readonly (readonly (number | null | undefined)[])[];
+export type SignalRows = readonly ArrayLike<number | null | undefined>[];
 
 // Statistics depend on data, not canvas size or theme. Weak keys release old runs.
 const cache = new WeakMap<SignalRows, Map<number, Float32Array[]>>();

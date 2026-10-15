@@ -14,16 +14,50 @@ This document is the single source of truth for C++ engine test math.
 
 ## Simulation Conventions
 
+- Target gross exposure is 1: `weight[i] = signal[i] / sum(abs(signal))`
+  on eligible names. A balanced long/short target has long 0.5 and absolute
+  short 0.5. Returns use this total-book basis without a further factor of 2.
+  No-signal bars can have zero exposure; carried corporate positions can differ
+  from the target normalization. Gross exposure and gross (pre-fee) PnL are distinct.
 - Return aggregation is additive (simple sum), not compounded.
-- First bar (`di=0`) has no price return term, only fee impact from turnover.
-- D1 mode execution:
-  - signal computed at bar `t`
-  - execution weight uses previous target (`prev_target`)
-  - realized return at bar `t` uses previous executed weights (`prev_weights`) and close-to-close move.
-- Turnover formula:
-  - `turnover[t] = sum_i(abs(exec_w[i] - prev_weights[i]))`
-- Close prices must be finite and positive to form target weights.
-- A missing/invalid close for a held or executing position is a calculation error; it must not be converted to zero PnL or an assumed liquidation. Missing prices for unheld, untraded assets do not contribute to return.
+- API `simStart`/`simEnd` select each run's interval without modifying the shared
+  data panel. `simEnd` is inclusive by calendar day and maps to an exclusive
+  `SimulatorConfig.sim_end_index`; omission uses the loaded panel end. Earlier
+  bars still warm the modules. Execution, signals, metrics and diagnostics stop
+  at that end, with no added terminal liquidation. A capped run must equal the
+  same-start uncapped run through the selected end.
+- An initially empty book has no holding return on its first trading bar. It pays
+  entry fees and, with OHLC4/VWAP execution, can earn the fill-to-close trading return.
+- Explicit XML delay owns signal timing; there is no Interval/execution mode.
+  - The pipeline output at bar `t` is masked and normalized at `t`, then executed at `t`.
+  - `<data expr="close" delay="1"/>` reads the prior bar exactly once.
+  - Holding return at `t` uses previous executed weights and the close-to-close move.
+- Execution-price contract (`backtest.execution_price`): `close` is the general
+  configuration default; the stock examples explicitly select `ohlc4`.
+  - `fill[t,i] = (open + high + low + close) / 4` for OHLC4, all in the same day's price units.
+  - `fill[t,i] = vwap[t,i]` (raw same-day VWAP) for `vwap`. BRAIN Delay-1 PnL is
+    reproduced by close holding PnL plus this VWAP trading leg.
+  - VWAP requires exact `vwap/high/low/close`; missing cells, `high < low`, or
+    close/vwap outside `[low, high]` are unavailable fills under the same
+    carry/error policy as OHLC4; nonpositive/infinite values are refused for
+    relevant positions. Close is never substituted.
+  - `market_trade[t,i] = target_weight[t,i] - carried_weight[t,i]` on executable names.
+  - `execution_pnl[t] = sum_i(market_trade[t,i] * (close[t,i] / fill[t,i] - 1))`.
+  - `gross_ret[t] = holding_pnl[t] + execution_pnl[t]`; the execution term is zero under close execution.
+  - Current pipeline targets execute without an additional shift; market trades
+    can earn the fill-to-close return on that date. Explicit XML `delay` is the
+    only signal delay.
+  - This preserves the team's fixed-notional approximation. It does not convert
+    target weights into an exact share/cash ledger or add price-drift rebalancing.
+- Turnover is the sum of absolute **market** trades. Free corporate-action
+  transfers are excluded; residual rebalance orders after a transfer are included.
+- Carry freezes a position without an executable quote and reserves its budget.
+  A finite close can still mark holding PnL when an OHL/VWAP cell is missing. OHLC4/VWAP
+  never substitutes a close or forward-filled price. Error policy rejects a
+  required trade without a fill. Inconsistent finite quotes (open, vwap or close outside
+  low/high, or high < low) is an unavailable fill under the same carry/error policy. Nonpositive
+  or nonfinite-non-NaN prices are refused for relevant positions. A missing OHL/VWAP field or as-of source
+  cannot enable OHLC4/VWAP execution.
 - Fee impact:
   - `ret[t] -= turnover[t] * fee_rate`
 
@@ -52,25 +86,53 @@ This document is the single source of truth for C++ engine test math.
 - Position-count summaries include zero-position bars. The simulator counts weights with `abs(weight) > 1e-12`.
 - `quality = sharpe * sqrt(abs(1 - maxexp)) * (1 - max_weight)`
   - `maxexp = max(abs(long_weight - short_weight))` on valid bars
+  - `short_weight` is an absolute short exposure; all weights here are fractions,
+    not percentage points. Both maxima are taken over the corresponding IS/OS
+    period. This is a platform score penalizing net exposure and single-symbol
+    concentration, not the yearly fitness or GA objective (GA uses IS Sharpe).
 - `sharpe80`, `sharpe400`:
   - sharpe on tail window of finite returns (`min(window, n)`), ddof=1
 - `minsoc = min(long_weight + short_weight)` on valid bars
+
+## Yearly IR
+
+- `ir = mean(daily gross returns) / std_ddof1(daily gross returns)` within each
+  calendar year and the requested trading interval, using finite returns only.
+- IR is not annualized and does not subtract a benchmark. With fewer than two
+  returns or zero sample standard deviation it is 0, matching Sharpe's degenerate
+  cases. Sharpe retains its existing denominator guard (`std + eps`).
+- The yearly table displays `sharpe[ir]`. Older API responses without `ir` show
+  `[—]` instead of guessing the annualization factor.
+
+## Yearly Fitness
+
+- Uses the [referenced Fitness formula](https://github.com/Xiaoyu-hub/worldquant/blob/main/raw/articles/worldquant-alpha-mining-strategies.md)
+  with the platform's leverage-1 return convention:
+  `fitness = sharpe * sqrt(abs(ann_ret / 100) / max(daily_tvr, 0.125))`.
+- `ann_ret` is the displayed annual gross return in percentage points; convert
+  it to a fraction exactly once. `daily_tvr` is the mean daily turnover fraction
+  for that calendar year. The denominator floor is 12.5% daily turnover.
+- Both use the requested trading interval and exclude warmup. Negative Sharpe
+  yields negative Fitness; zero Sharpe yields 0, including degenerate years.
+- Return is based on the full gross book, not half the book: no factor of 2 is
+  introduced. Thus this score uses the referenced formula but differs from its
+  BRAIN half-book return convention. The $20M reporting book remains unchanged.
+- This is a yearly reporting metric. GA continues to optimize IS Sharpe.
 
 ## IS/OS Split Contract
 
 - `is_idx`: first index where `timestamp >= is_start_ms`, or `T` when no such bar exists
 - `os_idx`: first index where `timestamp >= os_start_ms`
 - Summary IS slice:
-  - starts at `max(is_idx, 1)` (global bar 0 excluded)
+  - starts at `max(is_idx, sim_start_index)`
   - ends at `os_idx` (exclusive)
 - Summary OS slice:
   - starts at `os_idx`
   - ends at `T` (exclusive)
-- Timeseries output excludes raw bar 0:
-  - timeseries index `k` corresponds to raw index `k+1`
+- Timeseries output starts at `sim_start_index`, including bar 0 when requested.
+  - timeseries index `k` corresponds to raw index `k+sim_start_index`
 - Reported boundary indices:
-  - `isStartIndex = max(is_idx,1) - 1`
-  - `osStartIndex = (os_idx > 0) ? os_idx - 1 : 0`
+  - IS/OS indices are clamped offsets from the first reported trading bar.
 
 ## Module Contracts
 
@@ -107,3 +169,61 @@ This document is the single source of truth for C++ engine test math.
   - `tests/test_metrics_oracle.cpp`
 - XML/pipeline/signal plot contract tests:
   - `tests/test_pipeline_contract.cpp`
+
+
+## GA search and streamed results
+
+The objective remains gross IS Sharpe. The initial search evaluates up to `firstSearch`
+(default 200) distinct expanded XMLs. If the complete search space fits, it is evaluated
+once and the run finishes in round 1. Later rounds evaluate up to `roundSize` new XMLs
+(default 50), including 20% uniform exploration and offspring from successful parents.
+Previously scheduled XMLs never consume another evaluation slot. Parameter lists are
+trimmed and deduplicated. Structural choice/shuffle searches use the compiler expansion
+contract and its existing 5,000-pipeline cap; ordinary parameter spaces stay factored.
+
+`stopRound` (default 40) includes the initial round. `stopAlphas` (default 400) limits
+unique evaluation attempts, including failed candidates. Exhaustion, round limit or
+candidate limit ends the run; budgets are reserved before parallel dispatch. `threads`
+(default 20 in HTTP requests) limits candidate workers. Workers take the next available
+candidate; controller-thread callbacks serialize events. XML keys, rather than hash
+values alone, identify duplicates. Parent selection and equal-score ties use planned
+candidate order, independent of completion order.
+
+With `streamCandidates: true`, `/api/ga/stream` sends newline-delimited `search_start`,
+`round_start`, `candidate`, `round_end`, and `search_complete` events. Rounds are one-based.
+Candidate events contain stable indices, XML, round, origin, status, IS/OS summary and
+yearly metrics; failures contain their reason. Full signal matrices and daily series
+are loaded for a selected candidate rather than broadcast for every evaluation.
+Legacy requests without this flag retain generation events and the best-alpha complete
+payload. `popSize` and `generations` remain request aliases for the initial search and
+round limit.
+
+The web start button and Shift+Enter run GA; there is no separate ordinary/GA button choice.
+The web exposes only Stats and round tabs. Stats contains all unique evaluated candidates;
+each round tab appears on round start and fills as candidates complete. Stop preserves
+received results. The source search XML is retained after completion. `metricsOnly: true`
+on `/api/simulate` returns unchanged accounting/metrics without collecting or serializing
+signals. `signalSeriesOnly: true` requires `signalPlotSymbols` and one concrete alpha;
+it returns the exact selected signal columns without recomputing unused distributions.
+These optional flags do not change the ordinary response contract.
+
+GA tables keep a top `batch` row for two or more successful candidates: Stats uses all
+successful unique candidates and each round uses its own candidates. The browser loads
+the aggregate after the visible cohort finishes/stops, caches it by membership, and
+passes concrete XMLs in stable candidate order using `/api/simulate` with `xmls`,
+`combinedOnly: true`, and `metricsOnly: true`. Each `xmls` entry must compile to exactly
+one alpha; the response has an empty `batches` array and the ordinary `combined` payload.
+This computes signals and the existing normalized/raw combined portfolio, rather than
+averaging metrics or rerunning individual portfolio accounting. Bounded blocks reduce
+accumulator wakeups while preserving the exact per-row floating-point addition order.
+Selected daily details are fetched after their round finishes, avoiding duplicate
+pipeline evaluation alongside the ongoing search. Reclicking the selected row is a
+no-op, including when only the first candidate of a round has arrived.
+Displayed IDs are zero-based positions in the sorted visible table; selection and saved
+XMLs retain their original internal candidate indices. Multi-alpha results remain in
+performance detail, with signal-analysis plots exposed only for a single-alpha result.
+
+Large signal plots and distributions are serialized independently in parallel. The web
+normalizes large heatmaps in up to two workers, partitioned by complete dates; each date
+uses the same complete cross section and median/MAD computation as the synchronous path.
+Raw signal values, tooltips, plot sampling, portfolio returns and accounting remain unchanged.

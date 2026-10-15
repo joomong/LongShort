@@ -55,8 +55,10 @@ export function buildPnlBundleFromRet(
   turnoverSeries: Record<string, number | null> | null | undefined,
   capital: number,
   transactionFeeRate: number,
-): { pnlData: PnlSeriesPoint[]; netEquityData: SingleSeriesPoint[] } {
-  if (!retSeries) return { pnlData: [], netEquityData: [] };
+  // Engine gross (pre-fee) returns; preferred over net + turnover * fee.
+  grossRetSeries?: Record<string, number | null> | null,
+): { pnlData: PnlSeriesPoint[]; grossEquityData: SingleSeriesPoint[] } {
+  if (!retSeries) return { pnlData: [], grossEquityData: [] };
 
   const retEntries = Object.entries(retSeries)
     .filter(([, r]) => typeof r === 'number' && Number.isFinite(r))
@@ -74,14 +76,18 @@ export function buildPnlBundleFromRet(
   let cumGrossRet = 0;
   let grossKnown = true;
   const pnlData: PnlSeriesPoint[] = [];
-  const netEquityData: SingleSeriesPoint[] = [];
+  const grossEquityData: SingleSeriesPoint[] = [];
 
   for (const [date, r] of retEntries) {
     const to = turnoverMap.get(date);
-    const grossRet =
-      grossKnown && typeof to === 'number'
-        ? r + (to / 100) * transactionFeeRate
-        : Number.NaN;
+    const engineGross = grossRetSeries ? grossRetSeries[date] : undefined;
+    const grossRet = !grossKnown
+      ? Number.NaN
+      : grossRetSeries
+        ? (typeof engineGross === 'number' ? engineGross : Number.NaN)
+        : typeof to === 'number'
+          ? r + (to / 100) * transactionFeeRate
+          : Number.NaN;
 
     cumRet += r;
     if (Number.isFinite(grossRet)) {
@@ -95,22 +101,23 @@ export function buildPnlBundleFromRet(
       net: cumRet * capital,
       gross: grossKnown ? cumGrossRet * capital : Number.NaN,
     });
-    netEquityData.push({ date, value: capital + cumRet * capital });
+    // Drawdown follows gross PnL, matching the engine's gross metrics.
+    if (grossKnown) grossEquityData.push({ date, value: capital + cumGrossRet * capital });
   }
 
-  return { pnlData, netEquityData };
+  return { pnlData, grossEquityData };
 }
 
 export function buildMddDataFromEquity(
-  netEquityData: SingleSeriesPoint[],
+  equityData: SingleSeriesPoint[],
   initialCapital: number,
 ): SingleSeriesPoint[] {
-  if (netEquityData.length === 0) return [];
+  if (equityData.length === 0) return [];
   if (!Number.isFinite(initialCapital) || initialCapital <= 0) {
     throw new Error('Drawdown requires positive initial capital');
   }
   let peak = initialCapital;
-  return netEquityData.map(({ date, value }) => {
+  return equityData.map(({ date, value }) => {
     if (value > peak) peak = value;
     // Fixed-book additive PnL: percentage points of initial capital.
     const dd = ((value - peak) / initialCapital) * 100;
@@ -175,7 +182,7 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
   const opts = useMemo<uPlot.Options | null>(() => {
     const [axisX, axisY] = buildUPlotAxes(colors);
     // Both cumulative curves stay continuous; only their color changes at OS.
-    // Net/Gross use solid/dashed strokes, IS/OS use amber/green.
+    // Gross/Net use solid/dashed strokes, IS/OS use amber/green.
     const periodStroke = (u: uPlot) => {
       if (osUnix === null) return PERIOD_IS_COLOR;
       const split = u.valToPos(osUnix, 'x', true);
@@ -207,8 +214,8 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
       ],
       series: [
         {},
-        { stroke: periodStroke, width: 2, label: 'Net', points: { show: false } },
-        { stroke: periodStroke, width: 2, label: 'Gross', dash: [4, 3], points: { show: false } },
+        { stroke: periodStroke, width: 2, label: 'Net', dash: [4, 3], points: { show: false } },
+        { stroke: periodStroke, width: 2, label: 'Gross', points: { show: false } },
       ],
       hooks: {
         draw: [
@@ -245,8 +252,8 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
       <div className="h-full min-h-0 min-w-0 flex flex-col">
         <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
         <span>PnL ($M)</span>
-        <span className="text-foreground-secondary">━ Net</span>
-        <span className="text-foreground-secondary">┄ Gross</span>
+        <span className="text-foreground-secondary">━ Gross</span>
+        <span className="text-foreground-secondary">┄ Net</span>
         <span style={{ color: PERIOD_IS_COLOR }}>━ IS</span>
         {osUnix !== null ? <span style={{ color: PERIOD_OS_COLOR }}>━ OS</span> : null}
       </div>
@@ -259,8 +266,8 @@ const PnlDualChart = React.memo(function PnlDualChart({ pnlData, osStartDate }: 
     <div className="h-full min-h-0 min-w-0 flex flex-col relative">
       <div className="flex shrink-0 items-center gap-3 px-2 py-1 overflow-x-auto whitespace-nowrap [&>span]:shrink-0 text-[10px] text-foreground-muted">
         <span>PnL ($M)</span>
-        <span className="text-foreground-secondary">━ Net</span>
-        <span className="text-foreground-secondary">┄ Gross</span>
+        <span className="text-foreground-secondary">━ Gross</span>
+        <span className="text-foreground-secondary">┄ Net</span>
         <span style={{ color: PERIOD_IS_COLOR }}>━ IS</span>
         {osUnix !== null ? <span style={{ color: PERIOD_OS_COLOR }}>━ OS</span> : null}
       </div>
@@ -375,12 +382,19 @@ export default function DetailTimeSeries({
     ...alpha.osTurnoverSeries,
   }), [alpha.isTurnoverSeries, alpha.osTurnoverSeries]);
 
+  const fullGrossRetSeries = useMemo(() => (
+    alpha.isGrossRetSeries || alpha.osGrossRetSeries
+      ? { ...alpha.isGrossRetSeries, ...alpha.osGrossRetSeries }
+      : null
+  ), [alpha.isGrossRetSeries, alpha.osGrossRetSeries]);
+
   const pnlBundle = useMemo(() => {
-    return buildPnlBundleFromRet(fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate);
-  }, [fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate]);
+    return buildPnlBundleFromRet(
+      fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate, fullGrossRetSeries);
+  }, [fullRetSeries, fullTurnoverSeries, capital, transactionFeeRate, fullGrossRetSeries]);
 
   const { isMddData, osMddData } = useMemo(() => {
-    const fullMdd = buildMddDataFromEquity(pnlBundle.netEquityData, capital);
+    const fullMdd = buildMddDataFromEquity(pnlBundle.grossEquityData, capital);
     const isEntries: SingleSeriesPoint[] = [];
     const osEntries: SingleSeriesPoint[] = [];
     for (const p of fullMdd) {
@@ -391,7 +405,7 @@ export default function DetailTimeSeries({
       }
     }
     return { isMddData: isEntries, osMddData: osEntries };
-  }, [pnlBundle.netEquityData, alpha.osStartDate, capital]);
+  }, [pnlBundle.grossEquityData, alpha.osStartDate, capital]);
 
   const turnoverData = useMemo(
     () => seriesToChartData(alpha.isTurnoverSeries),

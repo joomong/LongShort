@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -31,26 +30,6 @@ struct UniverseConfig {
     FieldAlignment alignment = FieldAlignment::Exact;
 };
 
-// Optional cost modules (backtest.costs, docs/corporate_actions_engine_2026-09-17.md "costs").
-// Borrow: an annual rate on the short book, accrued per calendar day between bars and
-// taken from net P&L only. Rates come from an interval table (symbol, from, to, rate),
-// else `default_rate`; with neither the cost is 0 and the run reports borrowApplied=false.
-struct BorrowCostConfig {
-    bool enabled = false;
-    double default_rate = std::numeric_limits<double>::quiet_NaN(); // annual fraction; NaN = none
-    std::string path;                    // empty = no table; .csv or parquet
-    unsigned day_count = 360;
-    std::string symbol_col = "symbol";
-    std::string from_col = "from";       // first calendar day the rate applies (inclusive)
-    std::string to_col = "to";           // last calendar day (inclusive); null = open-ended
-    std::string rate_col = "rate";       // annual fraction
-};
-
-struct CostsConfig {
-    BorrowCostConfig borrow;
-    bool report_unapplied = true;        // say in the results when a cost was not applied
-};
-
 struct BacktestConfig {
     // Legacy first-dataset views retained for existing callers/configs.
     std::string parquet_path;
@@ -67,18 +46,18 @@ struct BacktestConfig {
     std::string config_dir;
     unsigned warmup_bars = 0;
     unsigned bars_per_year = 365;
-    int mode = 1; // existing close execution: 0=D0, 1=D1
     std::string combined_mode = "normalized";
     std::string missing_close_policy = "carry"; // "carry" | "error"
-    CostsConfig costs;                            // backtest.costs
     // Optional JSON file {panelSymbol: displayLabel} (e.g. tradingItemId -> ticker) served by /api/config.
     std::string symbol_labels_path;
-    // Optional `base:` block (docs/neutralize_plan_2026-09-16.md 4.3): one price cache plus one
+    // Optional `base:` block (docs/data_contract.md 4.3): one price cache plus one
     // group-panel directory, expanded by from_yaml into the base_prices/base_groups datasets.
     // The two directories are kept verbatim so the API can report them later.
     std::string base_cache;
     std::string base_groups;
     bool base_thin = false; // base.cache/manifest.json declares layout thin-v1
+    std::string execution_price = "close"; // "close" | "ohlc4" | "vwap"; stock examples select ohlc4
+    std::string alphas_dir; // absolute; top-level `alphas_dir`, default <config dir>/alphas
 
     static BacktestConfig from_yaml(const std::string& yaml_path);
 };

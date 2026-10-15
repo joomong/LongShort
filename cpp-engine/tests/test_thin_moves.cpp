@@ -40,7 +40,7 @@ struct Thin {
     std::vector<std::vector<double>> weights;
     SimulatorOutput run() {
         SimulatorConfig config;
-        config.T = panel.T; config.N = panel.N; config.fee_rate = kFee; config.mode = 0;
+        config.T = panel.T; config.N = panel.N; config.fee_rate = kFee;
         weights.assign(panel.T, {});
         config.accounting_row_callback = [this](const AccountingRowView& row) {
             weights[row.bar] = row.weights;

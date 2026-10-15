@@ -1,10 +1,9 @@
 'use client';
 
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import DetailTimeSeries, { type DetailMetricKey } from './DetailTimeSeries';
 import DetailSummaryTable from './DetailSummaryTable';
-import { useContainerSize } from '@/lib/uplotAdapters';
 
 const METRICS: Array<{ key: DetailMetricKey; label: string }> = [
   { key: 'pnl', label: 'PnL' },
@@ -18,8 +17,6 @@ export default function AlphaDetailView() {
   const result = useAlphaStore(s => s.result);
   const selectedAlphaIndex = useAlphaStore(s => s.selectedAlphaIndex);
   const [metric, setMetric] = useState<DetailMetricKey>('pnl');
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const bodySize = useContainerSize(bodyRef);
 
   const alpha = useMemo(() => {
     if (selectedAlphaIndex === null) return null;
@@ -27,16 +24,12 @@ export default function AlphaDetailView() {
     return result?.alphas?.[selectedAlphaIndex] ?? null;
   }, [result, selectedAlphaIndex]);
 
-  // Match the reference plot's 1.7:1 drawing area, accounting for axes/legend.
-  // Reserve visible yearly rows; shorter windows scroll rather than clip the plot.
-  const tableReserve = Math.min(160, Math.max(100, ((alpha?.yearly?.length ?? 0) + 1) * 20));
-  const preferredChartHeight = Math.max(200, (Math.min(bodySize.width, 900) - 80) / 1.7 + 72);
-  const chartHeight = Math.min(preferredChartHeight, Math.max(150, bodySize.height - tableReserve));
-
   if (!alpha) return null;
 
   return (
     <div className="flex flex-col bg-chart-background border-b border-border h-full min-h-0">
+      {alpha.error || alpha.detailError ? <div role="alert" className="px-2 py-1 text-xs text-metric-negative">{alpha.error || alpha.detailError}</div> : null}
+      {alpha.detailLoaded === false && !alpha.error && !alpha.detailError ? <div role="status" className="px-2 py-1 text-[11px] text-foreground-muted">Loading performance…</div> : null}
       {/* metric selector row */}
       <div className="flex items-center px-1 border-b border-border shrink-0 min-w-0 bg-background-secondary">
         <div className="flex flex-1 min-w-0 items-center overflow-x-auto">
@@ -62,10 +55,11 @@ export default function AlphaDetailView() {
         </div>
       </div>
 
-      {/* chart + yearly table */}
-      <div ref={bodyRef} className="flex-1 flex flex-col min-h-0 overflow-auto">
+      {/* WQ reference: a bounded landscape chart followed immediately by all years.
+          Extra viewport height stays below the report, rather than stretching the plot. */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto" data-testid="performance-report">
         {/* Chart */}
-        <div className="w-full max-w-[900px] shrink-0 min-w-0 border-b border-border overflow-hidden bg-chart-background" style={{ height: chartHeight }} data-testid="performance-chart-panel">
+        <div className="w-full aspect-[2/1] flex-[0_1_auto] min-h-[140px] max-h-[480px] min-w-0 overflow-hidden bg-chart-background" data-testid="performance-chart-panel">
           <DetailTimeSeries
             alpha={alpha}
             metric={metric}
@@ -73,7 +67,7 @@ export default function AlphaDetailView() {
         </div>
 
         {/* Yearly table */}
-        <div className="flex-1 min-h-[72px] min-w-0 bg-chart-background overflow-auto" data-testid="yearly-table-panel">
+        <div className="w-full shrink-0 min-w-0 bg-chart-background pt-1" data-testid="yearly-table-panel">
           <DetailSummaryTable alpha={alpha} />
         </div>
       </div>

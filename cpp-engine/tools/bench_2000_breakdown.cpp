@@ -72,7 +72,9 @@ int main(int argc, char** argv)
     sim_cfg.T = data.T;
     sim_cfg.N = data.N;
     sim_cfg.fee_rate = cfg.transaction_fee_rate;
-    sim_cfg.mode = 1;
+    sim_cfg.execution_price = cfg.execution_price == "ohlc4" ? ExecutionPrice::Ohlc4
+        : cfg.execution_price == "vwap" ? ExecutionPrice::Vwap : ExecutionPrice::Close;
+
     sim_cfg.collect_signals = false;
 
     const int64_t is_ms = 0;
@@ -88,11 +90,10 @@ int main(int argc, char** argv)
         Simulator sim(data, sim_cfg);
         auto sim_out = sim.run(alphas[i].pipeline);
         auto metrics = compute_full_metrics(
-            sim_out.timestamps, sim_out.ret, sim_out.turnover, sim_out.max_weight,
+            sim_out.timestamps, sim_out.ret, sim_out.gross_ret, sim_out.turnover, sim_out.max_weight,
             sim_out.long_weight, sim_out.short_weight,
             sim_out.position_count,
-            is_ms, os_ms,
-            cfg.transaction_fee_rate, 365);
+            is_ms, os_ms, 365);
 
         BatchResult br;
         br.index = static_cast<int>(i);

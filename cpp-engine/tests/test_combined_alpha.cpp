@@ -95,7 +95,7 @@ TEST(CombinedAlpha, RunFromSignalsProducesValidOutput) {
     cfg.T = T;
     cfg.N = N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -105,22 +105,19 @@ TEST(CombinedAlpha, RunFromSignalsProducesValidOutput) {
     EXPECT_EQ(out.turnover.size(), T);
     EXPECT_EQ(out.timestamps.size(), T);
 
-    // D1 mode: di=0 has no return (prev_target is 0)
-    EXPECT_DOUBLE_EQ(out.ret[0], 0.0);
+    // Initial current-row positions pay one-way entry fees.
+    EXPECT_DOUBLE_EQ(out.ret[0], -0.0005);
 
     // From di=2 onward, returns should be finite and non-zero
     for (unsigned di = 2; di < T; ++di) {
         EXPECT_TRUE(std::isfinite(out.ret[di]));
     }
 
-    // Turnover at di=1 should be positive (positions initiated from D1 delay)
-    EXPECT_GT(out.turnover[1], 0.0);
+    // The supplied signal executes on its own row.
+    EXPECT_GT(out.turnover[0], 0.0);
 
     // Nonzero count: only 2 symbols have nonzero signal
-    // D1 mode: at di=0 prev_target is all zero, so nz=0
-    EXPECT_EQ(out.position_count[0], 0);
-    // From di=1 onward: prev_target has 2 nonzero entries
-    for (unsigned di = 1; di < T; ++di)
+    for (unsigned di = 0; di < T; ++di)
         EXPECT_EQ(out.position_count[di], 2);
 }
 
@@ -141,7 +138,7 @@ TEST(CombinedAlpha, RunFromSignalsMatchesPipelineRun) {
     cfg.T = T;
     cfg.N = N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = true;
 
     Simulator sim1(dp, cfg);
@@ -193,7 +190,7 @@ TEST(CombinedAlpha, CombinedMetricsAreFinite) {
     SimulatorConfig cfg;
     cfg.T = T;  cfg.N = N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -203,10 +200,23 @@ TEST(CombinedAlpha, CombinedMetricsAreFinite) {
     int64_t os_ms = dp.timestamps[15];
 
     auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover, out.max_weight,
+        out.timestamps, out.ret, out.gross_ret, out.turnover, out.max_weight,
         out.long_weight, out.short_weight,
         out.position_count,
-        is_ms, os_ms, 0.0005, 365);
+        is_ms, os_ms, 365);
+
+    // Combined metrics are gross: IS pnl is the pre-fee bar pnl sum.
+    double gross_is = 0.0, net_is = 0.0;
+    for (unsigned di = 5; di < 15; ++di) { gross_is += out.gross_ret[di]; net_is += out.ret[di]; }
+    EXPECT_NEAR(metrics.is_summary.pnl, gross_is, 1e-12);
+    EXPECT_NEAR(net_is, gross_is - [&] {
+        double fee = 0.0;
+        for (unsigned di = 5; di < 15; ++di) fee += out.turnover[di] * 0.0005;
+        return fee;
+    }(), 1e-12);
+    // Over the whole span the entry fee separates gross from net.
+    const auto& ts = metrics.timeseries;
+    EXPECT_GT(ts.cum_pnl_gross.back() - ts.cum_pnl.back(), 1e-9);
 
     EXPECT_TRUE(std::isfinite(metrics.is_summary.sharpe));
     EXPECT_TRUE(std::isfinite(metrics.os_summary.sharpe));
@@ -282,6 +292,82 @@ TEST(CombinedAlpha, FailedEvaluationWakesWaitingLaterAlpha) {
     });
     accumulator.cancel();
     EXPECT_THROW(later.get(), std::runtime_error);
+}
+
+TEST(CombinedAlpha, BlockAccumulationExactlyMatchesRowsAcrossWorkerCounts) {
+    auto panel = make_test_panel(70, 4);
+    panel.universe_mask.assign(panel.T * panel.N, 1);
+    panel.universe_mask[4] = 0;
+    auto run = [&](unsigned threads, const std::string& mode, bool blocks) {
+        OrderedSignalAccumulator accumulator(panel, mode, MissingClosePolicy::Error);
+        std::atomic<size_t> next{0};
+        std::vector<std::thread> workers;
+        for (unsigned worker = 0; worker < threads; ++worker) workers.emplace_back([&] {
+            std::vector<double> scratch;
+            while (true) {
+                const size_t alpha = next.fetch_add(1);
+                if (alpha >= 48) return;
+                for (unsigned start = 0; start < panel.T; start += 32) {
+                    std::vector<float> buffer;
+                    const unsigned end = std::min(panel.T, start + 32);
+                    for (unsigned di = start; di < end; ++di) {
+                        const float scale = (alpha % 3 == 0 ? 1e20f : alpha % 3 == 1 ? -1e20f : 0.125f);
+                        const float row[] = {scale, -scale, static_cast<float>(alpha + di),
+                            std::numeric_limits<float>::quiet_NaN()};
+                        if (blocks) buffer.insert(buffer.end(), row, row + 4);
+                        else accumulator.add(alpha, di, row, 4, scratch);
+                    }
+                    if (blocks) accumulator.add_block(alpha, start, buffer, 4, scratch);
+                }
+            }
+        });
+        for (auto& worker : workers) worker.join();
+        return accumulator.take_signals();
+    };
+    for (const std::string mode : {"raw", "normalized"}) {
+        const auto expected = run(1, mode, false);
+        for (unsigned threads : {1u, 4u, 20u}) {
+            const auto actual = run(threads, mode, true);
+            for (unsigned di = 0; di < panel.T; ++di) for (unsigned ii = 0; ii < panel.N; ++ii)
+                if (std::isnan(expected[di][ii])) EXPECT_TRUE(std::isnan(actual[di][ii]));
+                else EXPECT_EQ(actual[di][ii], expected[di][ii]) << mode << " threads=" << threads;
+        }
+    }
+}
+
+TEST(CombinedAlpha, BlockCancellationWakesWaitingWorker) {
+    auto panel = make_test_panel(3, 2);
+    OrderedSignalAccumulator accumulator(panel, "raw", MissingClosePolicy::Error);
+    auto later = std::async(std::launch::async, [&] {
+        std::vector<double> scratch;
+        std::vector<float> rows(6, 1);
+        accumulator.add_block(1, 0, rows, 2, scratch);
+    });
+    accumulator.cancel();
+    EXPECT_THROW(later.get(), std::runtime_error);
+}
+
+TEST(CombinedAlpha, SignalOnlyEvaluationPreservesWarmupAndEndBoundary) {
+    auto panel = make_test_panel(12, 3);
+    SimulatorConfig config;
+    config.T = panel.T; config.N = panel.N;
+
+    config.sim_start_index = 4; config.sim_end_index = 9;
+    config.collect_signals = true;
+    auto evaluate = [&](bool signal_only) {
+        MData data; data.column_name = "close"; data.panel = &panel;
+        MRank rank; rank.pct = IntParameter(1);
+        std::vector<Module*> pipeline = {&data, &rank};
+        Simulator simulator(panel, config);
+        if (!signal_only) return simulator.run(pipeline).signals;
+        std::vector<std::vector<float>> rows;
+        simulator.run_signal_rows(pipeline, [&](unsigned di, const float* row, unsigned n) {
+            EXPECT_EQ(di, rows.size()); rows.emplace_back(row, row + n);
+        });
+        return rows;
+    };
+    EXPECT_EQ(evaluate(true), evaluate(false));
+    EXPECT_EQ(evaluate(true).size(), 9u);
 }
 
 TEST(CombinedAlpha, NormalizedContributionsUseTheSignalDateUniverse) {

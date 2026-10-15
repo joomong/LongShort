@@ -1,6 +1,6 @@
 'use client';
 
-import React, { startTransition } from 'react';
+import React, { startTransition, useMemo } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getMetricCellColor } from '@/lib/metricColors';
 import type { BacktestAlphaResult, PeriodMetrics } from '@/types';
@@ -31,15 +31,16 @@ function MetricValue({ metric, value, children }: { metric: string; value: numbe
 }
 
 // Hoisted static thead — column labels never change (rendering-hoist-jsx)
-// Order: avgBet | avgMaxWeight | maxWeight | minBet | quality | return | sharpe | sharpe400 | sharpe80 | turnover
+// Order: avgBet | avgMaxWeight | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover
+const QUALITY_DESCRIPTION = 'Sharpe × sqrt(abs(1 − max net exposure)) × (1 − max single-symbol weight). Net exposure = abs(long − absolute short); both maxima are taken over this IS/OS period, with weights as fractions of the gross=1 book.';
 const TABLE_HEADER = (
   <thead className="sticky top-0 bg-white dark:bg-background-secondary">
     {/* Group Header Row */}
     <tr className="text-[10px] font-semibold text-[#111111] dark:text-foreground">
       <th className="text-left w-12">ID</th>
       <th className="w-6"></th>
-      <th className="text-center pb-0" colSpan={10}><span className="block mx-2 border-b border-foreground-muted">IS</span></th>
-      <th className="text-center pb-0" colSpan={10}><span className="block mx-2 border-b border-foreground-muted">OS</span></th>
+      <th className="text-center pb-0" colSpan={9}><span className="block mx-2 border-b border-foreground-muted">IS</span></th>
+      <th className="text-center pb-0" colSpan={9}><span className="block mx-2 border-b border-foreground-muted">OS</span></th>
     </tr>
     {/* Metric Header Row */}
     <tr className="text-[10px] font-medium text-[#111111] dark:text-foreground border-b border-border-strong">
@@ -49,27 +50,25 @@ const TABLE_HEADER = (
       <th className="text-right px-1.5">avgMaxWeight</th>
       <th className="text-right px-1.5">maxWeight</th>
       <th className="text-right px-1.5">minBet</th>
-      <th className="text-right px-1.5">quality</th>
+      <th className="text-right px-1.5" title={QUALITY_DESCRIPTION}>quality</th>
       <th className="text-right px-1.5">return</th>
       <th className="text-right px-1.5">sharpe</th>
       <th className="text-right px-1.5">sharpe400</th>
-      <th className="text-right px-1.5">sharpe80</th>
       <th className="text-right px-1.5">turnover</th>
       <th className="text-right px-1.5">avgBet</th>
       <th className="text-right px-1.5">avgMaxWeight</th>
       <th className="text-right px-1.5">maxWeight</th>
       <th className="text-right px-1.5">minBet</th>
-      <th className="text-right px-1.5">quality</th>
+      <th className="text-right px-1.5" title={QUALITY_DESCRIPTION}>quality</th>
       <th className="text-right px-1.5">return</th>
       <th className="text-right px-1.5">sharpe</th>
       <th className="text-right px-1.5">sharpe400</th>
-      <th className="text-right px-1.5">sharpe80</th>
       <th className="text-right px-1.5">turnover</th>
     </tr>
   </thead>
 );
 
-function MetricCells({ m }: { m: PeriodMetrics }) {
+const MetricCells = React.memo(function MetricCells({ m }: { m: PeriodMetrics }) {
   const cellClass = "text-[10px] font-sans font-semibold tabular-nums text-right px-1.5 py-0.5 text-[#111111] dark:text-foreground";
   return (
     <>
@@ -81,20 +80,20 @@ function MetricCells({ m }: { m: PeriodMetrics }) {
       <td className={cellClass}><MetricValue metric="pnl" value={m.ann_ret ?? m.pnl}>{formatPnl(m.ann_ret ?? m.pnl)}</MetricValue></td>
       <td className={cellClass}><MetricValue metric="sharpe" value={m.sharpe}>{formatNumber(m.sharpe)}</MetricValue></td>
       <td className={cellClass}>{formatNumber(m.sharpe400)}</td>
-      <td className={cellClass}><MetricValue metric="sharpe" value={m.sharpe80}>{formatNumber(m.sharpe80)}</MetricValue></td>
       <td className={cellClass}>{isFiniteNumber(m.turnover) ? m.turnover.toFixed(2) + '%' : '-'}</td>
     </>
   );
-}
+});
 
 // React.memo — BatchRow has no props; memo prevents parent re-renders from calling this
 // component. Zustand selectors inside still trigger re-renders when their values change.
 const BatchRow = React.memo(function BatchRow() {
   const combined = useAlphaStore(s => s.result?.combined);
   const isActiveDetail = useAlphaStore(s => s.selectedAlphaIndex === -1);
-  const alphaCount = useAlphaStore(s => s.result?.alphas.length ?? 0);
+  const alphaCount = useAlphaStore(s => s.result?.alphas.filter(alpha =>
+    !s.gaSession || s.activeResultTab === 'stats' || alpha.round === s.activeResultTab).length ?? 0);
   const selectedCount = useAlphaStore(s => s.result?.alphas.reduce(
-    (count, _, index) => count + Number(s.selectedAlphaIndexSet.has(index)), 0
+    (count, alpha, index) => count + Number((!s.gaSession || s.activeResultTab === 'stats' || alpha.round === s.activeResultTab) && s.selectedAlphaIndexSet.has(index)), 0
   ) ?? 0);
   const allSelected = alphaCount > 0 && selectedCount === alphaCount;
   const partiallySelected = selectedCount > 0 && !allSelected;
@@ -140,7 +139,7 @@ const BatchRow = React.memo(function BatchRow() {
 
 // React.memo — prevents re-render when parent state (selectedCount, sortedBy) changes
 // but this row's item/index props are unchanged (rerender-memo)
-const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlphaResult; index: number }) {
+const RankRow = React.memo(function RankRow({ item, index, displayIndex }: { item: BacktestAlphaResult; index: number; displayIndex: number }) {
   const { isMetrics, osMetrics } = item;
   // Granular selectors — only re-render when this row's state changes
   const isActiveDetail = useAlphaStore(s => s.selectedAlphaIndex === index);
@@ -163,12 +162,13 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
       role="button"
       aria-expanded={isActiveDetail}
       aria-label={`View ${item.name}`}
+      title={item.error}
     >
       {/* ID */}
       <td className="text-[10px] text-[#111111] dark:text-foreground font-sans font-semibold tabular-nums px-1.5 py-0.5">
-        {String(item.rank - 1)}
+        {String(displayIndex)}
       </td>
-      {/* Save selection */}
+      {/* Selection (reserved for submit; not used by saving) */}
       <td className="px-1 py-0.5 text-center leading-[14px]">
         <button
           onClick={(e) => { e.stopPropagation(); useAlphaStore.getState().toggleAlphaSelection(index); }}
@@ -181,8 +181,7 @@ const RankRow = React.memo(function RankRow({ item, index }: { item: BacktestAlp
           {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-foreground-secondary" /> : null}
         </button>
       </td>
-      <MetricCells m={isMetrics} />
-      <MetricCells m={osMetrics} />
+      {item.error ? <td colSpan={18} className="text-[10px] text-metric-negative px-2 py-0.5">Failed: {item.error}</td> : <><MetricCells m={isMetrics} /><MetricCells m={osMetrics} /></>}
     </tr>
   );
 });
@@ -191,6 +190,17 @@ export default function AlphaRankingTable() {
   const alphas = useAlphaStore(s => s.result?.alphas) ?? EMPTY_ALPHAS;
   const selectedCount = useAlphaStore(s => s.selectedAlphaIndices.length);
   const hasCombined = useAlphaStore(s => s.result?.combined != null);
+  const gaSession = useAlphaStore(s => s.gaSession);
+  const tab = useAlphaStore(s => s.activeResultTab);
+  const rows = useMemo(() => {
+    const visible = alphas.map((item, index) => ({ item, index })).filter(row => !gaSession || tab === 'stats' || row.item.round === tab);
+    if (gaSession) visible.sort((a, b) => {
+      const left = Number.isFinite(a.item.isMetrics.sharpe) ? a.item.isMetrics.sharpe : -Infinity;
+      const right = Number.isFinite(b.item.isMetrics.sharpe) ? b.item.isMetrics.sharpe : -Infinity;
+      return left === right ? (a.item.candidateId ?? 0) - (b.item.candidateId ?? 0) : right > left ? 1 : -1;
+    });
+    return visible;
+  }, [alphas, gaSession, tab]);
   // clearAlphaSelection read via getState() — not subscribed as selector (rerender-defer-reads)
 
 
@@ -209,8 +219,8 @@ export default function AlphaRankingTable() {
           {TABLE_HEADER}
           <tbody>
             {hasCombined ? <BatchRow /> : null}
-            {alphas.map((item, index) => (
-              <RankRow key={`${item.name}-${index}`} item={item} index={index} />
+            {rows.map(({ item, index }, displayIndex) => (
+              <RankRow key={`${item.name}-${index}`} item={item} index={index} displayIndex={displayIndex} />
             ))}
           </tbody>
         </table>

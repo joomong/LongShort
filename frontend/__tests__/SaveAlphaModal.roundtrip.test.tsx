@@ -1,111 +1,208 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SaveAlphaModal from '@/components/modals/SaveAlphaModal';
 import LoadAlphaModal from '@/components/modals/LoadAlphaModal';
-import { useAlphaStore } from '@/store/alphaStore';
-import type { BacktestRunResponse } from '@/types';
+import { AlphaStorageButtons } from '@/components/editor/ControlButtons';
+import AlphaRankingTable from '@/components/multi-alpha/AlphaRankingTable';
+import GADetailLoader from '@/components/visualization/GADetailLoader';
+import GACombinedLoader from '@/components/visualization/GACombinedLoader';
+import { canShortcutRun, useAlphaStore } from '@/store/alphaStore';
+import type { BacktestAlphaResult, SavedAlphaInfo, StarConfigResponse } from '@/types';
+import single from './fixtures/cpp_single.json';
+import multi from './fixtures/cpp_multi.json';
 
 const initial = useAlphaStore.getState();
 const originalFetch = globalThis.fetch;
-const saved = new Map<string, string>();
-const xml = '<data expr="(close-open)/open" delay="1"/>\n<rank pct="false"/>';
-function setupResult(missing = false): BacktestRunResponse {
-  return { combined: null, alphas: [
-    { name: 'alpha_7', rank: 1, xml, isMetrics: { pnl: 1, sharpe: 1 }, osMetrics: { pnl: 1, sharpe: 1 } },
-    { name: 'alpha_3', rank: 2, xml: missing ? undefined : '<data expr="-close" delay="2"/>', isMetrics: { pnl: 2, sharpe: 2 }, osMetrics: { pnl: 2, sharpe: 2 } },
-  ] };
-}
+// Editor XML with choice, alternatives, comment and odd whitespace: must be sent byte-identical.
+const editorXml = '<!-- note -->\n<data expr="close" delay="1"/>\n  <choice>\n<tsmean days="5|10"/>\n</choice>\t\n';
+const config = { simStart: '2015-01-02', simEnd: '2026-09-15', executionPrice: 'close', executionPrices: ['close', 'ohlc4', 'vwap'],
+  universes: ['TOP3000', 'TOP500'], defaultUniverse: 'TOP3000', alphasDir: '/data/alphas', supportsSimEnd: true } as unknown as StarConfigResponse;
+const runSettings = { simStart: '2016-01-04', simEnd: '2026-09-15', isStart: '2016-01-04', osStart: '2024-01-01', threads: 20, universe: 'TOP500', executionPrice: 'vwap' as const };
+const metric = { pnl: 1, sharpe: 1 };
+const row = (id: number, round: number, error?: string): BacktestAlphaResult =>
+  ({ name: `alpha_${id}`, rank: id + 1, candidateId: id, round, xml: `<data expr="close" delay="1"/><tsmean days="${id}"/>`, error, isMetrics: metric, osMetrics: metric });
+
+type Call = { url: string; init?: RequestInit };
+let calls: Call[] = [];
+let saveStatus = 200;
+let listing: SavedAlphaInfo[] = [];
+let index: unknown = null;
+const json = (body: unknown, status = 200) => ({ ok: status < 300, status, statusText: '', json: async () => body }) as Response;
+
 beforeEach(() => {
-  saved.clear();
+  calls = []; saveStatus = 200; listing = []; index = null;
   useAlphaStore.setState(initial, true);
-  globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-    if (init?.method === 'POST') {
-      const payload = JSON.parse(String(init.body)) as { name: string; xml: string };
-      saved.set(payload.name, payload.xml);
-      return { ok: true, json: async () => ({ saved: true, name: payload.name }) } as Response;
-    }
-    return { ok: true, json: async () => Array.from(saved).map(([name, xml]) => ({ name, xml })) } as Response;
-  });
+  useAlphaStore.setState({ config, xmlCode: editorXml });
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith('/api/alphas') && init?.method === 'POST') return saveStatus === 200 ? json({ name: 'x', saved: true, level: 'xml', path: '/data/alphas/x' }) : json({ error: 'exists' }, saveStatus);
+    if (url.endsWith('/api/alphas')) return json(listing);
+    if (url.endsWith('/results')) return index ? json(index) : json({ error: 'missing' }, 404);
+    if (/\/results\/rows\/\d+$/.test(url)) return json(single);
+    if (url.endsWith('/results/batch')) return json(multi);
+    return json({ error: 'unexpected' }, 500);
+  }) as typeof fetch;
 });
 afterEach(() => { globalThis.fetch = originalFetch; });
 
-describe('alpha XML save/load roundtrip', () => {
-  it('saves each selected expanded XML and loads it without changing an explicit delay', async () => {
-    useAlphaStore.getState().setResult(setupResult());
-    useAlphaStore.getState().exitDetailView();
-    useAlphaStore.getState().toggleAlphaSelection(0);
-    useAlphaStore.getState().toggleAlphaSelection(1);
-    useAlphaStore.getState().setIsSaveModalOpen(true);
-    const saveView = render(<SaveAlphaModal />);
-    fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'desk' } });
+const posted = () => JSON.parse(String(calls.find(call => call.init?.method === 'POST')!.init!.body));
+function finishedResult(sourceXml = editorXml) {
+  useAlphaStore.getState().beginGA(runSettings, sourceXml);
+  for (const [id, round, error] of [[5, 2], [1, 1], [3, 1, 'boom'], [0, 1]] as const) useAlphaStore.getState().appendGACandidate(row(id, round, error));
+  useAlphaStore.getState().finishGA();
+}
+function openSave() {
+  useAlphaStore.getState().setIsSaveModalOpen(true);
+  render(<SaveAlphaModal />);
+  fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'desk' } });
+}
+
+describe('save alpha', () => {
+  it('enables the save button from editor XML alone; selection circles do not affect saving', () => {
+    const view = render(<AlphaStorageButtons />);
+    expect(screen.getByLabelText('Save alpha')).toBeEnabled();
+    expect(screen.queryByLabelText('Pin Signal')).toBeNull();
+    act(() => useAlphaStore.getState().setXmlCode('  '));
+    expect(screen.getByLabelText('Save alpha')).toBeDisabled();
+    view.unmount();
+
+    act(() => { useAlphaStore.getState().setXmlCode(editorXml); finishedResult(); });
+    render(<AlphaRankingTable />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Select alpha' })[0]);
+    expect(useAlphaStore.getState().selectedAlphaIndices).toHaveLength(1);
+    expect(useAlphaStore.getState().isSaveModalOpen).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('saves the editor XML verbatim with toolbar metadata only at the default xml level', async () => {
+    useAlphaStore.getState().setSettings({ simStart: '2017-01-03', isStart: '2017-01-03', osStart: '2023-01-02', simEnd: '', universe: '', executionPrice: 'ohlc4' });
+    openSave();
+    expect(screen.getByText('Directory: /data/alphas')).toBeInTheDocument();
+    expect(screen.getByLabelText('XML only')).toBeChecked();
+    expect(screen.getByLabelText('XML + results')).toBeDisabled();
+    expect(screen.getByLabelText('XML + results + positions')).toBeDisabled();
+    expect(screen.getByTestId('save-level-reason')).toHaveTextContent('No finished result');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(saved.size).toBe(2));
-    expect(saved.get('desk_alpha_7')).toBe(xml);
-    expect(saved.get('desk_alpha_3')).toBe('<data expr="-close" delay="2"/>');
-    saveView.unmount();
+    await waitFor(() => expect(useAlphaStore.getState().isSaveModalOpen).toBe(false));
+    expect(posted()).toEqual({ name: 'desk', xml: editorXml, level: 'xml',
+      metadata: { simStart: '2017-01-03', simEnd: '2026-09-15', isStart: '2017-01-03', osStart: '2023-01-02', universe: 'TOP3000', executionPrice: 'ohlc4' } });
+  });
+
+  it('sends successful rows in candidate order with run metadata for results and positions, ignoring selection', async () => {
+    finishedResult();
+    useAlphaStore.getState().toggleAlphaSelection(0);
+    useAlphaStore.getState().setSettings({ osStart: '2022-01-03' }); // toolbar change after the run is not the result's metadata
+    openSave();
+    fireEvent.click(screen.getByLabelText('XML + results + positions'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(useAlphaStore.getState().isSaveModalOpen).toBe(false));
+    const body = posted();
+    expect(body).toMatchObject({ name: 'desk', xml: editorXml, level: 'positions',
+      metadata: { simStart: '2016-01-04', simEnd: '2026-09-15', isStart: '2016-01-04', osStart: '2024-01-01', universe: 'TOP500', executionPrice: 'vwap' } });
+    expect(body.rows).toEqual([0, 1, 5].map(id => ({ id, round: id === 5 ? 2 : 1, xml: row(id, 0).xml })));
+  });
+
+  it('disables results levels while running or when the editor XML differs from the run XML', () => {
+    finishedResult('<data expr="open" delay="1"/>');
+    openSave();
+    expect(screen.getByLabelText('XML + results')).toBeDisabled();
+    expect(screen.getByTestId('save-level-reason')).toHaveTextContent('Editor XML differs');
+    act(() => useAlphaStore.getState().setXmlCode('<data expr="open" delay="1"/>'));
+    expect(screen.getByLabelText('XML + results')).toBeEnabled();
+    act(() => useAlphaStore.getState().setIsRunning(true));
+    expect(screen.getByLabelText('XML + results')).toBeDisabled();
+    expect(screen.getByTestId('save-level-reason')).toHaveTextContent('in progress');
+  });
+
+  it('reports an existing name (409) and keeps the dialog open', async () => {
+    saveStatus = 409;
+    openSave();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
+    expect(useAlphaStore.getState().isSaveModalOpen).toBe(true);
+  });
+});
+
+it('Shift+Enter shortcut is blocked while the save or load dialog is open', () => {
+  expect(canShortcutRun(useAlphaStore.getState())).toBe(true);
+  useAlphaStore.getState().setIsSaveModalOpen(true);
+  expect(canShortcutRun(useAlphaStore.getState())).toBe(false);
+  useAlphaStore.setState({ isSaveModalOpen: false, isLoadModalOpen: true });
+  expect(canShortcutRun(useAlphaStore.getState())).toBe(false);
+});
+
+describe('load alpha', () => {
+  const metadata = { simStart: '2018-01-02', simEnd: '2025-12-31', isStart: '2018-06-01', osStart: '2024-01-02', universe: 'TOP500', executionPrice: 'vwap' as const };
+  async function load(name: string) {
     useAlphaStore.getState().setIsLoadModalOpen(true);
     render(<LoadAlphaModal />);
-    const name = await screen.findByText('desk_alpha_7');
-    fireEvent.click(within(name.closest('.items-center') as HTMLElement).getByRole('button', { name: 'Load' }));
-    await waitFor(() => expect(useAlphaStore.getState().xmlCode).toBe(xml));
+    const heading = await screen.findByText(name);
+    fireEvent.click(within(heading.closest('.items-center') as HTMLElement).getByRole('button', { name: 'Load' }));
+    await waitFor(() => expect(useAlphaStore.getState().isLoadModalOpen).toBe(false));
+  }
+
+  it('restores XML and toolbar settings for an xml-level alpha', async () => {
+    listing = [{ name: 'plain', xml: editorXml, level: 'xml', metadata }];
+    useAlphaStore.getState().setXmlCode('<data expr="open" delay="1"/>');
+    await load('plain');
+    expect(useAlphaStore.getState().xmlCode).toBe(editorXml);
+    expect(useAlphaStore.getState().settings).toMatchObject(metadata);
+    expect(useAlphaStore.getState().result).toBeNull();
+    expect(calls.some(call => call.url.includes('/results'))).toBe(false);
   });
 
-  it('saves the checked alpha even while viewing a different detail alpha', async () => {
-    useAlphaStore.getState().setResult(setupResult());
-    useAlphaStore.getState().exitDetailView();
-    useAlphaStore.getState().toggleAlphaSelection(0);
-    useAlphaStore.getState().enterDetailView(1);
-    useAlphaStore.getState().setIsSaveModalOpen(true);
-    render(<SaveAlphaModal />);
-    fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'visible_detail' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(saved.size).toBe(1));
-    expect(saved.get('visible_detail')).toBe(xml);
-    expect(saved.has('visible_detail_alpha_7')).toBe(false);
+  it('falls back to the default universe when the saved one is unavailable and says so', async () => {
+    listing = [{ name: 'gone', xml: editorXml, level: 'results', metadata: { ...metadata, universe: 'OLD_V1' } }];
+    index = { hasBatch: false, rows: [] };
+    useAlphaStore.getState().setIsLoadModalOpen(true);
+    render(<LoadAlphaModal />);
+    const heading = await screen.findByText('gone');
+    fireEvent.click(within(heading.closest('.items-center') as HTMLElement).getByRole('button', { name: 'Load' }));
+    expect(await screen.findByText(/Saved universe "OLD_V1" is unavailable; using "TOP3000"/)).toBeInTheDocument();
+    expect(useAlphaStore.getState().xmlCode).toBe(editorXml);
+    expect(useAlphaStore.getState().settings.universe).toBe('TOP3000');
+    // The loaded result still describes how it was computed.
+    expect(useAlphaStore.getState().result?.runSettings?.universe).toBe('OLD_V1');
   });
 
-  it('requires explicit selection even when a detail alpha is already visible', () => {
-    useAlphaStore.getState().setResult(setupResult());
-    useAlphaStore.getState().setIsSaveModalOpen(true);
-    render(<SaveAlphaModal />);
-    fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'unselected' } });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+  it('shows the real error and refuses results if a run started during the fetch', async () => {
+    listing = [{ name: 'full', xml: editorXml, level: 'results', metadata }];
+    index = { hasBatch: false, rows: [] };
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const base = fetchMock.getMockImplementation() as typeof fetch;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/results')) useAlphaStore.getState().setIsRunning(true);
+      return base(input, init);
+    });
+    useAlphaStore.getState().setIsLoadModalOpen(true);
+    render(<LoadAlphaModal />);
+    const heading = await screen.findByText('full');
+    fireEvent.click(within(heading.closest('.items-center') as HTMLElement).getByRole('button', { name: 'Load' }));
+    expect(await screen.findByText('Stop the running search before loading saved results.')).toBeInTheDocument();
+    expect(useAlphaStore.getState().xmlCode).toBe(editorXml); // unchanged from beforeEach; no result attached
+    expect(useAlphaStore.getState().result).toBeNull();
   });
 
-  it('saves all batch-selected alphas while viewing an individual detail', async () => {
-    useAlphaStore.getState().setResult(setupResult());
-    useAlphaStore.getState().toggleAllAlphaSelection();
-    useAlphaStore.getState().enterDetailView(1);
-    useAlphaStore.getState().setIsSaveModalOpen(true);
-    render(<SaveAlphaModal />);
-    fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'batch' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(saved.size).toBe(2));
-    expect(saved.get('batch_alpha_7')).toBe(xml);
-    expect(saved.get('batch_alpha_3')).toBe('<data expr="-close" delay="2"/>');
-    expect(useAlphaStore.getState().selectedAlphaIndices).toEqual([]);
-  });
-
-  it('rejects a selection with missing XML before making any writes', async () => {
-    useAlphaStore.getState().setResult(setupResult(true));
-    useAlphaStore.getState().exitDetailView();
-    useAlphaStore.getState().toggleAlphaSelection(0);
-    useAlphaStore.getState().toggleAlphaSelection(1);
-    useAlphaStore.getState().setIsSaveModalOpen(true);
-    render(<SaveAlphaModal />);
-    fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'desk' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('no XML');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
-
-  it('uses delay zero only for a new editor and preserves loaded or edited XML', () => {
-    expect(initial.xmlCode).toBe('<data expr="close" delay="0"/>');
-    useAlphaStore.getState().setXmlCode(xml);
-    useAlphaStore.getState().setResult(setupResult());
-    useAlphaStore.getState().exitDetailView();
-    expect(useAlphaStore.getState().xmlCode).toBe(xml);
+  it('shows saved results with detail and Stats batch from saved files, never calling the engine', async () => {
+    listing = [{ name: 'full', xml: editorXml, level: 'results', metadata }];
+    index = { hasBatch: true, rows: multi.batches.map((batch, i) => ({ ...batch, index: i * 2 + 1, round: i + 1, origin: 'saved', status: 'completed' })) };
+    render(<><AlphaRankingTable /><GADetailLoader /><GACombinedLoader /></>);
+    await load('full');
+    const state = useAlphaStore.getState();
+    expect(state.xmlCode).toBe(editorXml);
+    expect(state.result).toMatchObject({ savedSource: 'full', sourceXml: editorXml, runSettings: metadata });
+    expect(state.gaRounds).toEqual([{ round: 1, status: 'completed' }, { round: 2, status: 'completed' }]);
+    expect(screen.getByRole('button', { name: 'View alpha_1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View alpha_3' })).toBeInTheDocument();
+    await waitFor(() => expect(useAlphaStore.getState().result?.combined?.detailLoaded).toBe(true));
+    act(() => useAlphaStore.getState().enterDetailView(1));
+    await waitFor(() => expect(useAlphaStore.getState().result?.alphas[1].detailLoaded).toBe(true));
+    expect(useAlphaStore.getState().result?.alphas[1].isRetSeries).toBeDefined();
+    const urls = calls.map(call => call.url);
+    expect(urls).toContain('http://localhost:8000/api/alphas/full/results/batch');
+    expect(urls).toContain('http://localhost:8000/api/alphas/full/results/rows/3');
+    expect(urls.some(url => url.includes('/api/simulate'))).toBe(false);
   });
 });

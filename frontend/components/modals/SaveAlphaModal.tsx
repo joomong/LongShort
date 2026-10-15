@@ -2,59 +2,93 @@
 
 import { useState } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
-import { saveAlpha } from '@/lib/api';
+import { AlphaExistsError, saveAlpha } from '@/lib/api';
+import type { SaveAlphaRequest, SavedAlphaLevel, SavedAlphaMetadata } from '@/types';
+
+const LEVELS: { value: SavedAlphaLevel; label: string }[] = [
+  { value: 'xml', label: 'XML only' },
+  { value: 'results', label: 'XML + results' },
+  { value: 'positions', label: 'XML + results + positions' },
+];
 
 export default function SaveAlphaModal() {
   const isSaveModalOpen = useAlphaStore(s => s.isSaveModalOpen);
   const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
   const result = useAlphaStore(s => s.result);
-  const selectedAlphaIndices = useAlphaStore(s => s.selectedAlphaIndices);
-  const clearAlphaSelection = useAlphaStore(s => s.clearAlphaSelection);
+  const xmlCode = useAlphaStore(s => s.xmlCode);
+  const settings = useAlphaStore(s => s.settings);
+  const config = useAlphaStore(s => s.config);
+  const isRunning = useAlphaStore(s => s.isRunning);
   const [name, setName] = useState('');
+  const [level, setLevel] = useState<SavedAlphaLevel>('xml');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const selectedAlphas = selectedAlphaIndices.map(index => result?.alphas[index]);
-
   if (!isSaveModalOpen) return null;
+
+  // Rows = every successful candidate of the current result, in candidate (batch) order.
+  const rows = (result?.alphas ?? []).map((alpha, index) => ({ alpha, index }))
+    .filter(({ alpha }) => !alpha.error && !!alpha.xml)
+    .sort((a, b) => (a.alpha.candidateId ?? a.index) - (b.alpha.candidateId ?? b.index))
+    .map(({ alpha, index }) => ({ id: alpha.candidateId ?? index, round: alpha.round ?? 0, xml: alpha.xml! }));
+  const resultsBlocked = isRunning ? 'A run is in progress.'
+    : !result || rows.length === 0 ? 'No finished result with successful rows.'
+    : !result.runSettings ? 'The result has no run settings.'
+    : result.sourceXml !== xmlCode ? 'Editor XML differs from the XML that produced the result.'
+    : '';
+  const effectiveLevel: SavedAlphaLevel = resultsBlocked ? 'xml' : level;
+
+  const metadataFor = (target: SavedAlphaLevel): SavedAlphaMetadata => {
+    const fallbackPrice = config?.executionPrice ?? 'close';
+    if (target === 'xml') {
+      return {
+        simStart: settings.simStart, simEnd: settings.simEnd || config?.simEnd || '',
+        isStart: settings.isStart, osStart: settings.osStart,
+        universe: settings.universe || config?.defaultUniverse || '',
+        executionPrice: config?.executionPrices?.length ? settings.executionPrice : fallbackPrice,
+      };
+    }
+    const run = result!.runSettings!;
+    return {
+      simStart: run.simStart, simEnd: run.simEnd || config?.simEnd || '',
+      isStart: run.isStart, osStart: run.osStart,
+      universe: run.universe || config?.defaultUniverse || '',
+      executionPrice: run.executionPrice ?? fallbackPrice,
+    };
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
       setError('Please enter a name');
       return;
     }
-
-    if (selectedAlphas.length === 0) {
-      setError('Select alphas in the result table before saving.');
+    if (!xmlCode.trim()) {
+      setError('Editor XML is empty.');
       return;
     }
-    if (selectedAlphas.some(alpha => !alpha?.xml?.trim())) {
-      setError('A selected alpha has no XML to save. Run it again before saving.');
-      return;
-    }
+    const request: SaveAlphaRequest = { name: name.trim(), xml: xmlCode, level: effectiveLevel, metadata: metadataFor(effectiveLevel) };
+    if (effectiveLevel !== 'xml') request.rows = rows;
 
     setIsLoading(true);
     setError('');
-
     try {
-      // Explicit table selection always determines the save targets, including in detail view.
-      for (const alpha of selectedAlphas) {
-        const saveName = selectedAlphas.length === 1 ? name.trim() : `${name.trim()}_${alpha!.name}`;
-        await saveAlpha(saveName, alpha!.xml!);
-      }
-      clearAlphaSelection();
+      await saveAlpha(request);
       setName('');
+      setLevel('xml');
       setIsSaveModalOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(err instanceof AlphaExistsError ? `"${request.name}" already exists. Choose another name.`
+        : err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleClose = () => {
+    if (isLoading) return;
     setName('');
     setError('');
+    setLevel('xml');
     setIsSaveModalOpen(false);
   };
 
@@ -91,17 +125,28 @@ export default function SaveAlphaModal() {
             />
           </div>
 
-          {/* Selected alphas info */}
-          {selectedAlphas.length > 0 && (
-            <div>
-              <label className="block text-sm text-foreground-secondary mb-1">Saving {selectedAlphas.length} alpha(s):</label>
-              <ul className="text-xs text-foreground-muted font-mono max-h-24 overflow-y-auto space-y-0.5">
-                {selectedAlphas.map((a, i) => (
-                  <li key={i}>{a?.name ?? 'Unavailable alpha'}</li>
-                ))}
-              </ul>
+          {/* Save level */}
+          <fieldset>
+            <legend className="block text-sm text-foreground-secondary mb-2">Save level</legend>
+            <div className="space-y-1">
+              {LEVELS.map(option => {
+                const disabled = option.value !== 'xml' && !!resultsBlocked;
+                return (
+                  <label key={option.value} className={`flex items-center gap-2 text-sm ${disabled ? 'text-foreground-muted cursor-not-allowed' : 'text-foreground cursor-pointer'}`}>
+                    <input type="radio" name="save-alpha-level" value={option.value} checked={effectiveLevel === option.value}
+                      disabled={disabled || isLoading} onChange={() => setLevel(option.value)} />
+                    {option.label}
+                  </label>
+                );
+              })}
             </div>
-          )}
+            {resultsBlocked ? <p className="mt-1 text-xs text-foreground-muted" data-testid="save-level-reason">Results unavailable: {resultsBlocked}</p>
+              : effectiveLevel !== 'xml' ? <p className="mt-1 text-xs text-foreground-muted">{rows.length} row(s); the engine recomputes them, which can take a while.</p> : null}
+          </fieldset>
+
+          {config?.alphasDir ? (
+            <p className="text-xs text-foreground-muted font-mono break-all">Directory: {config.alphasDir}</p>
+          ) : null}
 
           {/* Error */}
           {error && (
@@ -113,13 +158,14 @@ export default function SaveAlphaModal() {
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-border">
           <button
             onClick={handleClose}
+            disabled={isLoading}
             className="px-4 py-2 text-foreground-secondary hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-accent"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={isLoading || selectedAlphas.length === 0}
+            disabled={isLoading || !xmlCode.trim()}
             className="px-4 py-2 bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
           >
             {isLoading ? 'Saving\u2026' : 'Save'}

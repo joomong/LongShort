@@ -1,9 +1,0 @@
-{
-  "baseline_threads": 7,
-  "active_threads_after_progress": 9,
-  "threads_after_disconnect": 7,
-  "cancel_seconds": 0.050336712040007114,
-  "shutdown_seconds": 0.007322313729673624,
-  "shutdown_returncode": 0,
-  "first_generation": 0
-}

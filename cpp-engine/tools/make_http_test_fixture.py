@@ -7,10 +7,6 @@ plus <output>/groups/{sector,industry}.parquet. Every file is a wide panel whose
 index column is `__index_level_0__` (timestamp[ns]) and whose remaining columns are
 the symbols, exactly like the real cache. Group codes are small integers stored as
 floats; NaN would mean unclassified.
-
-<output>/costs/borrow_rates.csv is a two-row borrow rate table (symbol, from, to, rate)
-wired in through `backtest.costs.borrow` with a made-up default rate; the contract
-alphas are long-only, so it changes no number and only exercises loading/reporting.
 """
 import argparse
 import json
@@ -61,15 +57,9 @@ def main():
         write_wide(output / "groups" / f"{name}.parquet", index,
                    {s: np.full(len(days), float(codes[s])) for s in SYMBOLS})
 
-    rates = output / "costs" / "borrow_rates.csv"
-    rates.parent.mkdir(parents=True, exist_ok=True)
-    rates.write_text("symbol,from,to,rate\nB,2021-01-01,2022-12-31,0.02\nC,2023-01-01,,0.015\n")
-
     config = {"base": {"cache": str(output), "groups": str(output / "groups")},
               "universe": ["all"], "backtest": {"start_date": "2020-01-01", "end_date": "2025-12-31",
-              "initial_capital": 1000000, "transaction_fee": 5,
-              "costs": {"borrow": {"enabled": True, "default_rate": 0.01, "path": str(rates),
-                                   "day_count": 360}, "report_unapplied": True}}}
+              "initial_capital": 1000000, "transaction_fee": 5}}
     (output / "config.yaml").write_text(json.dumps(config, indent=2))
     print(output / "config.yaml")
 

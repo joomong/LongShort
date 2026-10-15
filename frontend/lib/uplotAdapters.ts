@@ -38,6 +38,10 @@ export function useContainerSize(ref: RefObject<HTMLElement>): ContainerSize {
   return size;
 }
 
+// Timestamps are UTC midnights and labels format in UTC; place time-axis splits in UTC too,
+// otherwise the browser zone shifts ticks (KST: 2020-01-01 tick lands on 2019-12-31T15:00Z).
+export const utcDate = (ts: number): Date => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC');
+
 // Options describe structure/theme only. Dimensions must not be memo dependencies.
 export function useUPlot(ref: RefObject<HTMLElement>, options: uPlot.Options | null, data: uPlot.AlignedData, size: ContainerSize, resetKey?: unknown) {
   const plot = useRef<uPlot | null>(null);
@@ -56,7 +60,7 @@ export function useUPlot(ref: RefObject<HTMLElement>, options: uPlot.Options | n
     }
     const created = ready && !plot.current;
     if (container && options && created) {
-      plot.current = new uPlot({ ...options, width: size.width, height: size.height }, data, container);
+      plot.current = new uPlot({ tzDate: utcDate, ...options, width: size.width, height: size.height }, data, container);
       active.current = { container, options };
     } else if (plot.current && ready && (plot.current.width !== size.width || plot.current.height !== size.height)) {
       plot.current.setSize(size);

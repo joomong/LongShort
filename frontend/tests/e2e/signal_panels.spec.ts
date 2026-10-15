@@ -1,3 +1,4 @@
+import { mockRun } from '../helpers/mockRun';
 import { test, expect } from '@playwright/test';
 import fixture from '../../__tests__/fixtures/cpp_single.json';
 import captured from '../../__tests__/fixtures/capture.json';
@@ -5,7 +6,7 @@ import captured from '../../__tests__/fixtures/capture.json';
 test('gray histogram with a spectrum strip and fixed heatmap keep their geometry across instrument counts', async ({ page }) => {
   let count = 6;
   await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-  await page.route('**/api/simulate', route => {
+  await mockRun(page, route => {
     const response = structuredClone(fixture);
     const source = response.signalPlot;
     const plot = { ...source, symbols: Array.from({ length: count }, (_, i) => `S${i}`),
@@ -54,7 +55,7 @@ test('heatmap compares instruments on each date instead of each instrument acros
   response.signalPlot = plot;
   Object.assign(response.batches[0], { signalPlot: plot });
   await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-  await page.route('**/api/simulate', route => route.fulfill({ json: response }));
+  await mockRun(page, route => route.fulfill({ json: response }));
   await page.goto('/');
   await page.getByLabel('Run Backtest (Shift+Enter)').click();
   const heatmap = page.getByLabel('Signal heatmap');

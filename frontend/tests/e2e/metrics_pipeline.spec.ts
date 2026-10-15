@@ -1,3 +1,4 @@
+import { mockRun } from '../helpers/mockRun';
 import { test, expect } from '@playwright/test';
 import multi from '../../__tests__/fixtures/cpp_multi.json';
 import single from '../../__tests__/fixtures/cpp_single.json';
@@ -11,7 +12,7 @@ for (const kind of ['single', 'multi'] as const) {
     let requests = 0;
     const fixture = kind === 'single' ? single : multi;
     await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-    await page.route('**/api/simulate', route => {
+    await mockRun(page, route => {
       requests++;
       return route.fulfill({ json: fixture });
     });
@@ -30,7 +31,7 @@ for (const kind of ['single', 'multi'] as const) {
     if (kind === 'single') {
       await expect(page.getByLabel('Signal heatmap')).toBeVisible();
       await expect(page.getByLabel('Signal distribution')).toBeVisible();
-      await expect(page.getByText('Signals', { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId('signal-analysis').getByText('Signals', { exact: true })).toHaveCount(0);
       await expect(page.getByText('+ Long / − Short', { exact: true })).toHaveCount(0);
       await expect(page.getByText(/Sampled .* bars/)).toHaveCount(0);
     } else {
@@ -42,7 +43,7 @@ for (const kind of ['single', 'multi'] as const) {
     }
     const editor = page.locator('.monaco-editor').first();
     await expect(editor).toBeVisible({ timeout: 20000 });
-    await expect(editor.locator('.view-lines')).toContainText('delay="0"/>');
+    await expect(editor.locator('.view-lines')).toContainText('delay="1"/>');
     const original = await editor.locator('.view-lines').innerText();
     await page.screenshot({ path: `test-results/reference-${kind}-results.png`, fullPage: true });
     for (const batch of fixture.batches) {
@@ -64,9 +65,10 @@ for (const kind of ['single', 'multi'] as const) {
       await expect.poll(() => page.locator('.uplot:visible canvas').evaluate(el => (el as HTMLCanvasElement).width)).toBeGreaterThan(100);
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       const plot = await page.locator('.uplot:visible .u-over').boundingBox();
-      expect(plot!.width).toBeLessThanOrEqual(820);
-      expect(plot!.width / plot!.height).toBeGreaterThan(1.66);
-      expect(plot!.width / plot!.height).toBeLessThan(1.74);
+      const chartPanel = (await page.getByTestId('performance-chart-panel').boundingBox())!;
+      expect(plot!.width).toBeLessThanOrEqual(chartPanel.width);
+      expect(plot!.width).toBeGreaterThan(plot!.height);
+      expect(chartPanel.height).toBeLessThanOrEqual(480);
       expect((await page.locator('header').boundingBox())!.height).toBeLessThanOrEqual(76);
       expect(await editor.locator('.view-lines').evaluate(el => getComputedStyle(el).lineHeight)).toBe('16px');
       expect((await editor.locator('.margin').boundingBox())!.width).toBeLessThanOrEqual(45);
@@ -75,8 +77,9 @@ for (const kind of ['single', 'multi'] as const) {
       await expect(page.getByRole('region', { name: 'Selected alpha XML' }).locator('pre')).toHaveText(batch.xml);
       await page.screenshot({ path: `test-results/reference-${kind}-detail-${batch.index}.png`, fullPage: true });
       await page.getByRole('button', { name: `View alpha_${batch.index}`, exact: true }).click();
-      if (kind === 'single') await expect(page.getByLabel('Signal heatmap')).toBeVisible();
-      else await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+      await expect(page.getByTestId('alpha-detail')).toBeVisible();
+      if (kind === 'multi') await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+      else await expect(page.getByLabel('Signal heatmap')).not.toBeVisible();
     }
     if (kind === 'multi') expect(requests).toBe(1);
     expect(errors).toEqual([]);

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress, StarConfigResponse, SignalPayload } from '@/types';
+import type { BacktestRunResponse, BacktestSettings, ViewMode, PinnedSnapshot, GAProgress, StarConfigResponse, SignalPayload, GARound, BacktestAlphaResult } from '@/types';
 import { getConfig } from '@/lib/api';
 import { selectSignalCell, selectSignalSource } from '@/lib/signalSelection';
+import { gaCombinedGroup, pendingGACombined } from '@/lib/gaCombined';
 
 interface AlphaState {
   // XML Editor
@@ -67,6 +68,26 @@ interface AlphaState {
   gaProgress: GAProgress | null;
   setGAProgress: (progress: GAProgress | null) => void;
 
+  gaSession: boolean;
+  /** Search completed or stopped; a later stopGA is a no-op. */
+  gaFinished: boolean;
+  gaRounds: GARound[];
+  activeResultTab: 'stats' | number;
+  gaCombinedKey: string;
+  gaCombinedCache: Record<string, BacktestAlphaResult>;
+  cacheGACombined: (key: string, combined: BacktestAlphaResult, revision: number) => void;
+  beginGA: (settings: NonNullable<BacktestRunResponse['runSettings']>, sourceXml?: string) => void;
+  /** Show a saved result as a finished GA (rows/detail/batch read from saved files). */
+  loadSavedResult: (result: BacktestRunResponse) => void;
+  startGARound: (round: number) => void;
+  appendGACandidate: (alpha: BacktestAlphaResult) => void;
+  endGARound: (round: number) => void;
+  finishGA: () => void;
+  stopGA: () => void;
+  clearGA: () => void;
+  selectResultTab: (tab: 'stats' | number) => void;
+  cacheGADetail: (index: number, detail: Partial<BacktestAlphaResult>, revision: number) => void;
+
   // Snapshots
   pinnedSnapshots: PinnedSnapshot[];
   addSnapshot: (snapshot: PinnedSnapshot) => void;
@@ -76,19 +97,54 @@ interface AlphaState {
 
 export const MAX_CACHED_SIGNAL_ALPHAS = 5;
 
+/** The global Shift+Enter shortcut runs only when idle and no save/load dialog is open. */
+export function canShortcutRun(s: Pick<AlphaState, 'isRunning' | 'isSaveModalOpen' | 'isLoadModalOpen'>) {
+  return !s.isRunning && !s.isSaveModalOpen && !s.isLoadModalOpen;
+}
+
+function combinedView(state: AlphaState, alphas = state.result?.alphas ?? [], tab = state.activeResultTab) {
+  const { key } = gaCombinedGroup(alphas, tab);
+  return {
+    gaCombinedKey: key,
+    result: state.result ? { ...state.result, alphas, combined: key ? state.gaCombinedCache[key] ??
+      (state.gaCombinedKey === key ? state.result.combined : null) ?? pendingGACombined() : null } : null,
+  };
+}
+
+/** A finished single-alpha result opens its signal analysis; performance detail stays one tab away. */
+function singleAlphaSignals(state: AlphaState) {
+  const alphas = state.result?.alphas ?? [];
+  return alphas.length === 1 && !alphas[0].error && state.viewMode === 'detail' && state.selectedAlphaIndex === 0
+    ? { viewMode: 'single' as const, selectedAlphaIndex: null } : {};
+}
+
 const defaultSettings: BacktestSettings = {
-  simStart: '2020-01-01',
-  isStart: '2023-01-01',
+  simStart: '2016-01-01',
+  simEnd: '',
+  isStart: '2016-01-01',
   osStart: '2024-01-01',
-  barInterval: 'D1',
+  executionPrice: 'close',
   universe: '',
-  nJobs: 5,
+  nJobs: 20,
   gaPopulation: 50,
+  gaFirstSearch: 200,
+  gaStopRound: 40,
+  gaStopAlphas: 400,
 };
 
-const defaultXml = `<data expr="close" delay="0"/>`;
+const defaultXml = `<data expr="close" delay="1"/>`;
 
-/** Ensure isStart < osStart, both clamped to [minDate, maxDate] if provided. */
+function resetSplit(s: BacktestSettings, from: string, to: string) {
+  const start = new Date(from + 'T12:00:00Z');
+  const end = new Date(to + 'T12:00:00Z');
+  const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000);
+  start.setUTCDate(start.getUTCDate() + Math.max(1, Math.round(totalDays * 0.7)));
+  s.simStart = from;
+  s.isStart = from;
+  s.osStart = start.toISOString().slice(0, 10);
+}
+
+/** Preserve warmup and valid splits inside the inclusive simulation window. */
 export function enforceSettingsDates(
   s: BacktestSettings,
   minDate?: string,
@@ -107,13 +163,20 @@ export function enforceSettingsDates(
   };
 
   r.simStart = clamp(r.simStart);
+  r.simEnd = r.simEnd ? clamp(r.simEnd) : (maxDate ?? '');
+  if (r.simEnd && r.simStart > r.simEnd) r.simStart = r.simEnd;
+  if (r.simEnd && (r.isStart > r.simEnd || r.osStart > r.simEnd) &&
+      !(r.simStart === r.simEnd && r.isStart === r.simStart && r.osStart === nextDay(r.simEnd))) {
+    resetSplit(r, r.simStart, r.simEnd);
+  }
   r.isStart = clamp(r.isStart);
-  r.osStart = clamp(r.osStart);
+  r.osStart = r.simStart === r.simEnd ? nextDay(r.simStart) : clamp(r.osStart);
 
   // Enforce simStart <= isStart < osStart
-  if (r.simStart > r.isStart) r.simStart = r.isStart;
+  if (r.simStart > r.isStart) r.isStart = r.simStart;
   if (r.isStart >= r.osStart) {
-    r.osStart = clamp(nextDay(r.isStart));
+    r.osStart = nextDay(r.isStart);
+    if (r.simEnd && r.osStart > r.simEnd && r.simStart !== r.simEnd) resetSplit(r, r.simStart, r.simEnd);
   }
 
   return r;
@@ -205,20 +268,20 @@ export const useAlphaStore = create<AlphaState>((set) => ({
 
   // View Mode
   viewMode: 'single',
-  setViewMode: (mode) => set({ viewMode: mode }),
+  setViewMode: (mode) => set(state => (state.result?.alphas.length ?? 0) > 1 && mode !== 'detail' ? state : { viewMode: mode }),
 
   // Detail View
   selectedAlphaIndex: null,
   enterDetailView: (index) =>
     set((state) => {
+      if (!state.result || (index === -1 ? !state.result.combined : !state.result.alphas[index])) return state;
       if (state.viewMode === 'detail' && state.selectedAlphaIndex === index) {
-        const baseMode = (state.result?.alphas?.length ?? 0) > 1 ? 'multi' : 'single';
-        return { viewMode: baseMode, selectedAlphaIndex: null };
+        return state;
       }
       return { viewMode: 'detail', selectedAlphaIndex: index, selectedSignalAlphaIndex: index,
         ...selectSignalCell(selectSignalSource({ result: state.result, selectedSignalAlphaIndex: index }), state.selectedSymbol, state.selectedTimestamp) };
     }),
-  exitDetailView: () => set((state) => ({
+  exitDetailView: () => set((state) => (state.result?.alphas.length ?? 0) > 1 ? state : ({
     viewMode: (state.result?.alphas?.length ?? 0) > 1 ? 'multi' : 'single',
     selectedAlphaIndex: null,
   })),
@@ -235,9 +298,12 @@ export const useAlphaStore = create<AlphaState>((set) => ({
       return { selectedAlphaIndices, selectedAlphaIndexSet: new Set(selectedAlphaIndices) };
     }),
   toggleAllAlphaSelection: () => set((state) => {
-    const indices = state.result?.alphas.map((_, index) => index) ?? [];
+    const indices = state.result?.alphas.flatMap((alpha, index) =>
+      !state.gaSession || state.activeResultTab === 'stats' || alpha.round === state.activeResultTab ? [index] : []) ?? [];
     const allSelected = indices.length > 0 && indices.every(index => state.selectedAlphaIndexSet.has(index));
-    const selectedAlphaIndices = allSelected ? [] : indices;
+    const visible = new Set(indices);
+    const selectedAlphaIndices = allSelected ? state.selectedAlphaIndices.filter(index => !visible.has(index))
+      : Array.from(new Set([...state.selectedAlphaIndices, ...indices])).sort((a, b) => a - b);
     return { selectedAlphaIndices, selectedAlphaIndexSet: new Set(selectedAlphaIndices) };
   }),
   clearAlphaSelection: () => set({ selectedAlphaIndices: [], selectedAlphaIndexSet: new Set() }),
@@ -254,25 +320,17 @@ export const useAlphaStore = create<AlphaState>((set) => ({
     try {
       const config = await getConfig();
       set((state) => {
-        let s = { ...state.settings };
-        if (config.mode === 0 || config.mode === 1) s.barInterval = config.mode === 0 ? 'D0' : 'D1';
+        const s = { ...state.settings };
+        s.executionPrice = config.executionPrice ?? 'close';
         if (!config.universes?.includes(s.universe)) s.universe = config.defaultUniverse ?? '';
         const minDate = config.simStart;
         const maxDate = config.simEnd;
+        s.simEnd = config.supportsSimEnd && state.config ? s.simEnd : maxDate;
         // If current settings are outside data range, compute fresh defaults
         const outOfRange = s.isStart < minDate || s.isStart > maxDate ||
           s.osStart < minDate || s.osStart > maxDate;
         if (outOfRange) {
-          // Compute a ~70/30 IS/OS split
-          const start = new Date(minDate + 'T12:00:00Z');
-          const end = new Date(maxDate + 'T12:00:00Z');
-          const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000);
-          const isDays = Math.max(1, Math.round(totalDays * 0.7));
-          const osStartDate = new Date(start);
-          osStartDate.setUTCDate(osStartDate.getUTCDate() + isDays);
-          s.simStart = minDate;
-          s.isStart = minDate;
-          s.osStart = osStartDate.toISOString().slice(0, 10);
+          resetSplit(s, minDate, s.simEnd || maxDate);
         }
         return { config, settings: enforceSettingsDates(s, minDate, maxDate) };
       });
@@ -284,6 +342,99 @@ export const useAlphaStore = create<AlphaState>((set) => ({
   // GA Progress
   gaProgress: null,
   setGAProgress: (progress) => set({ gaProgress: progress }),
+
+  gaSession: false,
+  gaFinished: false,
+  gaRounds: [],
+  activeResultTab: 'stats',
+  gaCombinedKey: '',
+  gaCombinedCache: {},
+  beginGA: (settings, sourceXml) => set((state) => ({
+    gaSession: true, gaFinished: false, gaRounds: [], activeResultTab: 'stats',
+    gaCombinedKey: '', gaCombinedCache: {},
+    result: { combined: null, alphas: [], runSettings: settings, sourceXml },
+    resultRevision: state.resultRevision + 1,
+    selectedAlphaIndex: null, selectedSignalAlphaIndex: null,
+    selectedAlphaIndices: [], selectedAlphaIndexSet: new Set<number>(),
+    signalCacheOrder: [], selectedSymbol: null, selectedTimestamp: null, viewMode: 'multi',
+  })),
+  loadSavedResult: (result) => set((state) => {
+    const rounds = Array.from(new Set(result.alphas.map(alpha => alpha.round ?? 0))).sort((a, b) => a - b);
+    const view = combinedView({ ...state, result, activeResultTab: 'stats', gaCombinedKey: '', gaCombinedCache: {} }, result.alphas, 'stats');
+    const index = view.result?.combined ? -1 : result.alphas.length ? 0 : null;
+    return {
+      ...view,
+      gaSession: true, gaFinished: true, gaRounds: rounds.map(round => ({ round, status: 'completed' as const })), activeResultTab: 'stats',
+      gaCombinedCache: {}, resultRevision: state.resultRevision + 1,
+      selectedAlphaIndex: index, selectedSignalAlphaIndex: index, viewMode: index === null ? 'multi' : 'detail',
+      selectedAlphaIndices: [], selectedAlphaIndexSet: new Set<number>(),
+      signalCacheOrder: [], selectedSymbol: null, selectedTimestamp: null,
+    };
+  }),
+  startGARound: (round) => set((state) => {
+    if (state.gaRounds.some(item => item.round === round)) return state;
+    const previous = state.gaRounds.at(-1)?.round;
+    const follow = previous === undefined || state.activeResultTab === previous;
+    return {
+      gaRounds: [...state.gaRounds, { round, status: 'running' }],
+      ...(follow ? { ...combinedView(state, undefined, round), activeResultTab: round, selectedAlphaIndex: null, selectedSignalAlphaIndex: null, viewMode: 'multi' as const } : {}),
+    };
+  }),
+  appendGACandidate: (alpha) => set((state) => {
+    if (!state.gaSession || !state.result || state.result.alphas.some(item => item.candidateId === alpha.candidateId)) return state;
+    const alphas = [...state.result.alphas, alpha];
+    const select = state.selectedAlphaIndex === null && (state.activeResultTab === 'stats' || state.activeResultTab === alpha.round);
+    return {
+      ...combinedView(state, alphas),
+      ...(select ? { selectedAlphaIndex: alphas.length - 1, selectedSignalAlphaIndex: alphas.length - 1, viewMode: 'detail' as const } : {}),
+    };
+  }),
+  endGARound: (round) => set((state) => ({ gaRounds: state.gaRounds.map(item => item.round === round ? { ...item, status: 'completed' } : item) })),
+  finishGA: () => set((state) => ({
+    gaFinished: true,
+    gaRounds: state.gaRounds.map(item => item.status === 'running' ? { ...item, status: 'completed' } : item),
+    ...(state.activeResultTab === state.gaRounds.at(-1)?.round ? { ...combinedView(state, undefined, 'stats'), activeResultTab: 'stats' as const } : {}),
+    ...singleAlphaSignals(state),
+  })),
+  stopGA: () => set((state) => !state.gaSession || state.gaFinished ? state : {
+    gaFinished: true,
+    gaRounds: state.gaRounds.map(item => item.status === 'running' ? { ...item, status: 'stopped' } : item),
+    ...singleAlphaSignals(state),
+  }),
+  clearGA: () => set({ gaSession: false, gaFinished: false, gaRounds: [], activeResultTab: 'stats', gaCombinedKey: '', gaCombinedCache: {} }),
+  selectResultTab: (tab) => set((state) => {
+    if (tab === state.activeResultTab) return state;
+    const alphas = state.result?.alphas ?? [];
+    const previous = state.selectedAlphaIndex;
+    const eligible = alphas.map((alpha, index) => ({ alpha, index })).filter(item => tab === 'stats' || item.alpha.round === tab);
+    eligible.sort((a, b) => {
+      const left = Number.isFinite(a.alpha.isMetrics.sharpe) ? a.alpha.isMetrics.sharpe : -Infinity;
+      const right = Number.isFinite(b.alpha.isMetrics.sharpe) ? b.alpha.isMetrics.sharpe : -Infinity;
+      return right === left ? (a.alpha.candidateId ?? 0) - (b.alpha.candidateId ?? 0) : right > left ? 1 : -1;
+    });
+    const combined = combinedView(state, alphas, tab);
+    const index = previous === -1 && combined.result?.combined ? -1
+      : previous !== null && eligible.some(item => item.index === previous) ? previous : eligible[0]?.index ?? null;
+    return {
+      ...combined,
+      activeResultTab: tab, selectedAlphaIndex: index, selectedSignalAlphaIndex: index,
+      viewMode: index === null ? 'multi' : 'detail',
+      ...selectSignalCell(index === -1 ? combined.result?.combined ?? undefined : index === null ? undefined : alphas[index], state.selectedSymbol, state.selectedTimestamp),
+    };
+  }),
+  cacheGACombined: (key, combined, revision) => set(state => {
+    if (!state.gaSession || !state.result || state.resultRevision !== revision) return state;
+    return {
+      gaCombinedCache: { ...state.gaCombinedCache, [key]: combined },
+      ...(state.gaCombinedKey === key ? { result: { ...state.result, combined } } : {}),
+    };
+  }),
+  cacheGADetail: (index, detail, revision) => set((state) => {
+    if (!state.gaSession || !state.result || state.resultRevision !== revision || !state.result.alphas[index]) return state;
+    const alphas = [...state.result.alphas];
+    alphas[index] = { ...alphas[index], ...detail };
+    return { result: { ...state.result, alphas } };
+  }),
 
   // Snapshots
   pinnedSnapshots: [],

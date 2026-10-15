@@ -1,0 +1,33 @@
+# Thin-v1 cache (docs/data_contract.md): the loader detects
+# the layout from `cache`/manifest.json. Prices (open high low close volume vwap cap) are raw;
+# `returns`, `adj_returns` and `adj_factor` are cache fields (split-adjusted close = close / adj_factor).
+# returns = total return (default signal + P&L), adj_returns = split-only; position moves in events.parquet.
+# No top-level `events:` or backtest.corporate_actions block is allowed here.
+base:
+  cache: /home/base/cache/cache_v2_cash_1d
+  groups: /home/base/cache/cache_v2_cash_1d/groups
+
+datasets:
+  - name: AFL
+    enabled: true
+    format: wide
+    path: /home/base/cache/cache_v2_cash_1d/AflData
+    catalog: afl_catalog.json
+    lazy: true
+    alignment: asof
+
+# Interval membership (universe, tradingItemId, fromDate, toDate); `name` selects the universe.
+universe:
+  path: /home/base/cache/cache_v2_cash_1d/universe.parquet
+  names: [TOP3000, TOP3000_ADR, TOP2000, TOP2000_ADR, TOP1000, TOP1000_ADR, TOP500, TOP500_ADR, TOP1000_CAP, TOP500_CAP]
+
+backtest:
+  start_date: '2016-01-01'
+  end_date: latest
+  warmup_bars: 252
+  initial_capital: 1000000
+  transaction_fee: 1.5
+  bars_per_year: 252
+  combined_mode: normalized
+  execution_price: close
+  missing_close_policy: carry

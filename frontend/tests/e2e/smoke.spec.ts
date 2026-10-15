@@ -12,10 +12,10 @@ test.describe('Smoke tests', () => {
   test('control buttons are present', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByLabel('Run Backtest (Shift+Enter)')).toBeVisible();
-    await expect(page.getByLabel('Pin Signal')).toBeVisible();
+    await expect(page.getByLabel('Save alpha')).toBeVisible();
     await expect(page.getByLabel('Load Alpha')).toBeVisible();
     const name = (await page.getByPlaceholder('alpha name').boundingBox())!;
-    const save = (await page.getByLabel('Pin Signal').boundingBox())!;
+    const save = (await page.getByLabel('Save alpha').boundingBox())!;
     const load = (await page.getByLabel('Load Alpha').boundingBox())!;
     const run = (await page.getByLabel('Run Backtest (Shift+Enter)').boundingBox())!;
     expect(save.x).toBeGreaterThan(name.x + name.width);

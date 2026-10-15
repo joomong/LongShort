@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "data/config_loader.h"
-#include <cmath>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -44,7 +43,6 @@ TEST(ConfigLoader, LegacyConfigKeepsColumnOrderAndUnits) {
     EXPECT_EQ(config.datasets[0].fields.at("close"), "close");
     EXPECT_NEAR(config.transaction_fee_rate, 0.00015, 1e-15);
     EXPECT_EQ(config.bars_per_year, 365u);
-    EXPECT_EQ(config.mode, 1);
     EXPECT_EQ(config.warmup_bars, 0u);
     EXPECT_EQ(config.combined_mode, "normalized");
     EXPECT_TRUE(config.universe.symbols.empty());
@@ -89,17 +87,16 @@ TEST(ConfigLoader, RejectsAmbiguousFieldsAndInvalidSettings) {
         EXPECT_THROW(BacktestConfig::from_yaml(files.file("invalid.yaml", config)), std::exception) << config;
 }
 
-TEST(ConfigLoader, ExecutionModeAcceptsOnlyD0AndD1) {
+TEST(ConfigLoader, ExecutionPriceAcceptsCloseOhlc4AndVwap) {
     ConfigFiles files;
-    for (int mode : {0, 1}) {
-        const auto config = BacktestConfig::from_yaml(files.file("mode.yaml",
-            "datasets: [{path: p, use_col: [close]}]\nbacktest: {mode: " + std::to_string(mode) + "}"));
-        EXPECT_EQ(config.mode, mode);
+    for (const std::string price : {"close", "ohlc4", "vwap"}) {
+        const auto config = BacktestConfig::from_yaml(files.file("price.yaml",
+            "datasets: [{path: p, use_col: [close]}]\nbacktest: {execution_price: " + price + "}"));
+        EXPECT_EQ(config.execution_price, price);
     }
-    for (const std::string mode : {"-1", "2", "1.5", "true", "99999999999999999999"}) {
-        EXPECT_THROW(BacktestConfig::from_yaml(files.file("bad_mode.yaml",
-            "datasets: [{path: p, use_col: [close]}]\nbacktest: {mode: " + mode + "}")), std::exception);
-    }
+    for (const std::string price : {"VWAP", "open", "typo"})
+        EXPECT_THROW(BacktestConfig::from_yaml(files.file("bad_price.yaml",
+            "datasets: [{path: p, use_col: [close]}]\nbacktest: {execution_price: " + price + "}")), std::exception);
 }
 
 TEST(ConfigLoader, LatestEndDateIsDefaultAndExplicitDatesRemainFixed) {
@@ -130,6 +127,21 @@ TEST(ConfigLoader, MissingClosePolicyDefaultsToCarryAndAcceptsError) {
             std::exception);
 }
 
+TEST(ConfigLoader, AlphasDirDefaultsBesideTheConfigAndResolvesRelativePaths) {
+    ConfigFiles files;
+    const auto dir = std::filesystem::path(files.dir).lexically_normal();
+    const auto defaults = BacktestConfig::from_yaml(files.file("default.yaml", legacy));
+    EXPECT_EQ(defaults.alphas_dir, (dir / "alphas").string());
+    const auto relative = BacktestConfig::from_yaml(files.file("relative.yaml",
+        "alphas_dir: saved/../my_alphas/\n" + legacy));
+    EXPECT_EQ(relative.alphas_dir, (dir / "my_alphas").string());
+    const auto absolute = BacktestConfig::from_yaml(files.file("absolute.yaml",
+        "alphas_dir: /var/tmp/longshort_alphas\n" + legacy));
+    EXPECT_EQ(absolute.alphas_dir, "/var/tmp/longshort_alphas");
+    EXPECT_THROW(BacktestConfig::from_yaml(files.file("empty.yaml", "alphas_dir: ''\n" + legacy)),
+                 std::exception);
+}
+
 TEST(ConfigLoader, RemovedSettlementAndCorporateActionSettingsAreRejected) {
     ConfigFiles files;
     const std::string base = "datasets: [{path: p, use_col: [close]}]\n";
@@ -150,7 +162,7 @@ TEST(ConfigLoader, RemovedSettlementAndCorporateActionSettingsAreRejected) {
 }
 
 // base: expands into the standard price/group datasets without listing every field
-// (docs/neutralize_plan_2026-09-16.md 4.3).
+// (docs/data_contract.md 4.3).
 TEST(ConfigLoader, BaseBlockRegistersNineStandardFieldsWithoutDatasets) {
     ConfigFiles files;
     const auto config = BacktestConfig::from_yaml(files.file("base.yaml", R"(base:
@@ -267,70 +279,5 @@ TEST(ConfigLoader, BaseBlockNeedsCacheAndGroupsAndDatasetsRemainRequiredWithoutI
                                    "base: {cache: /c, groups: g}\ndatasets:\nbacktest: {}"}) {
         const auto config = BacktestConfig::from_yaml(files.file("base_only.yaml", body));
         EXPECT_EQ(config.datasets.size(), 2u) << body;
-    }
-}
-
-TEST(ConfigLoader, CostsDefaultToEveryModuleOffAndReadEveryKey) {
-    ConfigFiles files;
-    const auto config = BacktestConfig::from_yaml(files.file("config.yaml", legacy));
-    EXPECT_FALSE(config.costs.borrow.enabled);
-    EXPECT_TRUE(std::isnan(config.costs.borrow.default_rate));
-    EXPECT_TRUE(config.costs.borrow.path.empty());
-    EXPECT_EQ(config.costs.borrow.day_count, 360u);
-    EXPECT_EQ(config.costs.borrow.symbol_col, "symbol");
-    EXPECT_EQ(config.costs.borrow.from_col, "from");
-    EXPECT_EQ(config.costs.borrow.to_col, "to");
-    EXPECT_EQ(config.costs.borrow.rate_col, "rate");
-    EXPECT_TRUE(config.costs.report_unapplied);
-
-    const auto explicit_config = BacktestConfig::from_yaml(files.file("costs.yaml", R"(datasets: [{path: p, use_col: [close]}]
-backtest:
-  costs:
-    report_unapplied: false
-    borrow:
-      enabled: true
-      default_rate: 0.0125
-      path: costs/borrow_rates.csv
-      day_count: 365
-      symbol_col: tradingItemId
-      from_col: validFrom
-      to_col: validTo
-      rate_col: annualRate
-)"));
-    EXPECT_TRUE(explicit_config.costs.borrow.enabled);
-    EXPECT_DOUBLE_EQ(explicit_config.costs.borrow.default_rate, 0.0125);
-    EXPECT_EQ(explicit_config.costs.borrow.path, "costs/borrow_rates.csv");
-    EXPECT_EQ(explicit_config.costs.borrow.day_count, 365u);
-    EXPECT_EQ(explicit_config.costs.borrow.symbol_col, "tradingItemId");
-    EXPECT_EQ(explicit_config.costs.borrow.from_col, "validFrom");
-    EXPECT_EQ(explicit_config.costs.borrow.to_col, "validTo");
-    EXPECT_EQ(explicit_config.costs.borrow.rate_col, "annualRate");
-    EXPECT_FALSE(explicit_config.costs.report_unapplied);
-    // Null values keep the defaults: no default rate, no table.
-    const auto nulls = BacktestConfig::from_yaml(files.file("nulls.yaml",
-        "datasets: [{path: p, use_col: [close]}]\nbacktest: {costs: {borrow: {enabled: true, default_rate: null, path: null}}}"));
-    EXPECT_TRUE(nulls.costs.borrow.enabled);
-    EXPECT_TRUE(std::isnan(nulls.costs.borrow.default_rate));
-    EXPECT_TRUE(nulls.costs.borrow.path.empty());
-
-    const std::string datasets = "datasets: [{path: p, use_col: [close]}]\n";
-    const std::vector<std::pair<std::string, std::string>> invalid = {
-        {datasets + "backtest: {costs: [borrow]}", "must be a mapping"},
-        {datasets + "backtest: {costs: {borrow: true}}", "must be a mapping"},
-        {datasets + "backtest: {costs: {borrow: {day_count: 0}}}", "outside the supported range"},
-        {datasets + "backtest: {costs: {borrow: {day_count: -1}}}", "outside the supported range"},
-        {datasets + "backtest: {costs: {borrow: {default_rate: -0.01}}}", "nonnegative"},
-        {datasets + "backtest: {costs: {borrow: {default_rate: .nan}}}", "nonnegative"},
-        {datasets + "backtest: {costs: {borrow: {rate_col: ''}}}", "must not be empty"},
-        {datasets + "backtest: {costs: {borrow: {from_col: same, to_col: same}}}", "must be distinct"},
-    };
-    for (const auto& invalid_case : invalid) {
-        try {
-            BacktestConfig::from_yaml(files.file("invalid_costs.yaml", invalid_case.first));
-            ADD_FAILURE() << "expected an error for: " << invalid_case.first;
-        } catch (const std::exception& error) {
-            EXPECT_NE(std::string(error.what()).find(invalid_case.second), std::string::npos)
-                << invalid_case.first << "\n  threw: " << error.what();
-        }
     }
 }

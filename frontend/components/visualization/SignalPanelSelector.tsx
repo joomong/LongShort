@@ -9,6 +9,7 @@ export default function SignalPanelSelector() {
   const result = useAlphaStore(s => s.result);
   const hasResult = result !== null;
   const isSingleAlpha = result?.alphas.length === 1;
+  const canShowSignals = isSingleAlpha;
   const revision = useAlphaStore(s => s.resultRevision);
   const selected = useAlphaStore(s => s.selectedSignalAlphaIndex);
   const viewMode = useAlphaStore(s => s.viewMode);
@@ -22,14 +23,15 @@ export default function SignalPanelSelector() {
   const xml = alpha?.xml;
   const heatmap = source?.heatmap;
   const { simStart, isStart, osStart } = result?.runSettings ?? currentSettings;
-  const mode = result?.runSettings?.mode ?? (currentSettings.barInterval === 'D0' ? 0 : 1);
+  const simEnd = result?.runSettings ? result.runSettings.simEnd : currentSettings.simEnd;
   const threads = result?.runSettings?.threads ?? currentSettings.nJobs;
   const universe = result?.runSettings?.universe ?? currentSettings.universe;
+  const executionPrice = result?.runSettings?.executionPrice ?? currentSettings.executionPrice;
 
   useEffect(() => {
     setError('');
     setLoading(false);
-    if (!hasResult || !isSingleAlpha || viewMode === 'detail' || heatmap || index < 0) return;
+    if (!hasResult || !canShowSignals || viewMode === 'detail' || heatmap || index < 0 || alpha?.error) return;
     if (!xml) {
       setError('This alpha has no saved XML to load its signals.');
       return;
@@ -37,7 +39,7 @@ export default function SignalPanelSelector() {
     const controller = new AbortController();
     let active = true;
     setLoading(true);
-    runSimulate(xml, simStart, isStart, osStart, controller.signal, threads, mode, { universe }).then(response => {
+    runSimulate(xml, simStart, isStart, osStart, controller.signal, threads, { universe, executionPrice, simEnd }).then(response => {
       if (!active) return;
       const batch = response.batches[0];
       const signals = adaptSignalPayload(batch?.signalPlot ? batch : response);
@@ -51,9 +53,9 @@ export default function SignalPanelSelector() {
     return () => { active = false; controller.abort(); };
     // result identity can change when another alpha's signal cache is populated.
     // The revision identifies the original backtest and guards stale responses.
-  }, [hasResult, isSingleAlpha, revision, index, xml, heatmap, simStart, isStart, osStart, mode, threads, universe, viewMode, retry]);
+  }, [hasResult, canShowSignals, revision, index, xml, heatmap, simStart, simEnd, isStart, osStart, threads, universe, executionPrice, viewMode, retry, alpha?.error]);
 
-  if (!result || !isSingleAlpha || (!loading && !error)) return null;
+  if (!result || !canShowSignals || (!loading && !error)) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 border-b border-border bg-background-secondary text-[11px]">
       {loading ? <span role="status">Loading signals…</span> : null}

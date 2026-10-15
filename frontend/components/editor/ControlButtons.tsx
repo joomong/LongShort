@@ -6,11 +6,10 @@ import { useThemeStore } from '@/store/themeStore';
 interface ControlButtonsProps {
   onRun: () => void;
   onStop: () => void;
-  onRunGA: () => void;
   vertical?: boolean;
 }
 
-export default function ControlButtons({ onRun, onStop, onRunGA, vertical = false }: ControlButtonsProps) {
+export default function ControlButtons({ onRun, onStop, vertical = false }: ControlButtonsProps) {
   const isRunning = useAlphaStore(s => s.isRunning);
   const gaProgress = useAlphaStore(s => s.gaProgress);
   const { theme, toggleTheme } = useThemeStore();
@@ -34,17 +33,12 @@ export default function ControlButtons({ onRun, onStop, onRunGA, vertical = fals
             ? 'bg-transparent text-[#8e8b9d] cursor-not-allowed'
             : 'bg-accent hover:bg-accent-hover text-white'
         }`}
-        title="Run Backtest (Shift+Enter)"
+        title="Start GA (Shift+Enter)"
         aria-label="Run Backtest (Shift+Enter)"
       >
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
           <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
         </svg>
-      </button>
-
-      <button onClick={onRunGA} disabled={isRunning} aria-label="Run GA" title="Run GA"
-        className="flex items-center justify-center w-[22px] h-[22px] bg-transparent hover:bg-[#59576e] text-[#f0eff5] font-mono text-xs disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-accent">
-        GA
       </button>
 
       {/* Stop Button */}
@@ -104,12 +98,10 @@ export default function ControlButtons({ onRun, onStop, onRunGA, vertical = fals
 export function AlphaStorageButtons() {
   const setIsSaveModalOpen = useAlphaStore(s => s.setIsSaveModalOpen);
   const setIsLoadModalOpen = useAlphaStore(s => s.setIsLoadModalOpen);
-  const isSaveDisabled = useAlphaStore(s =>
-    !s.result || s.selectedAlphaIndices.length === 0
-  );
+  const isSaveDisabled = useAlphaStore(s => !s.xmlCode.trim());
   return (
     <div className="flex shrink-0 items-center gap-0.5 text-[#d7d5e0]" role="toolbar" aria-label="Alpha storage">
-      {/* Pin Signal Button (save signal) */}
+      {/* Save alpha (editor XML + toolbar settings; table selection is not used) */}
       <button
         onClick={() => setIsSaveModalOpen(true)}
         disabled={isSaveDisabled}
@@ -118,8 +110,8 @@ export function AlphaStorageButtons() {
             ? 'bg-transparent text-[#8e8b9d] cursor-not-allowed'
             : 'bg-transparent hover:bg-[#59576e] text-[#d7d5e0] hover:text-white'
         }`}
-        title={isSaveDisabled ? 'Select alphas first' : 'Save selected alphas'}
-        aria-label="Pin Signal"
+        title={isSaveDisabled ? 'Editor XML is empty' : 'Save alpha'}
+        aria-label="Save alpha"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />

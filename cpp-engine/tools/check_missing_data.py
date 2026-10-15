@@ -49,12 +49,11 @@ class Scenario:
     signal: np.ndarray
     expected: dict[int, dict[str, float]] = field(default_factory=dict)
     mask: np.ndarray | None = None
-    mode: int = 0
     sim_start: int = 0
     reject: bool = False
 
     def ledger(self, policy: str = "carry"):
-        config = LedgerConfig(mode=self.mode, fee_rate=0.0005, policy=policy,
+        config = LedgerConfig(fee_rate=0.0005, policy=policy,
                               sim_start_index=self.sim_start)
         # DataPanel stores both wide fields as float32 before simulation.
         close = self.close.astype(np.float32).astype(np.float64)
@@ -102,10 +101,9 @@ def scenarios() -> list[Scenario]:
     signal[7, :] = 0
     mask = np.ones((12, 4), dtype=bool)
     mask[6:, 3] = False
-    for mode in (0, 1):
-        for start in (0, 2):
-            cases.append(Scenario(f"clean_mode{mode}_start{start}", close, signal,
-                                  mask=mask, mode=mode, sim_start=start))
+    for start in (0, 2):
+        cases.append(Scenario(f"clean_start{start}", close, signal,
+                              mask=mask, sim_start=start))
     for value, label in ((0.0, "zero"), (-1.0, "negative"), (np.inf, "infinite")):
         cases.append(Scenario(f"abnormal_{label}",
                               panel([[100, 100], [value, 100], [100, 100]]),
@@ -201,7 +199,7 @@ def write_fixture(directory: Path, case: Scenario) -> tuple[Path, pd.DatetimeInd
               "universe": {"path": "universe.parquet", "symbols": symbols},
               "backtest": {"start_date": str(dates[0].date()), "end_date": str(dates[-1].date()),
                            "initial_capital": 1000000, "transaction_fee": 5,
-                           "bars_per_year": 252, "mode": case.mode,
+                           "bars_per_year": 252,
                            "missing_close_policy": "carry"}}
     path = directory / "config.yaml"
     path.write_text(json.dumps(config))
@@ -248,7 +246,7 @@ def http_check(binary: Path, cases: list[Scenario], root: Path) -> dict:
                                "simStart": str(dates[case.sim_start].date()),
                                "isStart": str(dates[0].date()),
                                "osStart": str(dates[-1].date()),
-                               "mode": case.mode, "missingClose": policy}
+                               "missingClose": policy}
                     try:
                         case.ledger(policy)
                     except LedgerError:

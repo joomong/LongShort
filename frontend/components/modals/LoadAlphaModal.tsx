@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
-import { getAlphaList, getAlpha } from '@/lib/api';
-import type { AlphaInfo } from '@/types';
+import { adaptGACandidate, getAlphaList, getSavedResults } from '@/lib/api';
+import type { SavedAlphaInfo } from '@/types';
+
+const LEVEL_LABEL = { xml: 'XML', results: 'Results', positions: 'Positions' } as const;
 
 export default function LoadAlphaModal() {
   const isLoadModalOpen = useAlphaStore(s => s.isLoadModalOpen);
   const setIsLoadModalOpen = useAlphaStore(s => s.setIsLoadModalOpen);
   const setXmlCode = useAlphaStore(s => s.setXmlCode);
-  const [alphas, setAlphas] = useState<AlphaInfo[]>([]);
+  const [alphas, setAlphas] = useState<SavedAlphaInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAlpha, setLoadingAlpha] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -25,8 +27,7 @@ export default function LoadAlphaModal() {
     setError('');
 
     try {
-      const { alphas } = await getAlphaList();
-      setAlphas(alphas);
+      setAlphas(await getAlphaList());
     } catch {
       setError('Failed to fetch alpha list');
     } finally {
@@ -34,18 +35,41 @@ export default function LoadAlphaModal() {
     }
   };
 
-  const handleLoad = async (name: string) => {
-    setLoadingAlpha(name);
+  const handleLoad = async (alpha: SavedAlphaInfo) => {
+    const runningMessage = 'Stop the running search before loading saved results.';
+    if (alpha.level !== 'xml' && useAlphaStore.getState().isRunning) {
+      setError(runningMessage);
+      return;
+    }
+    setLoadingAlpha(alpha.name);
     setError('');
 
     try {
-      const { xml } = await getAlpha(name);
-      setXmlCode(xml);
-      useAlphaStore.getState().setAlphaName(name);
-      useAlphaStore.getState().exitDetailView();
-      setIsLoadModalOpen(false);
-    } catch {
-      setError(`Failed to load ${name}`);
+      const saved = alpha.level === 'xml' ? null : await getSavedResults(alpha.name);
+      const store = useAlphaStore.getState();
+      if (saved && store.isRunning) throw new Error(runningMessage);
+      const { metadata } = alpha;
+      const universes = store.config?.universes;
+      const universe = !store.config || universes?.includes(metadata.universe) ? metadata.universe : store.config.defaultUniverse ?? '';
+      setXmlCode(alpha.xml);
+      store.setAlphaName(alpha.name);
+      store.setSettings({ simStart: metadata.simStart, simEnd: metadata.simEnd, isStart: metadata.isStart,
+        osStart: metadata.osStart, universe, executionPrice: metadata.executionPrice });
+      if (saved) {
+        const alphas = saved.rows.filter(row => row.status === 'completed').map(adaptGACandidate);
+        store.setBacktestError(null);
+        store.loadSavedResult({ combined: null, alphas, sourceXml: alpha.xml, savedSource: alpha.name,
+          runSettings: { ...metadata, threads: useAlphaStore.getState().settings.nJobs } });
+      } else {
+        store.exitDetailView();
+      }
+      if (universe !== metadata.universe) {
+        setError(`Saved universe "${metadata.universe}" is unavailable; using "${universe || 'engine default'}".`);
+      } else {
+        setIsLoadModalOpen(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to load ${alpha.name}`);
     } finally {
       setLoadingAlpha(null);
     }
@@ -96,19 +120,24 @@ export default function LoadAlphaModal() {
                   key={alpha.name}
                   className="flex items-center justify-between p-3 bg-background-elevated border border-border hover:bg-border-hover transition-colors"
                 >
-                  <div>
-                    <h3 className="font-medium text-foreground">{alpha.name}</h3>
-                    <p className="text-xs text-foreground-secondary">
-                      {alpha.createdAt ? new Date(alpha.createdAt).toLocaleString() : ''}
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="font-medium text-foreground">{alpha.name}</h3>
+                      <span className="px-1 text-[10px] border border-border text-foreground-secondary" data-testid="level-badge">{LEVEL_LABEL[alpha.level] ?? alpha.level}</span>
+                    </div>
+                    <p className="text-xs text-foreground-secondary font-mono">
+                      {alpha.metadata ? `${alpha.metadata.simStart} ~ ${alpha.metadata.simEnd} \u00b7 OS ${alpha.metadata.osStart} \u00b7 ${alpha.metadata.universe} \u00b7 ${alpha.metadata.executionPrice}` : ''}
                     </p>
                   </div>
+                  <div className="flex shrink-0 gap-1">
                   <button
-                    onClick={() => handleLoad(alpha.name)}
+                    onClick={() => handleLoad(alpha)}
                     disabled={loadingAlpha !== null}
                     className="px-3 py-1 text-sm bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {loadingAlpha === alpha.name ? 'Loading\u2026' : 'Load'}
                   </button>
+                  </div>
                 </div>
               ))}
             </div>

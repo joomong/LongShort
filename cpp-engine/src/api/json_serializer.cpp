@@ -46,10 +46,12 @@ Json::Value yearly_to_json(const std::vector<YearlyMetrics>& yearly) {
         j["pnl"]      = y.pnl_pct;
         j["annRet"]   = y.ann_ret;
         j["sharpe"]   = y.sharpe;
+        j["ir"]       = y.ir;
         j["maxDD"]    = y.max_dd;
         j["winLose"]  = y.win_lose; // already percentage points
         j["dailyTvr"] = y.daily_tvr;
         j["margin"]   = y.margin;
+        j["fitness"]  = y.fitness;
         arr.append(j);
     }
     return arr;
@@ -98,11 +100,6 @@ Json::Value timeseries_to_json(const TimeseriesOutput& ts) {
         frozen.append(v);
     j["frozenGross"] = frozen;
 
-    Json::Value borrow(Json::arrayValue);
-    for (double v : ts.borrow_cost)
-        borrow.append(v);
-    j["borrowCost"] = borrow;
-
     return j;
 }
 
@@ -149,6 +146,7 @@ Json::Value signal_plot_to_json(
         throw std::invalid_argument("Signal plot dates must match signal rows");
     SampledIndices columns;
     SampledIndices rows;
+    std::size_t original_symbols = symbols.size();
     if (symbol_subset) {
         for (std::size_t ii : *symbol_subset) {
             if (ii >= symbols.size())
@@ -157,7 +155,24 @@ Json::Value signal_plot_to_json(
         }
         rows = sample_indices(start_index, signals.size(), signals.size());  // every row
     } else {
-        columns = sample_indices(0, symbols.size(), max_cells);
+        // With a universe mask, columns are the symbols that are members on at least one
+        // displayed row (panel order); the cell budget then samples over that set.
+        std::vector<std::size_t> candidates;
+        const bool restrict = universe_mask && !universe_mask->empty();
+        if (restrict) {
+            const std::size_t n = symbols.size();
+            std::vector<uint8_t> ever(n, 0);
+            for (std::size_t di = start_index; di < signals.size(); ++di)
+                for (std::size_t ii = 0; ii < n; ++ii)
+                    if ((*universe_mask)[di * n + ii]) ever[ii] = 1;
+            for (std::size_t ii = 0; ii < n; ++ii)
+                if (ever[ii]) candidates.push_back(ii);
+        }
+        const std::size_t column_count = restrict ? candidates.size() : symbols.size();
+        columns = sample_indices(0, column_count, max_cells);
+        if (restrict)
+            for (std::size_t& k : columns.indices) k = candidates[k];
+        original_symbols = column_count;
         const std::size_t row_limit = std::max<std::size_t>(
             1, max_cells / std::max<std::size_t>(columns.indices.size(), 1));
         rows = sample_indices(start_index, signals.size(), row_limit);
@@ -199,10 +214,10 @@ Json::Value signal_plot_to_json(
     }
     const std::size_t original_rows = signals.size() - std::min(start_index, signals.size());
     j["originalRows"] = static_cast<Json::UInt64>(original_rows);
-    j["originalSymbols"] = static_cast<Json::UInt64>(symbols.size());
+    j["originalSymbols"] = static_cast<Json::UInt64>(original_symbols);
     j["rowStride"] = static_cast<Json::UInt64>(rows.stride);
     j["symbolStride"] = static_cast<Json::UInt64>(columns.stride);
-    j["sampled"] = rows.indices.size() < original_rows || columns.indices.size() < symbols.size();
+    j["sampled"] = rows.indices.size() < original_rows || columns.indices.size() < original_symbols;
     return j;
 }
 

@@ -115,6 +115,58 @@ TEST(ParquetLoader, LazyAliasesLoadOnceAndAsOfUsesOnlyKnownRowsIncludingNulls) {
     EXPECT_TRUE(std::isnan(panel.at("EPS", 2, 1)));
     EXPECT_TRUE(std::isnan(panel.at("EPS", 3, 1)));
 }
+
+TEST(ParquetLoader, Ohlc4RequiresExactOhlEvenWithRestrictedLazySelection) {
+    DataFiles files;
+    files.write("close.parquet", {"A", "__index_level_0__"},
+                {numeric({100, 101, 102}), dates({0, day, 2*day})});
+    files.write("ohl.parquet", {"A", "__index_level_0__"},
+                {numeric({100, 102}), dates({0, 2*day})});
+    auto config = base(files);
+    config.datasets.push_back(wide("ohl", {{"open", "ohl.parquet"}, {"high", "ohl.parquet"},
+                                           {"low", "ohl.parquet"}}, true));
+    const auto close_only = DataPanel::load(config, {"close"});
+    EXPECT_FALSE(close_only.has_column("open"));
+
+    config.execution_price = "ohlc4";
+    const auto panel = DataPanel::load(config, {"close"});
+    EXPECT_EQ(panel.loaded_field_count(), 4u);
+    for (const char* field : {"open", "high", "low"}) {
+        EXPECT_FLOAT_EQ(panel.at(field, 0, 0), 100);
+        EXPECT_TRUE(std::isnan(panel.at(field, 1, 0))); // Never forward-fill a fill price.
+        EXPECT_FLOAT_EQ(panel.at(field, 2, 0), 102);
+        EXPECT_EQ(panel.lazy_columns.count(field), 0u);
+    }
+    config.datasets.back().alignment = FieldAlignment::AsOf;
+    EXPECT_THROW(DataPanel::load(config, {"close"}), std::runtime_error);
+    config.datasets.back().alignment = FieldAlignment::Exact;
+    config.datasets.back().fields.erase("high");
+    EXPECT_THROW(DataPanel::load(config, {"close"}), std::runtime_error);
+}
+TEST(ParquetLoader, VwapRequiresExactVwapHighLowEvenWithRestrictedLazySelection) {
+    DataFiles files;
+    files.write("close.parquet", {"A", "__index_level_0__"},
+                {numeric({100, 101, 102}), dates({0, day, 2*day})});
+    files.write("vhl.parquet", {"A", "__index_level_0__"},
+                {numeric({100, 102}), dates({0, 2*day})});
+    auto config = base(files);
+    config.datasets.push_back(wide("vhl", {{"vwap", "vhl.parquet"}, {"high", "vhl.parquet"},
+                                           {"low", "vhl.parquet"}}, true));
+    config.execution_price = "vwap";
+    const auto panel = DataPanel::load(config, {"close"});
+    EXPECT_EQ(panel.loaded_field_count(), 4u);
+    for (const char* field : {"vwap", "high", "low"}) {
+        EXPECT_FLOAT_EQ(panel.at(field, 0, 0), 100);
+        EXPECT_TRUE(std::isnan(panel.at(field, 1, 0)));
+        EXPECT_EQ(panel.lazy_columns.count(field), 0u);
+    }
+    config.datasets.back().alignment = FieldAlignment::AsOf;
+    EXPECT_THROW(DataPanel::load(config, {"close"}), std::runtime_error);
+    config.datasets.back().alignment = FieldAlignment::Exact;
+    config.datasets.back().fields.erase("vwap");
+    EXPECT_THROW(DataPanel::load(config, {"close"}), std::runtime_error);
+}
+
 TEST(ParquetLoader, ExplicitFieldAndSymbolProjectionDoesNotReadUnusedBadFiles) {
     DataFiles files;
     files.write("close.parquet", {"__index_level_0__", "B", "A"}, {dates({0,day}), numeric({20,21}), numeric({10,11})});
@@ -255,7 +307,7 @@ TEST(ParquetLoader, LatestDoesNotHideInvalidNonmissingPrices) {
 }
 
 // base: expands one cache directory plus one group directory into the nine standard fields
-// (docs/neutralize_plan_2026-09-16.md 4.3). Group panels are wide float codes, NaN = unclassified.
+// (docs/data_contract.md 4.3). Group panels are wide float codes, NaN = unclassified.
 TEST(ParquetLoader, BaseBlockLoadsPricesAndRealignsShuffledGroupPanels) {
     DataFiles files;
     std::filesystem::create_directories(files.dir / "BaseData");
@@ -337,7 +389,7 @@ TEST(ParquetLoader, BaseFieldRedeclaredInDatasetsIsADuplicatePublicField) {
 
 // Group codes use as-of alignment: when the price cache grows after the panels were
 // built, the last known classification is carried forward instead of turning into an
-// all-NaN row (docs/neutralize_plan_2026-09-16.md 4.3).
+// all-NaN row (docs/data_contract.md 4.3).
 TEST(ParquetLoader, GroupPanelCarriesTheLastClassificationForwardWhenTheCacheGrows) {
     DataFiles files;
     std::filesystem::create_directories(files.dir / "BaseData");

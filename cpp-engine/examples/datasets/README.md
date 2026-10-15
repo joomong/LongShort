@@ -1,8 +1,10 @@
 # C++ Parquet 데이터 연결 예제
 
-현재 thin-v1 예제는 `equities_monthly_afl.yaml`·`thin_rc2f3.yaml`(Top500)과 `compare_v2_all.yaml`(ALL)이다. 모두 같은 rc2f3 thin 캐시와 기존 월별 `AflData_M`을 읽는다. 이전 v1/v2/Altaba 비교 YAML은 [전환 계획의 부록](../../../docs/backtest_cache_simplification_plan_2026-09-23.md)에 원문으로 보존했다. 개인 폴더에 YAML과 `afl_catalog.json`을 함께 복사한 뒤 실행한다. C++ 빌드 환경 최초 설정은 [빌드 안내](../../../docs/module_discovery_build_2026-09-09.md)를 따른다.
+현재 thin-v1 설정은 `equities_monthly_afl.yaml`·`us_equity.yaml`·`compare_v2_all.yaml`의 실제 `base.cache` 경로와 manifest를 확인한다. 예제 파일명은 발행 build 이름을 보장하지 않는다. 개인 폴더에 YAML과 `afl_catalog.json`을 함께 복사한 뒤 실행한다. 현재 계약은 [데이터 계약](../../../docs/data_contract.md), 최초 빌드는 [빌드 안내](../../../docs/build_and_validation.md)를 따른다.
 
 thin 예제는 `master.parquet`의 `tradingItemId`와 `symbol`에서 UI 라벨을 읽는다(`symbol`이 없으면 `companyName`). 명시적인 `backtest.symbol_labels_path` JSON이 있으면 그 파일이 우선한다. ALL 예제는 옛 캐시의 라벨 파일에 의존하지 않는다.
+
+최상위 `alphas_dir`(선택, 기본 `alphas`)는 웹에서 저장하는 알파 폴더이며 상대경로는 YAML 폴더 기준이다.
 
 ```bash
 python3 cpp-engine/tools/run_engine.py --config /path/to/my/equities_monthly_afl.yaml
@@ -55,7 +57,7 @@ base:
 가격·유니버스는 시작 시 읽는다. AFL은 600개 팩터의 1,192개 이름을 등록하고, `DataPanel::row()`/`at()`에서 처음 참조하는 필드만 읽는다. XML뿐 아니라 사용자 C++ 모듈에서도 같은 경로를 사용한다. 동일 파일을 가리키는 이름들은 한 엔진 프로세스 안에서 값을 공유한다. 별도 엔진 프로세스는 별도 RAM을 사용한다. 사용한 필드는 프로세스 종료까지 유지되므로, 장시간 여러 팩터를 탐색하면 캐시 사용량도 늘어난다.
 
 ```xml
-<data expr="EPSNumRevFY1C" delay="0"/>
+<data expr="EPSNumRevFY1C" delay="1"/>
 <rank/>
 <zscore/>
 ```
@@ -76,13 +78,19 @@ python3 cpp-engine/tools/build_afl_catalog.py \
 
 ## 시간·유니버스 규칙
 
+실행 중인 `us_equity.yaml`의 기본 체결가는 `close`다. 화면의 Execution 선택창에서 실행마다 Close/OHLC4/VWAP를 바꿀 수 있다. 일반 설정에서 생략하면 `close`이며 허용값은 `close|ohlc4|vwap`뿐이다. VWAP는 raw 당일 `vwap`이 체결가이고 exact `vwap/high/low`가 필요하며, 결측·범위 불일치(vwap/close가 low/high 밖)·오류 규칙은 OHLC4와 같다. OHLC4는 raw `(open + high + low + close) / 4`다. `open/high/low/close` 모두 exact 정렬 원천이 필요하고, `selected_fields`를 제한하거나 lazy로 선언해도 체결 필드는 시작 시 읽는다. 필드·파일·컬럼이 없거나 asof 가격 원천이면 로딩이 실패하며 종가로 대체하지 않는다. 원본 OHLC는 바꾸지 않는다. `/api/config`는 기본 `executionPrice`와 지원하는 `executionPrices`를 제공한다. `/api/simulate`와 `/api/ga/stream`은 선택한 `executionPrice`를 요청마다 적용하며, 서버 기본값을 바꾸지 않는다.
+
+계산은 원래 팀의 고정 명목금액 근사(fixed-notional approximation)로, 정확한 주식 수 원장은 아니다. OHLC4는 기존 보유 손익에 실제 시장 매매 비중 × `(close / OHLC4 - 1)`의 추가 매매 손익을 더한다. 기업행동 position 이동 자체는 이 추가 손익이나 시장 매매 수수료를 만들지 않는다. 수수료와 목표 명목금액 규칙은 유지하며, 지연은 XML의 명시적 delay만 적용한다. 단일·combined·GA 모두 같은 체결 설정을 사용한다.
+
+개별 OHLC 셀이 결측이면 `missing_close_policy: carry`는 해당 매매를 막고 기존 노출을 동결·예약한다. 이때 관측 종가 표식과 보유 수익률은 정상 반영한다. `error`는 필요한 매매를 실행할 수 없으면 실패한다. 유한하지만 잘못된 OHLC도 관련 매매를 거부한다. 셀 결측 처리는 원천 필드 자체가 없는 경우의 로딩 오류와 별개다.
+
 - `end_date: latest` 또는 생략은 엔진 시작 시 선택한 종목들의 종가가 전부 NaN인 끝행을 제외하고 종료일을 정한다. Parquet이 갱신된 뒤 엔진을 재시작하면 새 날짜를 읽는다. 실행 중 자동 갱신과 버전 관리 기능은 없다. 열린 웹 화면은 새로고침해 날짜 범위를 갱신한다.
 - 날짜를 직접 지정한 `end_date: '2026-07-31'`은 기존처럼 그 날짜까지만 읽으며, 마지막 행이 전부 결측이어도 임의로 기간을 줄이지 않는다.
 - `latest`는 수집 완료를 보증하는 기준이 아니다. 중간의 전 종목 결측, 마지막 행의 일부 종목 결측, 0·음수·Inf 가격은 그대로 남는다. 거래 시작일 이후 종가가 전부 결측이면 로딩 오류를 반환한다.
 
 - `warmup_bars`는 `start_date` 이전에 추가로 읽을 가격 bar 수다. `0`은 추가 과거 구간 없음이다. 사용하는 시계열 연산의 누적 lookback과 지연을 감안해 지정한다. 이 구간에서는 신호·모듈 상태만 준비하고 매매·비용·보유손익은 발생하지 않는다.
 - 유니버스는 날짜별 별도 마스크다. 가격 원본을 NaN으로 덮지 않는다. `rank`와 `zscore`는 해당 신호 날짜의 유니버스 안에서 계산하고, 최종 목표 포지션도 같은 마스크를 적용한다.
-- `mode=1`에서는 목표 포지션과 마스크가 함께 하루 지연된다. 이는 비교에 사용한 팀 `pv_champ_peer`의 `sig.where(valid)` 뒤 `shift(1)` 순서를 따른다. 공통 `StatsHandler` 자체에는 별도 유니버스 강제청산 규칙이 없다.
+- Interval/`mode`와 암묵적 목표 포지션 지연은 제거했다. XML 출력 신호는 현재 날짜의 마스크로 정규화·체결한다. `delay="1"`은 XML에서 명시한다. 데이터 지연과 유니버스 마스크 지연은 서로 다르며, 마스크를 함께 shift하지 않는다.
 - 보유 중인 종목의 종가가 없을 때의 처리는 `backtest.missing_close_policy`가 정한다. 기본 `carry`는 보유를 동결하고, `error`는 기존처럼 실행을 실패시킨다. 유니버스 이탈과 실제 가격 결측은 여전히 다른 상태다.
 - `alignment: exact`는 같은 시각의 관측만 사용한다. `asof`는 해당 시각 이전의 마지막 관측을 유지하고, 최초 관측 이전은 NaN이다. 미래 값을 과거로 채우지 않는다. 파일의 날짜가 실제로 사용 가능한 시각이라는 데이터 계약이 필요하며, 이 옵션이 사후 수정 데이터의 과거 버전을 복원하지는 않는다.
 - 이 예제의 `AflData_M`은 월별 관측 캐시다. 2026-09-10 확인 당시 963번 팩터의 마지막 관측은 2026-08-28이었다. `asof` 결과가 매일 있어도 매일 갱신된 AFL 데이터는 아니다. 일별 AFL을 쓰려면 일별 원천 데이터와 사용 가능 날짜를 검증한 파일로 경로를 바꾼다.
@@ -91,4 +99,6 @@ python3 cpp-engine/tools/build_afl_catalog.py \
 
 `backtest.missing_close_policy: carry`는 보유 종목에 호가가 없을 때 position을 동결하고, 시세가 재개되면 누적 수익을 인식한다. `error`는 결측에서 실행을 중단한다. thin-v1에서는 종료 손익과 자회사 손익이 `returns.parquet`(총수익률)에 포함되고, `events.parquet`은 position 이동만 담는다. 이 파일은 최상위 `events:` 설정과 다른 형식이다.
 
-일반 long/wide `datasets:`와 manifest가 thin-v1이 아닌 wide `base.cache`는 계속 읽을 수 있다. 이 경로에서 XML의 `returns`는 종가 비율에서 파생되며, 외부 수익률은 `holding_return` 같은 다른 필드 이름으로 등록한다. 이 일반 데이터 경로에는 thin의 총수익률 손익·이동 행이 없으므로 thin 기업행동 손익 계약을 제공하지 않는다. 기존 최상위 `events:`, `backtest.corporate_actions:`, `default_delisting_return`, `stale_quote_settle_bars` 설정은 현재 로더가 거부한다. 이전 계약과 검증 기록은 [과거 기업행동 엔진 문서](../../../docs/corporate_actions_engine_2026-09-17.md)에 남아 있다.
+일반 long/wide `datasets:`와 manifest가 thin-v1이 아닌 wide `base.cache`는 계속 읽을 수 있다. 이 경로에서 XML의 `returns`는 종가 비율에서 파생되며, 외부 수익률은 `holding_return` 같은 다른 필드 이름으로 등록한다. 이 일반 데이터 경로에는 thin의 총수익률 손익·이동 행이 없으므로 thin 기업행동 손익 계약을 제공하지 않는다. 기존 최상위 `events:`, `backtest.corporate_actions:`, `default_delisting_return`, `stale_quote_settle_bars` 설정은 현재 로더가 거부한다. 현재 계약은 [데이터 계약](../../../docs/data_contract.md), 전환과 검증 근거는 [데이터·손익 연구](../../../../longshort/notebooks/data_and_pnl_contract.ipynb)에 있다.
+
+OHLC4의 O/H/L 셀 결측 또는 유한한 범위 불일치(open/close가 low/high 밖)는 `carry`에서 주문을 보류하고 기존 노출을 예약한다. `error`는 필요한 체결을 거부한다. 0 이하·무한대 가격은 관련 포지션에서 오류다.

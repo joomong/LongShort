@@ -37,16 +37,16 @@ describe('AlphaRankingTable rendering', () => {
     expect(cells[2]).toHaveTextContent('3.50');
     expect(headers[5]).toHaveTextContent('minBet');
     expect(cells[5]).toHaveTextContent('2');
-    expect(headers[12]).toHaveTextContent('avgBet');
-    expect(cells[12]).toHaveTextContent('5.25');
-    expect(headers[15]).toHaveTextContent('minBet');
-    expect(cells[15]).toHaveTextContent('1');
+    expect(headers[11]).toHaveTextContent('avgBet');
+    expect(cells[11]).toHaveTextContent('5.25');
+    expect(headers[14]).toHaveTextContent('minBet');
+    expect(cells[14]).toHaveTextContent('1');
   });
 });
 
 
 describe('Reference table formatting', () => {
-  it('keeps sign criteria as underlines, neutral turnover, and both Sharpe horizons', () => {
+  it('keeps sign criteria as underlines, neutral turnover, and Sharpe400 without Sharpe80', () => {
     const alpha = multiAlphaMetricFixture.alphas[0];
     useAlphaStore.setState({ result: { ...multiAlphaMetricFixture, alphas: [{
       ...alpha,
@@ -61,18 +61,20 @@ describe('Reference table formatting', () => {
     expect(cells[5]).toHaveTextContent(/^2$/);
     expect(cells[7]).toHaveTextContent('+947.50%');
     expect(cells[9]).toHaveTextContent('1.23');
-    expect(cells[10]).toHaveTextContent('-0.24');
-    expect(cells[11]).toHaveTextContent('26.70%');
+    expect(cells[10]).toHaveTextContent('26.70%');
     expect(cells[7].firstElementChild).toHaveClass('decoration-metric-positive', 'underline');
-    expect(cells[10].firstElementChild).toHaveClass('decoration-metric-negative', 'underline');
-    expect(cells[17].firstElementChild).toHaveClass('decoration-metric-negative');
-    expect(cells[20].firstElementChild).not.toHaveClass('underline');
-    expect(cells[11].querySelector('.underline')).toBeNull();
+    expect(cells[16].firstElementChild).toHaveClass('decoration-metric-negative');
+    expect(cells[10].querySelector('.underline')).toBeNull();
     expect(cells[7]).toHaveClass('text-[#111111]');
     expect(row.querySelector('.text-metric-positive, .text-metric-negative')).toBeNull();
     expect(screen.getAllByRole('columnheader', { name: 'sharpe400' })).toHaveLength(2);
-    expect(screen.getAllByRole('columnheader', { name: 'sharpe80' })).toHaveLength(2);
-    expect(screen.getByRole('columnheader', { name: 'IS' })).toHaveAttribute('colspan', '10');
+    expect(screen.queryByRole('columnheader', { name: 'sharpe80' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'IS' })).toHaveAttribute('colspan', '9');
+    expect(screen.getByRole('columnheader', { name: 'OS' })).toHaveAttribute('colspan', '9');
+    expect(cells).toHaveLength(20);
+    for (const header of screen.getAllByRole('columnheader', { name: 'quality' })) {
+      expect(header).toHaveAttribute('title', expect.stringContaining('max net exposure'));
+    }
   });
 
   it('keeps save selection independent of detail row activation', () => {

@@ -208,7 +208,7 @@ def main():
     parser.add_argument("--is-start", default="2010-01-01")
     parser.add_argument("--os-start", default="2100-01-01")
     parser.add_argument("--report", type=Path,
-                        default=REPO / "docs/neutralize_2026-09-16/oracle_report.md")
+                        default=Path("/tmp/group_neutralize_oracle_report.md"))
     parser.add_argument("--log-dir", type=Path, default=Path("/tmp"))
     parser.add_argument("--skip-secondary", action="store_true")
     args = parser.parse_args()

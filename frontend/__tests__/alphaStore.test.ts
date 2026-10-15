@@ -23,11 +23,9 @@ describe('fetchConfig', () => {
   it('should set config when API succeeds', async () => {
     const mockConfig = {
       symbols: ['BTCUSDT', 'ETHUSDT'],
-      simStart: '2020-01-01',
-      simEnd: '2025-01-28',
+      simStart: '2020-01-01', simEnd: '2025-01-28',
       feeRate: 0.001,
       barsPerYear: 365,
-      mode: 0 as const,
       T: 1000,
       N: 2,
       columns: ['open', 'high', 'low', 'close', 'volume'],
@@ -37,14 +35,12 @@ describe('fetchConfig', () => {
     await useAlphaStore.getState().fetchConfig();
 
     expect(useAlphaStore.getState().config).toEqual(mockConfig);
-    expect(useAlphaStore.getState().settings.barInterval).toBe('D0');
   });
 
   it('should update settings isStart and osStart when out of range', async () => {
     const mockConfig = {
       symbols: ['BTCUSDT'],
-      simStart: '2020-01-01',
-      simEnd: '2025-01-28',
+      simStart: '2020-01-01', simEnd: '2025-01-28',
       feeRate: 0.001,
       barsPerYear: 365,
       T: 1000,
@@ -57,9 +53,11 @@ describe('fetchConfig', () => {
     useAlphaStore.setState({
       settings: {
         simStart: '2018-01-01',
+        simEnd: '',
         isStart: '2018-01-01',
         osStart: '2018-07-01',
-        barInterval: 'D1',
+
+        executionPrice: 'close',
         universe: '',
         nJobs: 5,
         gaPopulation: 50,

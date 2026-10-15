@@ -116,7 +116,7 @@ TEST(PipelineContract, SingleAlphaCollectsSignalsForDetailPlot)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);
@@ -150,16 +150,16 @@ TEST(PipelineContract, SamePriceReturnProducesZeroSharpe)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0;
-    cfg.mode = 1;
+
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
     auto out = sim.run(alphas[0].pipeline);
 
     const auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover, out.max_weight,
+        out.timestamps, out.ret, out.gross_ret, out.turnover, out.max_weight,
         out.long_weight, out.short_weight, out.position_count,
-        dp.timestamps[1], dp.timestamps[5], 0.0, 365);
+        dp.timestamps[1], dp.timestamps[5], 365);
 
     EXPECT_NEAR(metrics.is_summary.pnl, 0.0, 1e-12);
     EXPECT_NEAR(metrics.os_summary.pnl, 0.0, 1e-12);
@@ -178,7 +178,7 @@ TEST(PipelineContract, SingleDayLikeSplitDoesNotCrashAndKeepsIndicesValid)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = false;
 
     Simulator sim(dp, cfg);
@@ -186,9 +186,9 @@ TEST(PipelineContract, SingleDayLikeSplitDoesNotCrashAndKeepsIndicesValid)
 
     // IS starts on bar 1, OS starts on bar 2 -> very short windows.
     const auto metrics = compute_full_metrics(
-        out.timestamps, out.ret, out.turnover, out.max_weight,
+        out.timestamps, out.ret, out.gross_ret, out.turnover, out.max_weight,
         out.long_weight, out.short_weight, out.position_count,
-        dp.timestamps[1], dp.timestamps[2], 0.0005, 365);
+        dp.timestamps[1], dp.timestamps[2], 365);
 
     EXPECT_LE(metrics.is_start_index, metrics.os_start_index);
     EXPECT_LE(metrics.os_start_index, metrics.timeseries.timestamps.size());
@@ -205,7 +205,7 @@ TEST(PipelineContract, SignalPlotPreservesNullForWarmupNaN)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0;
-    cfg.mode = 1;
+
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);
@@ -246,7 +246,7 @@ TEST(PipelineContract, VeryDeepPipelineCompilesAndRuns)
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 1;
+
     cfg.collect_signals = true;
 
     Simulator sim(dp, cfg);
@@ -288,8 +288,7 @@ TEST(PipelineContract, NeutralizeLeavesEveryGroupSumAtZeroInsideTheUniverse)
     auto alphas = compile_xml(xml, &dp);
     ASSERT_EQ(alphas.size(), 1u);
 
-    for (int mode : {0, 1}) {
-        SCOPED_TRACE("mode=" + std::to_string(mode));
+    {
         auto fresh = compile_xml(xml, &dp);
         ASSERT_EQ(fresh.size(), 1u);
 
@@ -297,7 +296,7 @@ TEST(PipelineContract, NeutralizeLeavesEveryGroupSumAtZeroInsideTheUniverse)
         cfg.T = dp.T;
         cfg.N = dp.N;
         cfg.fee_rate = 0.0005;
-        cfg.mode = mode;
+
         cfg.collect_signals = true;
 
         Simulator sim(dp, cfg);

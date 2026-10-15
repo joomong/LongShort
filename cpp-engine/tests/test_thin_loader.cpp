@@ -1,4 +1,4 @@
-// Thin-v1 cache loader (docs/backtest_cache_simplification_plan_2026-09-23.md §6). Each test
+// Thin-v1 cache loader (docs/data_contract.md). Each test
 // writes a small synthetic thin cache (6 securities + 2 unrelated, 10 days) into a temp dir.
 #include <gtest/gtest.h>
 #include "module.h"
@@ -351,7 +351,7 @@ TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
     ASSERT_EQ(ranked.size(), 1u);
     std::vector<std::vector<float>> rows;
     SimulatorConfig sc{};
-    sc.T = panel.T; sc.N = panel.N; sc.fee_rate = 0.0; sc.mode = 1; sc.collect_signals = true;
+    sc.T = panel.T; sc.N = panel.N; sc.fee_rate = 0.0; sc.collect_signals = true;
     sc.universe_mask = &small;
     const auto out = Simulator(panel, sc).run(ranked[0].pipeline);
     EXPECT_TRUE(std::isfinite(out.signals[0][a]));

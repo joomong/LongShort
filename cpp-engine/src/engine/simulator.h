@@ -4,10 +4,10 @@
 #include <cstdint>
 #include <functional>
 #include <string>
-
-class BorrowCostModel;
+#include <limits>
 
 enum class MissingClosePolicy { Carry, Error };
+enum class ExecutionPrice { Close, Ohlc4, Vwap };
 // Counts refer to affected nonzero bookkeeping weights, not share quantities.
 struct MissingDataDiagnostics {
     unsigned missing_held_count = 0;
@@ -39,7 +39,7 @@ struct AccountingRowView {
     double net_pnl;
     double turnover;
     const MissingDataDiagnostics& diagnostics;
-    double borrow_cost;         // financing taken from net_pnl on this bar (0 without a model)
+    double execution_pnl = 0.0; // actual market trades * (close / execution price - 1)
 };
 
 struct SimulatorConfig {
@@ -49,20 +49,21 @@ struct SimulatorConfig {
     unsigned T;
     unsigned N;
     double fee_rate;        // fraction (e.g., 0.0005)
-    int mode;               // 0=D0, 1=D1
     bool collect_signals = false;  // run() stores the T×N raw signal matrix
     SignalRowCallback signal_row_callback{}; // run() observes raw rows before normalization
     unsigned sim_start_index = 0; // earlier bars warm modules/targets, with no positions or fees
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
     AccountingRowCallback accounting_row_callback{}; // opt-in for either execution path
-    // Borrow financing of the short book (src/engine/costs.h); null = no cost, bit-identical.
-    const BorrowCostModel* borrow = nullptr;
     // Run-selected signal-date mask (universe.names); null = data.universe_mask.
     const std::vector<uint8_t>* universe_mask = nullptr;
+    ExecutionPrice execution_price = ExecutionPrice::Close;
+    unsigned sim_end_index = std::numeric_limits<unsigned>::max(); // exclusive; default = panel end
 };
 
 struct SimulatorOutput {
-    std::vector<double> ret;
+    std::vector<double> ret;        // net: gross pnl - turnover * fee_rate
+    std::vector<double> gross_ret;  // gross pnl before fees; performance metrics use this
+    std::vector<double> execution_ret; // trading-price contribution, included in gross_ret
     std::vector<double> turnover;
     std::vector<double> max_weight;
     std::vector<double> long_weight;
@@ -71,8 +72,6 @@ struct SimulatorOutput {
     std::vector<int64_t> timestamps;
     std::vector<std::vector<float>> signals;  // T×N raw signal (only when collect_signals=true)
     std::vector<MissingDataDiagnostics> missing_data; // T bars; last bar exposes terminal frozen holdings
-    std::vector<double> borrow_cost;      // T bars; financing subtracted from ret (net) on each bar
-    std::vector<unsigned> borrow_unrated; // T bars; short names carried without any rate (charged 0)
 };
 
 class Module;
@@ -90,6 +89,9 @@ class Simulator {
 public:
     Simulator(const DataPanel& data, const SimulatorConfig& config);
     SimulatorOutput run(const std::vector<Module*>& pipeline);
+    // Generate the same raw rows without running an individual portfolio.
+    void run_signal_rows(const std::vector<Module*>& pipeline,
+                         const SimulatorConfig::SignalRowCallback& callback);
     SimulatorOutput run_from_signals(const std::vector<std::vector<float>>& signals);
 private:
     const DataPanel& data_;

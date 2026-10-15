@@ -114,6 +114,9 @@ describe('adaptSimulateResponse', () => {
     expect(adapted.alphas[0].isMaxWeightSeries?.['2024-01-02']).toBeCloseTo(30, 9);
     expect(adapted.alphas[0].osRetSeries?.['2024-01-03']).toBeCloseTo(0.005, 9);
     expect(adapted.alphas[0].osRetSeries?.['2024-01-04']).toBeCloseTo(0.015, 9);
+    expect(adapted.alphas[0].isGrossRetSeries?.['2024-01-02']).toBeCloseTo(0.011, 9);
+    expect(adapted.alphas[0].osGrossRetSeries?.['2024-01-03']).toBeCloseTo(0.005, 9);
+    expect(adapted.alphas[0].osGrossRetSeries?.['2024-01-04']).toBeCloseTo(0.015, 9);
     expect(adapted.alphas[0].yearly?.[0].year).toBe(2024);
 
     expect(adapted.alphas[1].name).toBe('alpha_7');

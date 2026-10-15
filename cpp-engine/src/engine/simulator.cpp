@@ -1,5 +1,4 @@
 #include "simulator.h"
-#include "costs.h"
 #include "../../include/module.h"
 #include "../data/data_panel.h"
 #include <algorithm>
@@ -30,18 +29,18 @@ std::string unusable_price_message(unsigned di, unsigned ii) {
            ", asset " + std::to_string(ii);
 }
 
-SimulatorOutput make_output(const DataPanel& data) {
+SimulatorOutput make_output(const DataPanel& data, unsigned end) {
     SimulatorOutput output;
-    output.ret.assign(data.T, 0.0);
-    output.turnover.assign(data.T, 0.0);
-    output.max_weight.assign(data.T, 0.0);
-    output.long_weight.assign(data.T, 0.0);
-    output.short_weight.assign(data.T, 0.0);
-    output.position_count.assign(data.T, 0);
-    output.missing_data.assign(data.T, MissingDataDiagnostics{});
-    output.borrow_cost.assign(data.T, 0.0);
-    output.borrow_unrated.assign(data.T, 0u);
-    output.timestamps = data.timestamps;
+    output.ret.assign(end, 0.0);
+    output.gross_ret.assign(end, 0.0);
+    output.execution_ret.assign(end, 0.0);
+    output.turnover.assign(end, 0.0);
+    output.max_weight.assign(end, 0.0);
+    output.long_weight.assign(end, 0.0);
+    output.short_weight.assign(end, 0.0);
+    output.position_count.assign(end, 0);
+    output.missing_data.assign(end, MissingDataDiagnostics{});
+    output.timestamps.assign(data.timestamps.begin(), data.timestamps.begin() + std::min<std::size_t>(end, data.timestamps.size()));
     return output;
 }
 
@@ -52,15 +51,16 @@ SimulatorOutput make_output(const DataPanel& data) {
 class PortfolioSimulation {
 public:
     PortfolioSimulation(const DataPanel& data, const SimulatorConfig& config)
-        : output(make_output(data)), data_(data), config_(config),
+        : output(make_output(data, std::min(data.T, config.sim_end_index))), data_(data), config_(config),
           previous_weights_(data.N, 0.0),
-          previous_targets_(config.mode == 1 ? data.N : 0, 0.0),
           targets_(data.N, 0.0),
           carried_(data.N, 0.0),
           weights_(data.N, 0.0),
           marks_(data.N, kNaN),
           retired_(data.N, 0),
           quote_state_(data.N, kQuoteObserved),
+          execution_prices_(data.N, kNaN),
+          execution_available_(data.N, 0),
           missing_bars_(data.N, 0),
           pending_transfer_(data.N, 0.0),
           records_rows_(static_cast<bool>(config.accounting_row_callback)) {
@@ -78,7 +78,7 @@ public:
         MissingDataDiagnostics diagnostics;
         double pnl = 0.0;
         double turnover = 0.0;
-        double borrow = 0.0;
+        double execution_pnl = 0.0;
 
         if (records_rows_) {
             marks_before_.assign(marks_.begin(), marks_.end());
@@ -101,20 +101,14 @@ public:
         apply_successor_transfers();
 
         if (trading) {
-            execute(diagnostics, turnover);
+            execution_pnl = execute(di, close, diagnostics, turnover);
+            pnl += execution_pnl;
             apply_received_moves();
             output.ret[di] = pnl;
+            output.gross_ret[di] = pnl;
+            output.execution_ret[di] = execution_pnl;
             output.turnover[di] = turnover;
             output.ret[di] -= turnover * config_.fee_rate;
-            if (config_.borrow) {
-                // Financing of the short book carried from the previous close to this
-                // one; the gross P&L above is untouched, only the net return pays it.
-                unsigned unrated = 0;
-                borrow = config_.borrow->charge(di, previous_weights_, unrated);
-                output.ret[di] -= borrow;
-                output.borrow_cost[di] = borrow;
-                output.borrow_unrated[di] = unrated;
-            }
 
             double max_weight = 0.0, long_weight = 0.0, short_weight = 0.0;
             int position_count = 0;
@@ -134,18 +128,16 @@ public:
         }
         output.missing_data[di] = diagnostics;
         if (records_rows_)
-            emit_row(di, close, trading, pnl, turnover, borrow, diagnostics);
+            emit_row(di, close, trading, pnl, turnover, diagnostics, execution_pnl);
 
         previous_weights_.swap(weights_);
-        if (config_.mode == 1)
-            previous_targets_.swap(targets_);
     }
 
     SimulatorOutput output;
 
 private:
     const std::vector<double>& execution_intent() const {
-        return config_.mode == 0 ? targets_ : previous_targets_;
+        return targets_;
     }
 
     // Thin layout: move weights using the carried book at the start of the bar.
@@ -325,15 +317,70 @@ private:
         }
     }
 
-    // Only quoted securities execute. Frozen weights reduce the budget of the
-    // remaining targets; they never inflate them to refill the book.
-    void execute(MissingDataDiagnostics& diagnostics, double& turnover) {
+    // OHLC4/VWAP is a fixed-book trading-return convention, matching the team's
+    // StatsHandler: market_trade * (close / fill - 1). It does not change targets
+    // into share quantities or add price-drift rebalancing to the turnover.
+    void prepare_execution_prices(unsigned di, const float* close,
+                                  MissingDataDiagnostics& diagnostics) {
+        const bool vwap = config_.execution_price == ExecutionPrice::Vwap;
+        const char* label = vwap ? "VWAP" : "OHLC4";
+        const float* fill_source = data_.row(vwap ? "vwap" : "open", di);
+        const float* high = data_.row("high", di);
+        const float* low = data_.row("low", di);
         const auto& desired = execution_intent();
+        diagnostics.frozen_gross = 0.0;
+        for (unsigned ii = 0; ii < data_.N; ++ii) {
+            execution_prices_[ii] = kNaN;
+            execution_available_[ii] = 0;
+            if (retired_[ii]) continue;
+            if (quote_state_[ii] == kQuoteObserved) {
+                bool missing = false, corrupt = false, inconsistent = false;
+                for (float value : {fill_source[ii], high[ii], low[ii]}) {
+                    missing = missing || std::isnan(value);
+                    corrupt = corrupt || (!std::isnan(value) && !valid_close(value));
+                }
+                if (std::isfinite(high[ii]) && std::isfinite(low[ii]))
+                    inconsistent = high[ii] < low[ii] || close[ii] < low[ii] || close[ii] > high[ii];
+                if (!missing)
+                    inconsistent = inconsistent || fill_source[ii] < low[ii] || fill_source[ii] > high[ii];
+                if (corrupt && (carried_[ii] != 0.0 || desired[ii] != 0.0))
+                    throw std::runtime_error(std::string("Invalid ") + label + " execution price at bar " + std::to_string(di) +
+                                             ", asset " + std::to_string(ii));
+                // Finite but inconsistent OHLC cannot provide a trusted fill.
+                // Use the same unfilled-order policy as a missing execution quote.
+                if (!missing && !corrupt && !inconsistent) {
+                    execution_prices_[ii] = vwap ? static_cast<double>(fill_source[ii])
+                        : (static_cast<double>(fill_source[ii]) + high[ii] + low[ii] + close[ii]) / 4.0;
+                    execution_available_[ii] = 1;
+                }
+            }
+            if (!execution_available_[ii]) {
+                if (config_.missing_close_policy == MissingClosePolicy::Error && desired[ii] != carried_[ii])
+                    throw std::runtime_error(std::string("Cannot execute: missing or inconsistent ") + label + " price at bar " + std::to_string(di) +
+                                             ", asset " + std::to_string(ii));
+                // The close can still be observable and used for holding P&L.
+                // Reserve an unfillable existing position's budget, including
+                // successor stock that arrived before execution on this bar.
+                diagnostics.frozen_gross += std::fabs(carried_[ii]);
+            }
+        }
+    }
+
+    // Only securities with a usable execution quote trade. Frozen weights reduce
+    // the other targets' budget; corporate receipts themselves are never trades.
+    double execute(unsigned di, const float* close, MissingDataDiagnostics& diagnostics, double& turnover) {
+        const auto& desired = execution_intent();
+        const bool intraday_fill = config_.execution_price != ExecutionPrice::Close;
+        if (intraday_fill) prepare_execution_prices(di, close, diagnostics);
+        const auto can_trade = [&](unsigned ii) {
+            return intraday_fill ? execution_available_[ii] != 0 : quote_state_[ii] == kQuoteObserved;
+        };
+        double execution_pnl = 0.0;
         double scale = 1.0;
         if (diagnostics.frozen_gross > 0.0) {
             double tradable_gross = 0.0;
             for (unsigned ii = 0; ii < data_.N; ++ii)
-                if (!retired_[ii] && quote_state_[ii] == kQuoteObserved)
+                if (!retired_[ii] && can_trade(ii))
                     tradable_gross += std::fabs(desired[ii]);
             const double budget = std::max(0.0, 1.0 - diagnostics.frozen_gross);
             if (tradable_gross > budget)
@@ -343,7 +390,7 @@ private:
             const double target = desired[ii];
             if (retired_[ii]) {
                 weights_[ii] = 0.0;
-            } else if (quote_state_[ii] == kQuoteObserved) {
+            } else if (can_trade(ii)) {
                 weights_[ii] = target * scale;
             } else {
                 weights_[ii] = carried_[ii];
@@ -356,31 +403,35 @@ private:
             }
             const double trade = weights_[ii] - carried_[ii];
             turnover += std::fabs(trade);
+            if (intraday_fill && trade != 0.0)
+                execution_pnl += trade * (static_cast<double>(close[ii]) / execution_prices_[ii] - 1.0);
             if (records_rows_)
                 market_trades_[ii] = trade;
         }
+        return execution_pnl;
     }
 
     void emit_row(unsigned di, const float* close, bool trading, double pnl, double turnover,
-                  double borrow, const MissingDataDiagnostics& diagnostics) {
+                  const MissingDataDiagnostics& diagnostics, double execution_pnl) {
         const double fee = turnover * config_.fee_rate;
         const AccountingRowView view{
             di, trading, close, previous_weights_, execution_intent(), weights_,
             market_trades_, marks_before_, marks_, retired_,
-            pnl, fee, pnl - fee - borrow, turnover, diagnostics, borrow};
+            pnl, fee, pnl - fee, turnover, diagnostics, execution_pnl};
         config_.accounting_row_callback(view);
     }
 
     const DataPanel& data_;
     const SimulatorConfig& config_;
     std::vector<double> previous_weights_;  // book carried into the bar
-    std::vector<double> previous_targets_;
     std::vector<double> targets_;
     std::vector<double> carried_;           // book after moves, before execution
     std::vector<double> weights_;
     std::vector<double> marks_;             // last observed close; NaN before the first quote
     std::vector<uint8_t> retired_;
     std::vector<uint8_t> quote_state_;
+    std::vector<double> execution_prices_;
+    std::vector<uint8_t> execution_available_;
     std::vector<unsigned> missing_bars_;    // consecutive bars without an observable quote
     std::vector<double> pending_transfer_;  // successor exposure waiting for this bar's execution
     std::vector<double> received_;          // distribution moves joining after execution
@@ -429,18 +480,31 @@ Simulator::Simulator(const DataPanel& data, const SimulatorConfig& config)
 {
     if (config_.T != data_.T || config_.N != data_.N || config_.N == 0)
         throw std::invalid_argument("Simulator dimensions must match a nonempty asset panel");
-    if (config_.mode != 0 && config_.mode != 1)
-        throw std::invalid_argument("Simulator mode must be 0 or 1");
     if (!std::isfinite(config_.fee_rate) || config_.fee_rate < 0.0)
         throw std::invalid_argument("Simulator fee_rate must be finite and nonnegative");
     if (config_.sim_start_index > data_.T)
         throw std::invalid_argument("Simulator start index exceeds the data panel");
+    if (config_.sim_end_index != std::numeric_limits<unsigned>::max() && config_.sim_end_index > data_.T)
+        throw std::invalid_argument("Simulator end index exceeds the data panel");
+    if (config_.sim_start_index > std::min(data_.T, config_.sim_end_index))
+        throw std::invalid_argument("Simulator start index exceeds the end index");
     if (!data_.universe_mask.empty() &&
         data_.universe_mask.size() != static_cast<size_t>(data_.T) * data_.N)
         throw std::invalid_argument("Universe mask dimensions must match the data panel");
     if (config_.universe_mask && !config_.universe_mask->empty() &&
         config_.universe_mask->size() != static_cast<size_t>(data_.T) * data_.N)
         throw std::invalid_argument("Universe mask dimensions must match the data panel");
+    if (config_.execution_price != ExecutionPrice::Close && config_.execution_price != ExecutionPrice::Ohlc4 &&
+        config_.execution_price != ExecutionPrice::Vwap)
+        throw std::invalid_argument("Unsupported execution price");
+    if (config_.execution_price == ExecutionPrice::Ohlc4)
+        for (const char* field : {"open", "high", "low"})
+            if (!data_.has_column(field))
+                throw std::invalid_argument(std::string("OHLC4 execution requires data field '") + field + "'");
+    if (config_.execution_price == ExecutionPrice::Vwap)
+        for (const char* field : {"vwap", "high", "low"})
+            if (!data_.has_column(field))
+                throw std::invalid_argument(std::string("VWAP execution requires data field '") + field + "'");
     if (data_.thin_layout) {
         if (data_.returns_total.size() != static_cast<size_t>(data_.T) * data_.N)
             throw std::invalid_argument("Thin returns_total must align with the data panel");
@@ -463,13 +527,13 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
     std::vector<float> signal_buffer(data_.N, 0.0f);
     SignalVector signal{signal_buffer.data(), data_.N};
     if (config_.collect_signals)
-        simulation.output.signals.resize(data_.T);
+        simulation.output.signals.resize(simulation.output.ret.size());
 
     for (Module* module : pipeline) {
         module->numAssets = data_.N;
         module->init();
     }
-    for (unsigned di = 0; di < data_.T; ++di) {
+    for (unsigned di = 0; di < simulation.output.ret.size(); ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init())
             signal.fill_nan();
         for (Module* module : pipeline)
@@ -484,6 +548,21 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
     return std::move(simulation.output);
 }
 
+void Simulator::run_signal_rows(const std::vector<Module*>& pipeline,
+                               const SimulatorConfig::SignalRowCallback& callback) {
+    std::vector<float> buffer(data_.N, 0.0f);
+    SignalVector signal{buffer.data(), data_.N};
+    for (Module* module : pipeline) {
+        module->numAssets = data_.N;
+        module->init();
+    }
+    for (unsigned di = 0; di < std::min(data_.T, config_.sim_end_index); ++di) {
+        if (!pipeline.empty() && !pipeline[0]->skips_nan_init()) signal.fill_nan();
+        for (Module* module : pipeline) module->calculate(di, signal);
+        if (callback) callback(di, buffer.data(), data_.N);
+    }
+}
+
 SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>>& signals) {
     if (signals.size() != config_.T ||
         std::any_of(signals.begin(), signals.end(), [this](const auto& row) {
@@ -492,7 +571,7 @@ SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>
         throw std::invalid_argument("Signal matrix dimensions must match the data panel");
 
     PortfolioSimulation simulation(data_, config_);
-    for (unsigned di = 0; di < data_.T; ++di)
+    for (unsigned di = 0; di < simulation.output.ret.size(); ++di)
         simulation.advance(di, signals[di].data());
     return std::move(simulation.output);
 }

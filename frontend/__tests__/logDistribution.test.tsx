@@ -6,7 +6,7 @@ import { useAlphaStore } from '@/store/alphaStore';
 import rawFixture from './fixtures/cpp_single.json';
 import type { StarBatchResponse, StarDistribution } from '@/types';
 
-const fixture: StarBatchResponse = { ...rawFixture, mode: rawFixture.mode as 0 | 1 };
+const fixture: StarBatchResponse = { ...rawFixture };
 const initial = useAlphaStore.getState();
 const logarithmic: StarDistribution = {
   scale: 'symlog', min: -10, max: 10, bins: [-3, 0, 3], edges: [-10, -1, 1, 10], counts: [1, 8, 2],

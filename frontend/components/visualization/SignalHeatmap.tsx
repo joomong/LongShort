@@ -7,7 +7,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { getThemeColors } from '@/lib/themeColors';
 import { zscoreToRgb, parseHex } from '@/lib/colorScale';
 import { symbolLabel, symbolMatches } from '@/lib/symbolLabels';
-import { robustCrossSection } from '@/lib/heatmapStats';
+import { normalizeHeatmap } from '@/lib/heatmapWorkers';
 import { SIGNAL_HEATMAP_HEIGHT } from '@/lib/signalPanelLayout';
 import { isMember, OUT_OF_UNIVERSE_RGB } from '@/lib/universeMembership';
 
@@ -35,6 +35,21 @@ function SignalHeatmap() {
   const cellSizeRef = useRef({ w: 1, h: 1 });
   // Granular selectors — avoid subscribing to the full result object for selection state
   const heatmap = useAlphaStore(s => selectSignalSource(s)?.heatmap);
+  const [normalized, setNormalized] = useState<{ values: NonNullable<typeof heatmap>['values']; rows: Float32Array[] } | null>(null);
+  const normalizedRef = useRef(normalized);
+  normalizedRef.current = normalized;
+  const values = heatmap?.values;
+  const symbolCount = heatmap?.symbols.length ?? 0;
+  useEffect(() => {
+    if (!values) { setNormalized(null); return; }
+    const task = normalizeHeatmap(values, symbolCount);
+    let active = true;
+    baseImageDataRef.current = null;
+    const canvas = canvasRef.current;
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    task.promise.then(rows => { if (active) setNormalized({ values, rows }); }).catch(() => {});
+    return () => { active = false; task.cancel(); };
+  }, [values, symbolCount]);
   const selectedSymbol = useAlphaStore(s => s.selectedSymbol);
   const selectedTimestamp = useAlphaStore(s => s.selectedTimestamp);
   const setSelectedCell = useAlphaStore(s => s.setSelectedCell);
@@ -156,7 +171,9 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
      // Cross-sectional robust z-score per date: red is above the same-date median, blue below.
      // Dates are independent; raw values remain unchanged for selection and tooltips.
      const base = parseHex(colors.chartBackground) ?? [255, 255, 255];
-     const zRows = robustCrossSection(values, numSymbols);
+     const normalization = normalizedRef.current;
+     if (!normalization || normalization.values !== values) return;
+     const zRows = normalization.rows;
 
      const image = ctx.createImageData(width, height);
      const px = image.data;
@@ -200,7 +217,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
    // Full redraw only when heatmap data or theme changes
    useEffect(() => {
      drawBase();
-   }, [drawBase, heatmap, theme]);
+   }, [drawBase, heatmap, theme, normalized]);
 
    // Fast overlay-only redraw when selection changes
    useEffect(() => {
@@ -350,6 +367,7 @@ const drawSelectionOverlay = useCallback((ctx: CanvasRenderingContext2D) => {
 
       <canvas
         aria-label="Signal heatmap"
+        aria-busy={!!values && normalized?.values !== values}
         ref={canvasRef}
         onClick={handleClick}
         onMouseMove={handleMouseMove}

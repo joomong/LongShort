@@ -1,3 +1,4 @@
+import { mockRun } from '../helpers/mockRun';
 import { test, expect, type Page } from '@playwright/test';
 import captured from '../../__tests__/fixtures/capture.json';
 import fixture from '../../__tests__/fixtures/cpp_multi.json';
@@ -11,7 +12,7 @@ async function setup(page: Page, sampled = false) {
   const body = { ...response, signalPlot: plot, batches: response.batches.slice(0, 1).map(b => ({ ...b, signalPlot: plot })), combined: undefined };
   const requests: string[] = [];
   await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-  await page.route('**/api/simulate', route => {
+  await mockRun(page, route => {
     const symbol = route.request().postDataJSON().signalPlotSymbols?.[0];
     if (symbol) {
       requests.push(symbol);
@@ -99,6 +100,9 @@ test('performance charts remain fixed under wheel and drag while retaining hover
   await expect(page.getByText('PnL ($M)', { exact: true })).toBeVisible();
   await expect(page.locator('.chart-tooltip:visible')).toContainText('Net: $-1.01M');
   await expect(page.locator('.chart-tooltip:visible')).toContainText('Gross:');
+  // Gross is the solid primary curve; net is dashed.
+  await expect(page.getByText('━ Gross', { exact: true })).toBeVisible();
+  await expect(page.getByText('┄ Net', { exact: true })).toBeVisible();
   await expect(page.getByText('━ IS', { exact: true })).toBeVisible();
   await expect(page.getByText('━ OS', { exact: true })).toBeVisible();
   // Inspect actual rendered strokes: both curves are amber in IS and green in OS.

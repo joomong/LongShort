@@ -13,19 +13,15 @@ struct TimeseriesOutput {
     std::vector<double> drawdown;
     // Missing-close accounting, empty unless the caller supplies the series.
     std::vector<double> frozen_gross;   // held exposure with no quote on the bar
-    // Borrow financing taken from net on the bar, empty unless supplied; the gross
-    // cumulative series adds it back beside the fee.
-    std::vector<double> borrow_cost;
 };
 
 TimeseriesOutput compute_timeseries(
     const std::vector<int64_t>& timestamps,
-    const std::vector<double>& ret,
+    const std::vector<double>& net_ret,
+    const std::vector<double>& gross_ret,
     const std::vector<double>& turnover,
     const std::vector<double>& max_weight,
     const std::vector<int>& position_count,
-    double fee_rate,
-    std::size_t start_index = 1,
-    const std::vector<double>* frozen_gross = nullptr,
-    const std::vector<double>* borrow_cost = nullptr
+    std::size_t start_index = 0,
+    const std::vector<double>* frozen_gross = nullptr
 );

@@ -41,7 +41,7 @@ struct DataPanel {
     std::unordered_map<std::string, std::vector<uint8_t>> universe_masks;
     // Mask for a run: empty name = default; unknown name throws std::invalid_argument.
     const std::vector<uint8_t>& mask_for(const std::string& name) const;
-    // Thin cache (docs/backtest_cache_simplification_plan_2026-09-23.md §3, §6). The loader
+    // Thin cache (docs/data_contract.md§6). The loader
     // sets these when base.cache is a thin-v1 layout; the simulator then books holding P&L
     // as carried weight x returns_total and applies move_events, and nothing else.
     // returns_total is read from the thin cache's returns.parquet (total return; also the

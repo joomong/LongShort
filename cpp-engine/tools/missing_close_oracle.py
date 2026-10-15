@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent missing-close / delisting accounting ledger.
 
-Written from the accounting contract (docs/missing_data_validation_2026-09-11.md
+Written from the accounting contract (docs/data_contract.md
 and the implementation brief), not from the C++ simulator. It reproduces the
 fixed-book notional-weight book bar by bar so the engine can be compared against
 a second implementation rather than against itself.
@@ -41,7 +41,6 @@ class LedgerError(RuntimeError):
 
 @dataclass
 class LedgerConfig:
-    mode: int = 1                       # 0 = same-bar intent, 1 = previous-bar intent
     fee_rate: float = 0.0005            # one-way fraction of traded notional
     policy: str = "carry"               # "carry" | "error"
     default_delisting_return: float = 0.0
@@ -64,8 +63,6 @@ class LedgerConfig:
     count_unheld_post_end_date_bars: bool = True
 
     def __post_init__(self) -> None:
-        if self.mode not in (0, 1):
-            raise ValueError("mode must be 0 or 1")
         if self.policy not in ("carry", "error"):
             raise ValueError("policy must be 'carry' or 'error'")
         if not np.isfinite(self.fee_rate) or self.fee_rate < 0.0:
@@ -147,14 +144,14 @@ class LedgerResult:
         return totals
 
     def http_timeseries(self) -> dict:
-        """The server's timeseries contract: cumulative net P&L from the first metric bar."""
-        begin = max(self.config.sim_start_index, 1) if self.config.mode == 1 else self.config.sim_start_index
+        """The server's timeseries contract from the first metric bar: cumulative net and gross P&L, drawdown on gross."""
+        begin = self.config.sim_start_index
         begin = min(begin, len(self.ret))
         ret = self.ret[begin:]
         turnover = self.turnover[begin:]
         cum = np.cumsum(ret)
         cum_gross = np.cumsum(ret + turnover * self.config.fee_rate)
-        peak = np.maximum.accumulate(np.concatenate([[0.0], cum]))[1:] if len(cum) else cum
+        peak = np.maximum.accumulate(np.concatenate([[0.0], cum_gross]))[1:] if len(cum_gross) else cum_gross
         peak = np.maximum(peak, 0.0)
         return {
             "begin": begin,
@@ -164,7 +161,7 @@ class LedgerResult:
             "turnover": turnover * 100.0,
             "maxWeight": self.max_weight[begin:] * 100.0,
             "nonzeroCount": self.position_count[begin:],
-            "drawdown": cum - peak,
+            "drawdown": cum_gross - peak,
             "frozenGross": self.diagnostics["frozen_gross"][begin:],
             "settledGross": self.diagnostics["settled_gross"][begin:],
         }
@@ -281,7 +278,6 @@ def run_ledger(close: np.ndarray,
     # An event bar reached while the security still quotes: settlement waits.
     pending = np.zeros(N, dtype=bool)
     missing_run = np.zeros(N, dtype=np.int64)
-    previous_targets = np.zeros(N, dtype=np.float64)
 
     out = {name: np.zeros(T, dtype=np.float64) for name in
            ("ret", "gross_pnl", "fee", "turnover", "long_weight", "short_weight", "max_weight")}
@@ -417,7 +413,7 @@ def run_ledger(close: np.ndarray,
         # ---- 2. intent over the signal-date universe --------------------------
         mask_row = None if mask is None else mask[t]
         targets = normalize_signal_row(signal[t], valid, mask_row, retired, cfg.policy)
-        execution = targets if cfg.mode == 0 else previous_targets
+        execution = targets
         desired_hist[t] = execution
 
         if not trading:
@@ -428,8 +424,6 @@ def run_ledger(close: np.ndarray,
             retired_hist[t] = retired
             for name in DIAGNOSTIC_FIELDS:
                 diagnostics[name][t] = diag[name]
-            if cfg.mode == 1:
-                previous_targets = targets
             continue
 
         engaged = (~retired) & ((h_prev != 0.0) | (execution != 0.0))
@@ -519,8 +513,6 @@ def run_ledger(close: np.ndarray,
             diagnostics[name][t] = diag[name]
 
         h_prev = h
-        if cfg.mode == 1:
-            previous_targets = targets
 
     return LedgerResult(
         config=cfg, timestamps=timestamps,

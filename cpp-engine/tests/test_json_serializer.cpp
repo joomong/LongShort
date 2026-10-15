@@ -8,6 +8,8 @@ TEST(JsonSerializer, YearlyWinLoseKeepsPercentagePointsIncludingZero) {
     YearlyMetrics winning_year{};
     winning_year.year = 2024;
     winning_year.win_lose = 62.5;
+    winning_year.ir = -0.125;
+    winning_year.fitness = -1.25;
     YearlyMetrics losing_year{};
     losing_year.year = 2025;
     losing_year.win_lose = 0.0;
@@ -17,9 +19,17 @@ TEST(JsonSerializer, YearlyWinLoseKeepsPercentagePointsIncludingZero) {
     EXPECT_EQ(json[0]["year"].asInt(), 2024);
     ASSERT_TRUE(json[0]["winLose"].isNumeric());
     EXPECT_DOUBLE_EQ(json[0]["winLose"].asDouble(), 62.5);
+    ASSERT_TRUE(json[0]["ir"].isNumeric());
+    EXPECT_DOUBLE_EQ(json[0]["ir"].asDouble(), -0.125);
+    ASSERT_TRUE(json[0]["fitness"].isNumeric());
+    EXPECT_DOUBLE_EQ(json[0]["fitness"].asDouble(), -1.25);
     EXPECT_EQ(json[1]["year"].asInt(), 2025);
     ASSERT_TRUE(json[1]["winLose"].isNumeric());
     EXPECT_DOUBLE_EQ(json[1]["winLose"].asDouble(), 0.0);
+    ASSERT_TRUE(json[1]["ir"].isNumeric());
+    EXPECT_DOUBLE_EQ(json[1]["ir"].asDouble(), 0.0);
+    ASSERT_TRUE(json[1]["fitness"].isNumeric());
+    EXPECT_DOUBLE_EQ(json[1]["fitness"].asDouble(), 0.0);
 }
 
 TEST(JsonSerializer, SummaryPreservesLegacyKeysForPositionCounts) {
@@ -182,8 +192,8 @@ TEST(JsonSerializer, TimeseriesCarriesFrozenGrossAcrossTheTradingSpan) {
     const std::vector<double> ret(3, 0.0), turnover(3, 0.0), max_weight(3, 0.0);
     const std::vector<int> position_count(3, 0);
     const std::vector<double> frozen = {9.0, 0.25, 0.5};
-    const auto series = compute_timeseries(timestamps, ret, turnover, max_weight,
-                                           position_count, 0.0005, 1, &frozen);
+    const auto series = compute_timeseries(timestamps, ret, ret, turnover, max_weight,
+                                           position_count, 1, &frozen);
     ASSERT_EQ(series.frozen_gross.size(), 2u);
     EXPECT_DOUBLE_EQ(series.frozen_gross[0], 0.25);
     EXPECT_DOUBLE_EQ(series.frozen_gross[1], 0.5);
@@ -223,6 +233,33 @@ TEST(JsonSerializer, SignalPlotMembershipFollowsSampledCells) {
     EXPECT_EQ(json["membership"][1].asString(), "01");
     EXPECT_FALSE(signal_plot_to_json(signals, dates, {"A", "B", "C"})
                      .isMember("membership"));
+}
+
+TEST(JsonSerializer, SignalPlotColumnsAreEverMembersOfUniverse) {
+    const std::vector<std::vector<float>> signals = {
+        {1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}};
+    const std::vector<int64_t> dates = {0, 86400000, 2 * 86400000};
+    // A: member only on row 0 (before start_index) -> absent. B: never member -> absent.
+    // C: member on row 1 only. D: member on rows 1-2.
+    const std::vector<uint8_t> mask = {1, 0, 0, 0,  0, 0, 1, 1,  0, 0, 0, 1};
+    const auto json = signal_plot_to_json(signals, dates, {"A", "B", "C", "D"}, 1, 100, nullptr, &mask);
+    ASSERT_EQ(json["symbols"].size(), 2u);
+    EXPECT_EQ(json["symbols"][0].asString(), "C");
+    EXPECT_EQ(json["symbols"][1].asString(), "D");
+    EXPECT_EQ(json["originalSymbols"].asUInt(), 2u);
+    EXPECT_FALSE(json["sampled"].asBool());
+    ASSERT_EQ(json["membership"].size(), 2u);
+    EXPECT_EQ(json["membership"][0].asString(), "11");
+    EXPECT_EQ(json["membership"][1].asString(), "01");
+    EXPECT_DOUBLE_EQ(json["values"][1][0].asDouble(), 11.0);
+    // Explicit subset ignores the restriction (B is never a member but still shown).
+    const std::vector<std::size_t> subset = {1};
+    const auto sub = signal_plot_to_json(signals, dates, {"A", "B", "C", "D"}, 1, 100, &subset, &mask);
+    ASSERT_EQ(sub["symbols"].size(), 1u);
+    EXPECT_EQ(sub["symbols"][0].asString(), "B");
+    EXPECT_EQ(sub["originalSymbols"].asUInt(), 4u);
+    // No mask: all panel symbols.
+    EXPECT_EQ(signal_plot_to_json(signals, dates, {"A", "B", "C", "D"}, 1, 100)["symbols"].size(), 4u);
 }
 
 TEST(JsonSerializer, HistogramNamesLargestCellPerBin) {

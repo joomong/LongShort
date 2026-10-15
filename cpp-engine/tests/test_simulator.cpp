@@ -15,7 +15,7 @@
 #include "modules/Delay.h"
 
 // Simple test: run simulator with close -> rank pipeline
-TEST(Simulator, BasicD0Run) {
+TEST(Simulator, CurrentSignalExecutesWithoutImplicitDelay) {
     // Create test panel: 10 bars, 3 symbols
     DataPanel dp;
     dp.T = 10;
@@ -45,7 +45,7 @@ TEST(Simulator, BasicD0Run) {
     cfg.T = dp.T;
     cfg.N = dp.N;
     cfg.fee_rate = 0.0005;
-    cfg.mode = 0;  // D0
+
 
     Simulator sim(dp, cfg);
     SimulatorOutput out = sim.run(pipeline);
@@ -65,7 +65,41 @@ TEST(Simulator, BasicD0Run) {
         EXPECT_GT(out.position_count[t], 0);
 }
 
-TEST(Simulator, D1DelayedExecution) {
+TEST(Simulator, EndIndexStopsBothExecutionPathsBeforeFutureBadQuotes) {
+    DataPanel p;
+    p.T = 5; p.N = 2; p.symbols = {"A", "B"};
+    p.timestamps = {0, 86400000, 172800000, 259200000, 345600000};
+    p.arrays["close"] = {100,100,110,90,121,81,110,90,0,100};
+    p.arrays["signal"] = {1,-1,1,-1,1,-1,1,-1,1,-1};
+    p.universe_mask.assign(10, 1);
+    const std::vector<std::vector<float>> signals(5, {1, -1});
+    SimulatorConfig cfg{p.T, p.N, .001};
+    cfg.sim_start_index = 1;
+    EXPECT_THROW(Simulator(p, cfg).run_from_signals(signals), std::runtime_error);
+    cfg.sim_end_index = 4;
+    cfg.collect_signals = true;
+    unsigned callbacks = 0;
+    cfg.signal_row_callback = [&](unsigned di, const float*, unsigned) { EXPECT_LT(di, 4u); ++callbacks; };
+    MData data; data.panel = &p; data.column_name = "signal";
+    const auto generated = Simulator(p, cfg).run({&data});
+    const auto replay = Simulator(p, cfg).run_from_signals(signals);
+    EXPECT_EQ(callbacks, 4u);
+    ASSERT_EQ(generated.ret.size(), 4u);
+    EXPECT_EQ(generated.ret, replay.ret);
+    EXPECT_EQ(generated.gross_ret, replay.gross_ret);
+    EXPECT_EQ(generated.turnover, replay.turnover);
+    EXPECT_EQ(generated.timestamps, (std::vector<int64_t>{0, 86400000, 172800000, 259200000}));
+    EXPECT_EQ(generated.signals.size(), 4u);
+    EXPECT_EQ(generated.missing_data.size(), 4u);
+    EXPECT_DOUBLE_EQ(generated.ret[0], 0.0);
+    EXPECT_DOUBLE_EQ(generated.turnover[1], 1.0);
+    cfg.sim_end_index = 6;
+    EXPECT_THROW(Simulator(p, cfg), std::invalid_argument);
+    cfg.sim_end_index = 4; cfg.sim_start_index = 5;
+    EXPECT_THROW(Simulator(p, cfg), std::invalid_argument);
+}
+
+TEST(Simulator, ExplicitDelayExecutesExactlyOneBarLater) {
     DataPanel dp;
     dp.T = 5;
     dp.N = 2;
@@ -82,16 +116,18 @@ TEST(Simulator, D1DelayedExecution) {
     rank_mod.pct = IntParameter(1);
     std::vector<Module*> pipeline = {&data_mod, &rank_mod};
 
-    // D1 mode: target = prev_target, execution delayed by 1 bar
+    MDelay delay; delay.days = IntParameter(1);
+    pipeline.push_back(&delay);
+    // Explicit pipeline delay shifts execution by one bar.
     SimulatorConfig cfg;
-    cfg.T = 5; cfg.N = 2; cfg.fee_rate = 0.0; cfg.mode = 1;
+    cfg.T = 5; cfg.N = 2; cfg.fee_rate = 0.0;
 
     Simulator sim(dp, cfg);
     SimulatorOutput out = sim.run(pipeline);
 
-    // First 2 bars: no positions executed in D1 (prev_target is 0 at di=0)
+    // The first bar has no signal; the second bar opens the position.
     EXPECT_DOUBLE_EQ(out.ret[0], 0.0);
-    // di=1: exec_w = prev_target (from di=0 signal), but prev_weights was 0
+    // The delayed day-0 signal executes at day 1.
     // turnover should be > 0 at di=1
     EXPECT_GT(out.turnover[1], 0.0);
 }
@@ -110,15 +146,21 @@ DataPanel timing_panel() {
 TEST(Simulator, CloseToCloseTimingAndOneWayFeesMatchHandCalculation) {
     auto p = timing_panel();
     const std::vector<std::vector<float>> signals = {{1,-1},{1,-1},{-1,1},{-1,1},{0,0}};
-    SimulatorConfig cfg{p.T,p.N,0.001,1,false,{}};
-    auto d1 = Simulator(p,cfg).run_from_signals(signals);
+    SimulatorConfig cfg{p.T,p.N,0.001,false,{}};
+    const std::vector<std::vector<float>> delayed = {{0,0},{1,-1},{1,-1},{-1,1},{-1,1}};
+    auto d1 = Simulator(p,cfg).run_from_signals(delayed);
     EXPECT_DOUBLE_EQ(d1.ret[0],0.0);
     EXPECT_NEAR(d1.ret[1],-0.001,1e-12);  // Enter at day 1 close.
     EXPECT_NEAR(d1.ret[2],0.10,1e-12);    // Day 0 signal earns day 2 holding return.
     const double down = 0.5*(110.0/121.0-1.0)-0.5*(90.0/81.0-1.0);
     EXPECT_NEAR(d1.ret[3],down-0.002,1e-12);  // Flip both 50% positions: turnover=2.
     EXPECT_NEAR(d1.turnover[3],2.0,1e-12);
-    cfg.mode = 0;
+    // Gross return is the same bar pnl before the one-way fee.
+    EXPECT_DOUBLE_EQ(d1.gross_ret[0],0.0);
+    EXPECT_NEAR(d1.gross_ret[1],0.0,1e-12);
+    EXPECT_NEAR(d1.gross_ret[2],0.10,1e-12);
+    EXPECT_NEAR(d1.gross_ret[3],down,1e-12);
+
     auto d0 = Simulator(p,cfg).run_from_signals(signals);
     EXPECT_NEAR(d0.ret[0],-0.001,1e-12);
     EXPECT_NEAR(d0.ret[1],0.10,1e-12);
@@ -130,8 +172,8 @@ TEST(Simulator, InvalidHeldCloseIsAnErrorInBothExecutionPaths) {
     for (float bad : {std::numeric_limits<float>::quiet_NaN(),
                       std::numeric_limits<float>::infinity(),0.0f,-1.0f}) {
         auto p = timing_panel(); p.arrays["close"][4] = bad;
-        for (int mode : {0,1}) {
-            SimulatorConfig cfg{p.T,p.N,0.001,mode,false,{}};
+        {
+            SimulatorConfig cfg{p.T,p.N,0.001,false,{}};
             cfg.missing_close_policy = MissingClosePolicy::Error;
             MData data; data.column_name="close"; data.panel=&p;
             EXPECT_THROW(Simulator(p,cfg).run({&data}),std::runtime_error);
@@ -143,7 +185,7 @@ TEST(Simulator, InvalidHeldCloseIsAnErrorInBothExecutionPaths) {
 
 TEST(Simulator, MissingExecutionCloseCannotCreateAPosition) {
     auto p=timing_panel(); p.arrays["close"][2]=std::numeric_limits<float>::quiet_NaN();
-    SimulatorConfig cfg{p.T,p.N,0.001,1,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.001,false,{}};
     cfg.missing_close_policy = MissingClosePolicy::Error;
     const std::vector<std::vector<float>> signals(p.T,{1,-1});
     EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::runtime_error);
@@ -152,7 +194,7 @@ TEST(Simulator, MissingExecutionCloseCannotCreateAPosition) {
 TEST(Simulator, MissingUnheldAssetDoesNotPoisonReturns) {
     auto p=timing_panel();
     for (unsigned t=0;t<p.T;++t) p.arrays["close"][t*2]=std::numeric_limits<float>::infinity();
-    SimulatorConfig cfg{p.T,p.N,0.0,1,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.0,false,{}};
     cfg.missing_close_policy = MissingClosePolicy::Error;
     const std::vector<std::vector<float>> signals(p.T,{1,-1});
     auto out=Simulator(p,cfg).run_from_signals(signals);
@@ -162,7 +204,7 @@ TEST(Simulator, MissingUnheldAssetDoesNotPoisonReturns) {
 
 TEST(Simulator, RejectsMismatchedSignalDimensions) {
     auto p=timing_panel();
-    SimulatorConfig cfg{p.T,p.N,0.0,1,false,{}};
+    SimulatorConfig cfg{p.T,p.N,0.0,false,{}};
     EXPECT_THROW(Simulator(p,cfg).run_from_signals({{1,-1}}),std::invalid_argument);
     std::vector<std::vector<float>> signals(p.T,{1});
     EXPECT_THROW(Simulator(p,cfg).run_from_signals(signals),std::invalid_argument);
@@ -170,7 +212,7 @@ TEST(Simulator, RejectsMismatchedSignalDimensions) {
 
 TEST(Simulator, RawSignalObserverAndCollectionKeepTheirExecutionPathContract) {
     auto panel = timing_panel();
-    SimulatorConfig cfg{panel.T, panel.N, 0.001, 1, true, {}};
+    SimulatorConfig cfg{panel.T, panel.N, 0.001, true, {}};
     std::vector<std::vector<float>> observed;
     cfg.signal_row_callback = [&](unsigned di, const float* row, unsigned size) {
         EXPECT_EQ(di, observed.size());
@@ -203,44 +245,35 @@ TEST(Simulator, RawSignalObserverAndCollectionKeepTheirExecutionPathContract) {
     EXPECT_EQ(replay.turnover, generated.turnover);
 }
 
-TEST(Simulator, UniverseExitSharesSignalDelayAndPreservesHoldingLossAndFees) {
+TEST(Simulator, UniverseExitUsesCurrentMaskAndPreservesHoldingLossAndFees) {
     auto panel = timing_panel();
     panel.arrays["close"] = {100,100,100,100,90,100,81,100,72,100};
     panel.universe_mask = {1,1,1,1,0,1,0,1,0,1};
     const std::vector<std::vector<float>> signals(panel.T, {1,-1});
     panel.arrays["test_signal"] = {1,-1,1,-1,1,-1,1,-1,1,-1};
     const auto original_close = panel.arrays.at("close");
-    for (int mode : {0,1}) {
-        SimulatorConfig cfg{panel.T,panel.N,0.001,mode,false,{}};
+    {
+        SimulatorConfig cfg{panel.T,panel.N,0.001,false,{}};
         auto out = Simulator(panel,cfg).run_from_signals(signals);
         MData data; data.column_name = "test_signal"; data.panel = &panel;
         auto generated = Simulator(panel,cfg).run({&data});
         EXPECT_EQ(out.ret, generated.ret);
         EXPECT_EQ(out.turnover, generated.turnover);
-        if (mode == 0) {
-            EXPECT_NEAR(out.ret[2], -0.05-0.001, 1e-12);
-            EXPECT_EQ(out.position_count[2], 1);
-            EXPECT_DOUBLE_EQ(out.ret[3], 0.0);
-        } else {
-            EXPECT_NEAR(out.ret[2], -0.05, 1e-12);
-            EXPECT_DOUBLE_EQ(out.turnover[2], 0.0);
-            EXPECT_EQ(out.position_count[2], 2);
-            EXPECT_NEAR(out.ret[3], -0.05-0.001, 1e-12);
-            EXPECT_NEAR(out.turnover[3], 1.0, 1e-12);
-            EXPECT_EQ(out.position_count[3], 1);
-            EXPECT_DOUBLE_EQ(out.ret[4], 0.0);
-        }
+
+        EXPECT_NEAR(out.ret[2], -0.05-0.001, 1e-12);
+        EXPECT_EQ(out.position_count[2], 1);
+        EXPECT_DOUBLE_EQ(out.ret[3], 0.0);
     }
     EXPECT_EQ(panel.arrays.at("close"), original_close);
 }
 
 TEST(Simulator, ExcludedHeldAssetWithMissingLiquidationCloseStillFails) {
     const float nan = std::numeric_limits<float>::quiet_NaN();
-    for (int mode : {0,1}) {
+    {
         auto panel = timing_panel();
         panel.universe_mask = {1,1,1,1,0,1,0,1,0,1};
-        panel.arrays["close"][(2+mode)*panel.N] = nan;
-        SimulatorConfig cfg{panel.T,panel.N,0.001,mode,false,{}};
+        panel.arrays["close"][2*panel.N] = nan;
+        SimulatorConfig cfg{panel.T,panel.N,0.001,false,{}};
         cfg.missing_close_policy = MissingClosePolicy::Error;
         EXPECT_THROW(Simulator(panel,cfg).run_from_signals(
             std::vector<std::vector<float>>(panel.T,{1,-1})),std::runtime_error);
@@ -251,11 +284,11 @@ TEST(Simulator, EmptyUniverseLiquidationDoesNotEraseLossOrFees) {
     auto panel = timing_panel();
     panel.arrays["close"] = {100,100,100,100,90,100,81,100,72,100};
     panel.universe_mask = {1,1,1,1,0,0,0,0,0,0};
-    SimulatorConfig cfg{panel.T,panel.N,0.001,1,false,{}};
+    SimulatorConfig cfg{panel.T,panel.N,0.001,false,{}};
     auto out = Simulator(panel,cfg).run_from_signals(
         std::vector<std::vector<float>>(panel.T,{1,-1}));
-    EXPECT_NEAR(out.ret[3], -0.05-0.001, 1e-12);
-    EXPECT_NEAR(out.turnover[3], 1.0, 1e-12);
+    EXPECT_NEAR(out.ret[2], -0.05-0.001, 1e-12);
+    EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
     EXPECT_EQ(out.position_count[3], 0);
 }
 
@@ -264,7 +297,7 @@ TEST(Simulator, StartDateWarmsModulesButStartsWithNoHistoricalHoldings) {
     panel.arrays["close"] = {100,100,120,100,60,100,90,100,90,100};
     MData data; data.column_name = "close"; data.panel = &panel;
     MDelay delay; delay.days = IntParameter(1);
-    SimulatorConfig cfg{panel.T,panel.N,0.001,1,true,{}};
+    SimulatorConfig cfg{panel.T,panel.N,0.001,true,{}};
     cfg.sim_start_index = 2;
     auto out = Simulator(panel,cfg).run({&data,&delay});
     for (unsigned di = 0; di < 2; ++di) {
@@ -272,12 +305,12 @@ TEST(Simulator, StartDateWarmsModulesButStartsWithNoHistoricalHoldings) {
         EXPECT_DOUBLE_EQ(out.turnover[di], 0.0);
         EXPECT_EQ(out.position_count[di], 0);
     }
-    // Delay module is warm: day 1 raw values are 100/100, executed at day 2 close.
+    // Delay module is warm: day 2 executes day 1 raw values (120/100).
     EXPECT_FLOAT_EQ(out.signals[1][0], 100.0f);
     EXPECT_NEAR(out.ret[2], -0.001, 1e-12); // no pre-start 120 -> 60 loss
     EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
-    // First holding period is 60 -> 90 at 50% weight. New weights are 120/220,100/220.
-    EXPECT_NEAR(out.ret[3], 0.25-(1.0/11.0)*0.001, 1e-12);
+    // First holding period is 60 -> 90 at 120/220 weight; rebalance to 60/160.
+    EXPECT_NEAR(out.ret[3], (120.0/220.0)*0.5-2.0*(120.0/220.0-60.0/160.0)*0.001, 1e-12);
     auto replay = Simulator(panel,cfg).run_from_signals(out.signals);
     EXPECT_EQ(out.ret,replay.ret);
     EXPECT_EQ(out.turnover,replay.turnover);
@@ -287,7 +320,7 @@ TEST(Simulator, StartDateDoesNotValueInvalidUnheldWarmupPrices) {
     auto panel = timing_panel();
     panel.arrays["close"][0] = std::numeric_limits<float>::quiet_NaN();
     panel.arrays["close"][2] = std::numeric_limits<float>::quiet_NaN();
-    SimulatorConfig cfg{panel.T,panel.N,0.001,0,false,{}};
+    SimulatorConfig cfg{panel.T,panel.N,0.001,false,{}};
     cfg.sim_start_index = 2;
     auto out = Simulator(panel,cfg).run_from_signals(
         std::vector<std::vector<float>>(panel.T,{1,-1}));
@@ -298,7 +331,7 @@ TEST(Simulator, StartDateDoesNotValueInvalidUnheldWarmupPrices) {
 
 TEST(Simulator, ValidatesStartAndUniverseDimensions) {
     auto panel = timing_panel();
-    SimulatorConfig cfg{panel.T,panel.N,0.0,1,false,{}};
+    SimulatorConfig cfg{panel.T,panel.N,0.0,false,{}};
     cfg.sim_start_index = panel.T+1;
     EXPECT_THROW(Simulator(panel,cfg),std::invalid_argument);
     cfg.sim_start_index = panel.T;
@@ -354,30 +387,20 @@ struct AccountingLedger {
     }
 };
 
-SimulatorConfig carry_config(const DataPanel& panel, int mode, AccountingLedger& ledger) {
+SimulatorConfig carry_config(const DataPanel& panel, AccountingLedger& ledger) {
     SimulatorConfig config;
     config.T = panel.T;
     config.N = panel.N;
     config.fee_rate = kFee;
-    config.mode = mode;
+
     config.accounting_row_callback = [&ledger](const AccountingRowView& row) { ledger.record(row); };
     return config;
 }
 
-// Raw signals that make plan[t] the intent executed on bar t under either mode.
-// D0 executes the current bar's signal, D1 the previous one; plan[0] must be flat.
-std::vector<std::vector<float>> plan_signals(
-    const std::vector<std::vector<float>>& plan, int mode) {
-    if (mode == 0) return plan;
-    std::vector<std::vector<float>> signals(plan.size(),
-        std::vector<float>(plan.front().size(), 0.0f));
-    for (std::size_t t = 1; t < plan.size(); ++t) signals[t - 1] = plan[t];
-    return signals;
-}
 }  // namespace
 
 TEST(MissingDataAccounting, FrozenHoldingEarnsTheFullGapMoveOnItsRecoveryQuote) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(6, 2);
         panel.at("close", 2, 0) = kMissing;
         panel.at("close", 3, 0) = kMissing;
@@ -386,11 +409,11 @@ TEST(MissingDataAccounting, FrozenHoldingEarnsTheFullGapMoveOnItsRecoveryQuote) 
         const std::vector<std::vector<float>> plan = {
             {0, 0}, {1, 0}, {1, 0}, {1, 0}, {0, 1}, {0, 1}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
         for (unsigned di : {2u, 3u}) {
-            EXPECT_NEAR(ledger.weights[di][0], 1.0, 1e-12) << "mode=" << mode << " bar=" << di;
+            EXPECT_NEAR(ledger.weights[di][0], 1.0, 1e-12) << " bar=" << di;
             EXPECT_NEAR(ledger.trades[di][0], 0.0, 1e-12);
             EXPECT_NEAR(out.turnover[di], 0.0, 1e-12);
             EXPECT_NEAR(ledger.fee[di], 0.0, 1e-12);
@@ -400,7 +423,7 @@ TEST(MissingDataAccounting, FrozenHoldingEarnsTheFullGapMoveOnItsRecoveryQuote) 
             EXPECT_EQ(ledger.diagnostics[di].missing_held_count, 1u);
             EXPECT_NEAR(ledger.diagnostics[di].frozen_gross, 1.0, 1e-12);
         }
-        EXPECT_NEAR(ledger.gross[4], -0.2, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.gross[4], -0.2, 1e-12);
         EXPECT_NEAR(out.turnover[4], 2.0, 1e-12);
         EXPECT_NEAR(out.ret[4], -0.201, 1e-12);
         EXPECT_NEAR(ledger.weights[4][0], 0.0, 1e-12);
@@ -412,7 +435,7 @@ TEST(MissingDataAccounting, FrozenHoldingEarnsTheFullGapMoveOnItsRecoveryQuote) 
 }
 
 TEST(MissingDataAccounting, BlockedEntryNeverChargesTheGapMoveToAnUnheldAccount) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(5, 2);
         panel.at("close", 2, 0) = kMissing;
         panel.at("close", 3, 0) = 80.0f;
@@ -420,10 +443,10 @@ TEST(MissingDataAccounting, BlockedEntryNeverChargesTheGapMoveToAnUnheldAccount)
         const std::vector<std::vector<float>> plan = {
             {0, 0}, {0, 1}, {1, 0}, {1, 0}, {1, 0}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
-        EXPECT_NEAR(ledger.weights[2][0], 0.0, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.weights[2][0], 0.0, 1e-12);
         EXPECT_NEAR(ledger.trades[2][0], 0.0, 1e-12);
         EXPECT_EQ(ledger.diagnostics[2].missing_entry_count, 1u);
         EXPECT_EQ(ledger.diagnostics[2].blocked_order_count, 1u);
@@ -442,17 +465,17 @@ TEST(MissingDataAccounting, BlockedEntryNeverChargesTheGapMoveToAnUnheldAccount)
 }
 
 TEST(MissingDataAccounting, RecoveryExecutesTheLatestTargetInsteadOfQueuedOrders) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(6, 2);
         panel.at("close", 2, 0) = kMissing;
         panel.at("close", 3, 0) = kMissing;
         const std::vector<std::vector<float>> plan = {
             {0, 0}, {1, 0}, {0, 0}, {-1, 0}, {1, 0}, {1, 0}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
-        EXPECT_NEAR(ledger.diagnostics[2].blocked_trade_weight, 1.0, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.diagnostics[2].blocked_trade_weight, 1.0, 1e-12);
         EXPECT_NEAR(ledger.diagnostics[3].blocked_trade_weight, 2.0, 1e-12);
         // The queued exit and reversal are dropped; the live target is +1 again.
         EXPECT_NEAR(ledger.weights[4][0], 1.0, 1e-12);
@@ -464,7 +487,7 @@ TEST(MissingDataAccounting, RecoveryExecutesTheLatestTargetInsteadOfQueuedOrders
 }
 
 TEST(MissingDataAccounting, FrozenGrossOnlyShrinksTheRemainingTargets) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(6, 3);
         panel.at("close", 2, 0) = kMissing;
         panel.at("close", 3, 0) = kMissing;
@@ -473,10 +496,10 @@ TEST(MissingDataAccounting, FrozenGrossOnlyShrinksTheRemainingTargets) {
         const std::vector<std::vector<float>> plan = {
             {0, 0, 0}, {6, 2, 2}, {75, 25, 0}, {0, 50, -50}, {0, 50, -50}, {0, 50, -50}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
-        EXPECT_NEAR(ledger.weights[1][0], 0.6, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.weights[1][0], 0.6, 1e-12);
         EXPECT_NEAR(ledger.weights[1][1], 0.2, 1e-12);
         EXPECT_NEAR(ledger.weights[1][2], 0.2, 1e-12);
         // Budget 0.4 is not exceeded: the tradable targets execute unscaled.
@@ -501,29 +524,29 @@ TEST(MissingDataAccounting, FrozenGrossOnlyShrinksTheRemainingTargets) {
     }
 }
 
-TEST(MissingDataAccounting, FirstExecutionFollowsTheModeIntentAndNeedsAStartQuote) {
+TEST(MissingDataAccounting, FirstExecutionUsesCurrentIntentAndNeedsAStartQuote) {
     auto panel = flat_panel(5, 2);
     const std::vector<std::vector<float>> signals = {{1, 0}, {0, 1}, {1, 0}, {1, 0}, {1, 0}};
-    for (int mode : {0, 1}) {
+    {
         AccountingLedger ledger;
-        auto config = carry_config(panel, mode, ledger);
+        auto config = carry_config(panel, ledger);
         config.sim_start_index = 2;
         auto out = Simulator(panel, config).run_from_signals(signals);
-        // D0 executes the bar-2 intent, D1 the bar-1 intent.
-        EXPECT_NEAR(ledger.weights[2][0], mode == 0 ? 1.0 : 0.0, 1e-12) << "mode=" << mode;
-        EXPECT_NEAR(ledger.weights[2][1], mode == 0 ? 0.0 : 1.0, 1e-12);
+        // The first trading bar uses its current pipeline output.
+        EXPECT_NEAR(ledger.weights[2][0], 1.0, 1e-12);
+        EXPECT_NEAR(ledger.weights[2][1], 0.0, 1e-12);
         EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
     }
-    // Without a quote on the first trading bar neither mode executes.
+    // Without a quote on the first trading bar no position executes.
     auto stalled = flat_panel(5, 2);
     stalled.at("close", 2, 0) = kMissing;
     const std::vector<std::vector<float>> one_sided(stalled.T, {1, 0});
-    for (int mode : {0, 1}) {
+    {
         AccountingLedger ledger;
-        auto config = carry_config(stalled, mode, ledger);
+        auto config = carry_config(stalled, ledger);
         config.sim_start_index = 2;
         auto out = Simulator(stalled, config).run_from_signals(one_sided);
-        EXPECT_NEAR(ledger.weights[2][0], 0.0, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.weights[2][0], 0.0, 1e-12);
         EXPECT_DOUBLE_EQ(out.turnover[2], 0.0);
         EXPECT_DOUBLE_EQ(out.ret[2], 0.0);
         EXPECT_EQ(ledger.diagnostics[2].missing_entry_count, 1u);
@@ -533,15 +556,15 @@ TEST(MissingDataAccounting, FirstExecutionFollowsTheModeIntentAndNeedsAStartQuot
 TEST(MissingDataAccounting, CompleteQuotesKeepTheExistingFixedBookResultBitForBit) {
     auto panel = timing_panel();
     const std::vector<std::vector<float>> signals = {{1,-1},{1,-1},{-1,1},{-1,1},{0,0}};
-    for (int mode : {0, 1}) {
-        SimulatorConfig error_config{panel.T, panel.N, 0.001, mode, false, {}};
+    {
+        SimulatorConfig error_config{panel.T, panel.N, 0.001, false, {}};
         error_config.missing_close_policy = MissingClosePolicy::Error;
         const auto expected = Simulator(panel, error_config).run_from_signals(signals);
 
-        SimulatorConfig carry{panel.T, panel.N, 0.001, mode, false, {}};
+        SimulatorConfig carry{panel.T, panel.N, 0.001, false, {}};
         carry.missing_close_policy = MissingClosePolicy::Carry;
         const auto actual = Simulator(panel, carry).run_from_signals(signals);
-        EXPECT_EQ(actual.ret, expected.ret) << "mode=" << mode;
+        EXPECT_EQ(actual.ret, expected.ret);
         EXPECT_EQ(actual.turnover, expected.turnover);
         EXPECT_EQ(actual.max_weight, expected.max_weight);
         EXPECT_EQ(actual.long_weight, expected.long_weight);
@@ -696,6 +719,7 @@ TEST(MissingDataAccounting, ReproducesThePreChangeEngineDumpBitForBit) {
     for (Json::ArrayIndex c = 0; c < expected["cases"].size(); ++c) {
         const Json::Value& recorded = expected["cases"][c];
         const auto& plan = cases[c];
+        if (plan.mode != 0) continue; // Historical implicit-delay cases are no longer supported.
         ASSERT_EQ(recorded["variant"].asUInt(), plan.variant);
         ASSERT_EQ(recorded["mode"].asInt(), plan.mode);
         ASSERT_EQ(recorded["simStart"].asUInt(), plan.sim_start);
@@ -708,7 +732,7 @@ TEST(MissingDataAccounting, ReproducesThePreChangeEngineDumpBitForBit) {
             config.T = panel.T;
             config.N = panel.N;
             config.fee_rate = 0.0005;
-            config.mode = plan.mode;
+
             config.sim_start_index = plan.sim_start;
             config.missing_close_policy = policy;
             const auto out = Simulator(panel, config).run_from_signals(signals);
@@ -722,7 +746,7 @@ TEST(MissingDataAccounting, ReproducesThePreChangeEngineDumpBitForBit) {
 }
 
 TEST(MissingDataAccounting, TwoSimultaneousFreezesShareOneShrunkBudget) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(6, 4);
         for (unsigned ii : {0u, 1u})
             for (unsigned di : {2u, 3u}) panel.at("close", di, ii) = kMissing;
@@ -734,10 +758,10 @@ TEST(MissingDataAccounting, TwoSimultaneousFreezesShareOneShrunkBudget) {
             {0, 0, 0, 0}, {4, 2, 2, 2}, {0, 0, 75, 25}, {0, 0, 50, -50},
             {0, 0, 50, -50}, {0, 0, 50, -50}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
-        EXPECT_NEAR(ledger.weights[1][0], 0.4, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.weights[1][0], 0.4, 1e-12);
         EXPECT_NEAR(ledger.weights[1][1], 0.2, 1e-12);
         // Both frozen weights count once toward the same 0.4 budget.
         EXPECT_EQ(out.missing_data[2].missing_held_count, 2u);
@@ -759,23 +783,23 @@ TEST(MissingDataAccounting, TwoSimultaneousFreezesShareOneShrunkBudget) {
         for (unsigned di = 0; di < panel.T; ++di) {
             double gross = 0.0;
             for (double weight : ledger.weights[di]) gross += std::fabs(weight);
-            EXPECT_LE(gross, 1.0 + 1e-12) << "mode=" << mode << " bar=" << di;
+            EXPECT_LE(gross, 1.0 + 1e-12) << " bar=" << di;
         }
     }
 }
 
 TEST(MissingDataAccounting, AFullyFrozenBookLeavesNoBudgetAndFlattensTheRest) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(5, 3);
         for (unsigned ii : {0u, 1u}) panel.at("close", 2, ii) = kMissing;
         panel.at("close", 3, 1) = kMissing;   // only A recovers on bar 3
         const std::vector<std::vector<float>> plan = {
             {0, 0, 0}, {1, 1, 0}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
-        EXPECT_NEAR(ledger.weights[1][0], 0.5, 1e-12) << "mode=" << mode;
+        EXPECT_NEAR(ledger.weights[1][0], 0.5, 1e-12);
         EXPECT_NEAR(ledger.weights[1][1], 0.5, 1e-12);
         // Budget max(0, 1-1) = 0: the quoted name is flattened, never inflated.
         EXPECT_NEAR(out.missing_data[2].frozen_gross, 1.0, 1e-12);
@@ -795,7 +819,7 @@ TEST(MissingDataAccounting, AFullyFrozenBookLeavesNoBudgetAndFlattensTheRest) {
 }
 
 TEST(MissingDataAccounting, UniverseExitDuringAGapFreezesTheHoldingPermanently) {
-    for (int mode : {0, 1}) {
+    {
         auto panel = flat_panel(6, 2);
         for (unsigned di = 2; di < panel.T; ++di) panel.at("close", di, 0) = kMissing;
         panel.universe_mask.assign(static_cast<size_t>(panel.T) * panel.N, 1);
@@ -803,12 +827,12 @@ TEST(MissingDataAccounting, UniverseExitDuringAGapFreezesTheHoldingPermanently) 
             panel.universe_mask[static_cast<size_t>(di) * panel.N] = 0;   // A leaves the universe
         const std::vector<std::vector<float>> plan(panel.T, {1, 1});
         AccountingLedger ledger;
-        auto out = Simulator(panel, carry_config(panel, mode, ledger))
-                       .run_from_signals(plan_signals(plan, mode));
+        auto out = Simulator(panel, carry_config(panel, ledger))
+                       .run_from_signals(plan);
 
         // The old engine treated this as a fatal liquidation; carry freezes it.
         for (unsigned di = 3; di < panel.T; ++di) {
-            EXPECT_NEAR(ledger.weights[di][0], 0.5, 1e-12) << "mode=" << mode << " bar=" << di;
+            EXPECT_NEAR(ledger.weights[di][0], 0.5, 1e-12) << " bar=" << di;
             EXPECT_NEAR(ledger.weights[di][1], 0.5, 1e-12);
             EXPECT_NEAR(ledger.trades[di][0], 0.0, 1e-12);
             EXPECT_DOUBLE_EQ(out.turnover[di], 0.0);
@@ -819,9 +843,9 @@ TEST(MissingDataAccounting, UniverseExitDuringAGapFreezesTheHoldingPermanently) 
         }
         EXPECT_NEAR(out.missing_data.back().frozen_gross, 0.5, 1e-12);
         // The same panel under the error policy is still a hard failure.
-        SimulatorConfig strict{panel.T, panel.N, kFee, mode, false, {}};
+        SimulatorConfig strict{panel.T, panel.N, kFee, false, {}};
         strict.missing_close_policy = MissingClosePolicy::Error;
-        EXPECT_THROW(Simulator(panel, strict).run_from_signals(plan_signals(plan, mode)),
+        EXPECT_THROW(Simulator(panel, strict).run_from_signals(plan),
                      std::runtime_error);
     }
 }
@@ -830,13 +854,13 @@ TEST(MissingDataAccounting, CarryFreezesOnlyNaNAndRejectsEveryOtherUnusablePrice
     const std::vector<float> unusable = {0.0f, -1.0f,
                                          std::numeric_limits<float>::infinity(),
                                          -std::numeric_limits<float>::infinity()};
-    for (int mode : {0, 1}) {
+    {
         auto missing = flat_panel(5, 2);
         missing.at("close", 2, 0) = kMissing;
         AccountingLedger frozen;
-        auto out = Simulator(missing, carry_config(missing, mode, frozen))
+        auto out = Simulator(missing, carry_config(missing, frozen))
                        .run_from_signals(std::vector<std::vector<float>>(missing.T, {1, 0}));
-        EXPECT_EQ(out.missing_data[2].missing_held_count, 1u) << "mode=" << mode;
+        EXPECT_EQ(out.missing_data[2].missing_held_count, 1u);
         EXPECT_NEAR(frozen.weights[2][0], 1.0, 1e-12);
 
         for (float price : unusable) {
@@ -845,26 +869,26 @@ TEST(MissingDataAccounting, CarryFreezesOnlyNaNAndRejectsEveryOtherUnusablePrice
             const std::vector<std::vector<float>> long_only(held.T, {1, 0});
             for (MissingClosePolicy policy :
                      {MissingClosePolicy::Carry, MissingClosePolicy::Error}) {
-                SimulatorConfig config{held.T, held.N, kFee, mode, false, {}};
+                SimulatorConfig config{held.T, held.N, kFee, false, {}};
                 config.missing_close_policy = policy;
                 EXPECT_THROW(Simulator(held, config).run_from_signals(long_only),
                              std::runtime_error)
-                    << "mode=" << mode << " price=" << price;
+                    << " price=" << price;
             }
             // Never held, but carry still normalizes the name into the intent.
             auto unheld = flat_panel(5, 2);
             for (unsigned di = 0; di < unheld.T; ++di) unheld.at("close", di, 0) = price;
-            SimulatorConfig carry{unheld.T, unheld.N, kFee, mode, false, {}};
+            SimulatorConfig carry{unheld.T, unheld.N, kFee, false, {}};
             carry.missing_close_policy = MissingClosePolicy::Carry;
             EXPECT_THROW(Simulator(unheld, carry).run_from_signals(
                              std::vector<std::vector<float>>(unheld.T, {1, 1})),
-                         std::runtime_error) << "mode=" << mode << " price=" << price;
+                         std::runtime_error) << " price=" << price;
         }
     }
     // The message names the corrupt price, the bar and the asset.
     auto panel = flat_panel(5, 2);
     panel.at("close", 2, 0) = 0.0f;
-    SimulatorConfig config{panel.T, panel.N, kFee, 0, false, {}};
+    SimulatorConfig config{panel.T, panel.N, kFee, false, {}};
     config.missing_close_policy = MissingClosePolicy::Carry;
     try {
         Simulator(panel, config).run_from_signals(

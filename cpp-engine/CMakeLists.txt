@@ -95,7 +95,6 @@ add_library(engine STATIC
 
     # Phase 4: Simulator
     src/engine/simulator.cpp
-    src/engine/costs.cpp
 
     # Phase 5: Metrics
     src/metrics/summary_metrics.cpp
@@ -115,6 +114,7 @@ add_library(engine STATIC
 
     # Phase 8: API
     src/api/json_serializer.cpp
+    src/api/alpha_storage.cpp
 )
 
 include(cmake/DiscoverModules.cmake)
@@ -193,7 +193,6 @@ add_engine_test(test_modules          tests/test_modules.cpp)
 add_engine_test(test_simulator        tests/test_simulator.cpp)
 add_engine_test(test_thin_loader      tests/test_thin_loader.cpp)
 add_engine_test(test_thin_moves       tests/test_thin_moves.cpp)
-add_engine_test(test_costs            tests/test_costs.cpp)
 add_engine_test(test_summary_metrics  tests/test_summary_metrics.cpp)
 add_engine_test(test_module_oracles   tests/test_module_oracles.cpp)
 add_engine_test(test_metrics_oracle   tests/test_metrics_oracle.cpp)
@@ -209,8 +208,10 @@ add_engine_test(test_xml_compiler     tests/test_xml_compiler.cpp)
 add_engine_test(test_golden_crossval  tests/test_golden_crossval.cpp)
 add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
+add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
+add_engine_test(test_execution_price  tests/test_execution_price.cpp)
 foreach(tool_test test_generate_modules test_run_engine test_module_build test_afl_catalog)
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")

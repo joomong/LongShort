@@ -105,6 +105,6 @@
 - **All 10/10 test executables pass (100%)**
 - **Build system**: CMake 3.20+, C++17, FetchContent for pugixml/yaml-cpp/gtest/drogon
 - **Dependencies**: Arrow 21, Parquet 21, Boost 1.84, jsoncpp 1.9.6 (conda), pugixml 1.14, yaml-cpp 0.8, gtest 1.14, Drogon 1.9.8
-- **API endpoints**: GET /api/health, GET /api/config, POST /api/simulate (single+multi), POST /api/ga/stream (NDJSON), GET/POST/DELETE /api/alphas
+- **API endpoints**: GET /api/health, GET /api/config, POST /api/simulate (single+multi), POST /api/ga/stream (NDJSON), GET/POST /api/alphas, DELETE /api/alphas/{name}, GET /api/alphas/{name}/results[/batch|/rows/{id}]
 - **Frontend**: Next.js 14, TypeScript 0 errors, 31/31 tests pass, Playwright E2E 6/6 scenarios pass
 - **Phase 8 COMPLETE**: All 9 steps done — C++ REST API + Frontend STAR integration

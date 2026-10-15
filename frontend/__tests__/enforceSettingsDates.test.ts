@@ -5,10 +5,11 @@ import type { BacktestSettings } from '@/types';
 /** Helper to build a BacktestSettings object with date overrides. */
 function makeSettings(overrides: Partial<BacktestSettings> = {}): BacktestSettings {
   return {
-    simStart: '2020-01-01',
+    simStart: '2020-01-01', simEnd: '',
     isStart: '2023-01-01',
     osStart: '2024-01-01',
-    barInterval: 'D1',
+
+    executionPrice: 'close',
     universe: '',
     nJobs: 5,
     gaPopulation: 50,
@@ -47,7 +48,8 @@ describe('enforceSettingsDates', () => {
   it('5. Clamping to maxDate: osStart after maxDate should be clamped', () => {
     const s = makeSettings({ osStart: '2030-01-01' });
     const r = enforceSettingsDates(s, '2020-01-01', '2024-06-30');
-    expect(r.osStart).toBe('2024-06-30');
+    expect(r.isStart).toBe(r.simStart);
+    expect(r.osStart > r.isStart && r.osStart < r.simEnd).toBe(true);
   });
 
   it('6. Both dates outside range: clamp and enforce isStart < osStart', () => {
