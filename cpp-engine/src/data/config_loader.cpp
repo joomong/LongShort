@@ -263,7 +263,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const auto bt = root["backtest"];
     if (!bt || !bt.IsMap()) throw std::runtime_error("config.yaml: missing backtest mapping");
     require_known_keys(bt, "backtest.", {"start_date", "end_date", "initial_capital", "transaction_fee",
-                                         "bars_per_year", "execution_price", "warmup_bars", "combined_mode",
+                                         "bars_per_year", "execution_price", "warmup_bars",
                                          "symbol_labels_path", "missing_close_policy"});
     cfg.start_date = bt["start_date"] ? bt["start_date"].as<std::string>() : "";
     cfg.end_date = bt["end_date"] && !bt["end_date"].IsNull()
@@ -283,7 +283,6 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     if (cfg.execution_price != "close" && cfg.execution_price != "ohlc4" && cfg.execution_price != "vwap")
         throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
     cfg.warmup_bars = unsigned_option(bt["warmup_bars"], 0, false);
-    cfg.combined_mode = bt["combined_mode"] ? bt["combined_mode"].as<std::string>() : cfg.combined_mode;
     if (bt["symbol_labels_path"] && !bt["symbol_labels_path"].IsNull()) {
         std::filesystem::path labels = bt["symbol_labels_path"].as<std::string>();
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
@@ -296,8 +295,6 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     alphas = alphas.lexically_normal();
     if (!alphas.has_filename() && alphas.has_relative_path()) alphas = alphas.parent_path();
     cfg.alphas_dir = alphas.string();
-    if (cfg.combined_mode != "normalized" && cfg.combined_mode != "raw")
-        throw std::runtime_error("combined_mode must be normalized or raw");
     // Missing-close policy applies to ordinary and thin panels.
     cfg.missing_close_policy = bt["missing_close_policy"] && !bt["missing_close_policy"].IsNull()
         ? bt["missing_close_policy"].as<std::string>() : cfg.missing_close_policy;

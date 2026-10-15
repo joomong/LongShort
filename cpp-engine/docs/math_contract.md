@@ -215,7 +215,7 @@ the aggregate after the visible cohort finishes/stops, caches it by membership, 
 passes concrete XMLs in stable candidate order using `/api/simulate` with `xmls`,
 `combinedOnly: true`, and `metricsOnly: true`. Each `xmls` entry must compile to exactly
 one alpha; the response has an empty `batches` array and the ordinary `combined` payload.
-This computes signals and the existing normalized/raw combined portfolio, rather than
+This computes signals and the existing normalized combined portfolio, rather than
 averaging metrics or rerunning individual portfolio accounting. Bounded blocks reduce
 accumulator wakeups while preserving the exact per-row floating-point addition order.
 Selected daily details are fetched after their round finishes, avoiding duplicate

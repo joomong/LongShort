@@ -44,7 +44,6 @@ TEST(ConfigLoader, LegacyConfigKeepsColumnOrderAndUnits) {
     EXPECT_NEAR(config.transaction_fee_rate, 0.00015, 1e-15);
     EXPECT_EQ(config.bars_per_year, 365u);
     EXPECT_EQ(config.warmup_bars, 0u);
-    EXPECT_EQ(config.combined_mode, "normalized");
     EXPECT_TRUE(config.universe.symbols.empty());
 }
 TEST(ConfigLoader, WideCatalogRegistersAliasesLazilyAndSkipsDisabledDatasets) {
@@ -55,7 +54,7 @@ TEST(ConfigLoader, WideCatalogRegistersAliasesLazilyAndSkipsDisabledDatasets) {
   - {name: afl, format: wide, path: AflData_M, catalog: catalog.json, alignment: asof}
   - {name: inactive, enabled: false}
 universe: {path: Top500.parquet, symbols: ['10', '2']}
-backtest: {start_date: '2020-01-01', end_date: '2020-02-01', warmup_bars: 21, bars_per_year: 252, combined_mode: raw}
+backtest: {start_date: '2020-01-01', end_date: '2020-02-01', warmup_bars: 21, bars_per_year: 252}
 )"));
     ASSERT_EQ(config.datasets.size(), 3u);
     EXPECT_TRUE(config.datasets[1].lazy);
@@ -65,7 +64,6 @@ backtest: {start_date: '2020-01-01', end_date: '2020-02-01', warmup_bars: 21, ba
     EXPECT_EQ(config.use_columns.size(), 3u);
     EXPECT_EQ(config.warmup_bars, 21u);
     EXPECT_EQ(config.bars_per_year, 252u);
-    EXPECT_EQ(config.combined_mode, "raw");
 }
 TEST(ConfigLoader, RejectsAmbiguousFieldsAndInvalidSettings) {
     ConfigFiles files;
@@ -80,7 +78,7 @@ TEST(ConfigLoader, RejectsAmbiguousFieldsAndInvalidSettings) {
         "datasets: [{path: p, use_col: [close]}]\nbacktest: {bars_per_year: 0}",
         "datasets: [{path: p, use_col: [close]}]\nbacktest: {warmup_bars: -1}",
         "datasets: [{path: p, use_col: [close]}]\nbacktest: {transaction_fee: -1}",
-        "datasets: [{path: p, use_col: [close]}]\nbacktest: {combined_mode: other}",
+        "datasets: [{path: p, use_col: [close]}]\nbacktest: {combined_mode: normalized}",  // removed key is now unknown
         "datasets: [{path: p, use_col: [close]}]\nuniverse: [all, A]\nbacktest: {}"
     };
     for (const auto& config : invalid)

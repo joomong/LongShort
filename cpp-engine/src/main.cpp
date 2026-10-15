@@ -193,7 +193,6 @@ struct RunOptions {
     unsigned signal_top_k = 1;
     std::size_t signal_max_cells = 4000000;
     std::vector<std::size_t> signal_symbol_subset;  // non-empty: full series for these columns only
-    std::string combined_mode;
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
     std::string universe;                          // selected universe.names entry; empty = default
     const std::vector<uint8_t>* universe_mask = nullptr; // resolved from g_data
@@ -271,11 +270,8 @@ static RunOptions parse_run_options(const Json::Value& body) {
         if (options.signal_symbol_subset.empty())
             throw std::invalid_argument("signalPlotSymbols must not be empty");
     }
-    options.combined_mode = body.get("combinedMode", g_config.combined_mode).asString();
     if (options.signal_series_only && options.signal_symbol_subset.empty())
         throw std::invalid_argument("signalSeriesOnly requires signalPlotSymbols");
-    if (options.combined_mode != "normalized" && options.combined_mode != "raw")
-        throw std::invalid_argument("combinedMode must be 'normalized' or 'raw'");
     options.missing_close_policy = g_missing_close_policy;
     if (body.isMember("missingClose") &&
         !parse_missing_close_policy(body["missingClose"].asString(), &options.missing_close_policy))
@@ -284,6 +280,8 @@ static RunOptions parse_run_options(const Json::Value& body) {
                             "settlementLog", "distributionLog"})
         if (body.isMember(key))
             throw std::invalid_argument(std::string(key) + " is no longer supported; use a thin-v1 cache");
+    if (body.isMember("combinedMode"))
+        throw std::invalid_argument("combinedMode was removed; combined alphas are always normalized");
     if (body.isMember("universe") && !body["universe"].isNull()) {
         if (!body["universe"].isString())
             throw std::invalid_argument("universe must be a string");
@@ -476,7 +474,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                       diagnostics_payload(single_output, options)};
     } else {
         OrderedSignalAccumulator accumulator(
-            g_data, options.combined_mode, options.missing_close_policy,
+            g_data, options.missing_close_policy,
             options.universe_mask);
         const unsigned thread_count = std::min<unsigned>(options.threads, static_cast<unsigned>(alphas.size()));
         std::atomic<std::size_t> next_index{0};
@@ -595,7 +593,6 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         copy_top_metrics(response, combined);
         response["combined"] = std::move(combined);
     }
-    response["combinedMode"] = options.combined_mode;
     response["universe"] = options.universe;
     return response;
 }
@@ -974,7 +971,6 @@ int main(int argc, char* argv[])
             json["supportsSimEnd"] = true;
             json["feeRate"]  = g_config.transaction_fee_rate;
             json["barsPerYear"] = g_config.bars_per_year;
-            json["combinedMode"] = g_config.combined_mode;
             json["executionPrice"] = g_config.execution_price;
             json["executionPrices"] = Json::Value(Json::arrayValue);
             json["executionPrices"].append("close");
@@ -1180,7 +1176,6 @@ int main(int argc, char* argv[])
                                     Json::Value complete;
                                     complete["type"] = "complete";
                                     complete["bestXml"] = best.best_xml;
-                                    complete["combinedMode"] = options.combined_mode;
                                     complete["universe"] = options.universe;
                                     complete["executionPrice"] = options.execution_price;
                                     complete["simStart"] = iso_date_of(g_data.timestamps[options.sim_start_index]);

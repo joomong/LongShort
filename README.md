@@ -64,7 +64,7 @@ NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:50007" npm run dev -- --port 50006
 - 목표 포지션은 `Σ|weight| = 1` 기준이다. 균형 롱숏은 long 0.5 / short 0.5이며 수익률을 추가로 2로 나누지 않는다. 화면의 $20M book은 이 전체 gross 명목금액이다. 여기서 gross 노출과 수수료 차감 전 gross 손익은 서로 다른 개념이다.
 - 연도표 `sharpe[ir]`의 IR은 해당 연도 일별 gross 수익률의 평균 ÷ 표본 표준편차(ddof=1)이며 연환산하지 않는다. 유효 수익률이 2개 미만이거나 표준편차가 0이면 0이다. `quality = Sharpe × √|1 − 최대 순노출| × (1 − 최대 단일종목 비중)`이며, 최대 순노출은 IS/OS 각각에서 `max|long − absolute short|`, 비중은 0~1 단위다. GA는 quality 대신 IS Sharpe를 최적화한다.
 - 연도표 margin 오른쪽의 `fitness = Sharpe × √(|ann.ret / 100| / max(daily turnover, 0.125))`다. [참고 수식](https://github.com/Xiaoyu-hub/worldquant/blob/main/raw/articles/worldquant-alpha-mining-strategies.md)을 사용하되 Returns는 현재 표와 같은 전체 gross book·레버리지 1 기준이며 2배로 바꾸지 않는다. Turnover는 일별 소수 비율(20%=0.2)이고 최소 분모 0.125는 12.5%다.
-- combined의 기본은 각 알파를 정규화한 동일 비중 결합 후 최종 포트폴리오 정규화다. 기존 raw 합산은 `combined_mode: raw`로 선택한다.
+- combined는 각 알파의 시그널 행을 gross 1 비중으로 바꾼 뒤 더하고 최종 포트폴리오를 다시 정규화한다(알파별 동일 예산). 옛 `combined_mode: raw`(시그널 값 합산)는 2026-10-15에 삭제했다.
 
 ```xml
 <data expr="returns" delay="1"/>

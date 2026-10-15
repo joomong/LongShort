@@ -868,7 +868,7 @@ TEST_F(HttpContractTest, SingleSignalPlotHonorsCellBudgetAndRejectsInvalidStart)
     EXPECT_EQ(simulate(request).status, 400);
 }
 
-TEST_F(HttpContractTest, CombinedModesAndTopSignalPayloadsAreExplicit) {
+TEST_F(HttpContractTest, CombinedAndTopSignalPayloadsAreExplicit) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3|4\"/>";
@@ -877,27 +877,22 @@ TEST_F(HttpContractTest, CombinedModesAndTopSignalPayloadsAreExplicit) {
     request["collectSignals"] = true;
     request["collectSignalsTopK"] = 1;
     request["signalPlotMaxCells"] = 12;
-    for (const char* mode : {"normalized", "raw"}) {
-        request["combinedMode"] = mode;
-        const auto response = simulate(request);
-        ASSERT_EQ(response.status, 200) << response.body;
-        Json::Value body;
-        ASSERT_TRUE(parse_json(response.body, &body));
-        EXPECT_EQ(body["combinedMode"].asString(), mode);
-        EXPECT_TRUE(body["combined"].isMember("signalPlot"));
-        EXPECT_EQ(body["signalPlot"], body["combined"]["signalPlot"]);
-        ASSERT_TRUE(body["signalDistributionLog"].isObject());
-        EXPECT_EQ(body["signalDistributionLog"], body["combined"]["signalDistributionLog"]);
-        ASSERT_EQ(body["batches"].size(), 3u);
-        EXPECT_TRUE(body["batches"][0].isMember("signalPlot"));
-        EXPECT_FALSE(body["batches"][1].isMember("signalPlot"));
-        EXPECT_TRUE(body["batches"][0]["signalDistributionLog"].isObject());
-        EXPECT_FALSE(body["batches"][1].isMember("signalDistributionLog"));
-        EXPECT_LE(body["batches"][0]["signalPlot"]["values"].size() *
-                  body["batches"][0]["signalPlot"]["symbols"].size(), 12u);
-    }
-    request["combinedMode"] = "misspelled";
-    EXPECT_EQ(simulate(request).status, 400);
+    const auto response = simulate(request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    Json::Value body;
+    ASSERT_TRUE(parse_json(response.body, &body));
+    EXPECT_FALSE(body.isMember("combinedMode"));
+    EXPECT_TRUE(body["combined"].isMember("signalPlot"));
+    EXPECT_EQ(body["signalPlot"], body["combined"]["signalPlot"]);
+    ASSERT_TRUE(body["signalDistributionLog"].isObject());
+    EXPECT_EQ(body["signalDistributionLog"], body["combined"]["signalDistributionLog"]);
+    ASSERT_EQ(body["batches"].size(), 3u);
+    EXPECT_TRUE(body["batches"][0].isMember("signalPlot"));
+    EXPECT_FALSE(body["batches"][1].isMember("signalPlot"));
+    EXPECT_TRUE(body["batches"][0]["signalDistributionLog"].isObject());
+    EXPECT_FALSE(body["batches"][1].isMember("signalDistributionLog"));
+    EXPECT_LE(body["batches"][0]["signalPlot"]["values"].size() *
+              body["batches"][0]["signalPlot"]["symbols"].size(), 12u);
 }
 
 TEST_F(HttpContractTest, GaCompleteContainsBoundedBestAlphaSignals) {
@@ -1091,6 +1086,13 @@ TEST_F(HttpContractTest, RemovedSettlementRequestOptionsAreRejected) {
         EXPECT_EQ(response.status, 400) << key << ": " << response.body;
         EXPECT_NE(response.body.find(key), std::string::npos) << response.body;
     }
+    {
+        Json::Value bad = request;
+        bad["combinedMode"] = "raw";
+        const auto response = simulate(bad);
+        EXPECT_EQ(response.status, 400) << response.body;
+        EXPECT_NE(response.body.find("combinedMode was removed"), std::string::npos) << response.body;
+    }
     const auto normal = simulate(request);
     ASSERT_EQ(normal.status, 200) << normal.body;
     Json::Value body;
@@ -1236,25 +1238,22 @@ TEST_F(HttpContractTest, ConcreteCandidateAggregateMatchesOrdinaryCombinedPortfo
     request["simStart"] = "2023-03-01"; request["simEnd"] = "2023-09-29";
     request["isStart"] = "2023-03-01"; request["osStart"] = "2023-06-01";
     request["metricsOnly"] = true;
-    for (const std::string combined_mode : {"normalized", "raw"}) {
-        request.removeMember("xmls"); request.removeMember("combinedOnly");
-        request["threads"] = 1; request["combinedMode"] = combined_mode;
-        const auto baseline = simulate(request); ASSERT_EQ(baseline.status, 200) << baseline.body;
-        Json::Value normal; ASSERT_TRUE(parse_json(baseline.body, &normal));
-        // Sort by original expansion index, independent of performance order.
-        std::vector<std::pair<int, std::string>> entries;
-        for (const auto& entry : normal["batches"]) entries.emplace_back(entry["index"].asInt(), entry["xml"].asString());
-        std::sort(entries.begin(), entries.end());
-        request["xmls"] = Json::Value(Json::arrayValue);
-        for (const auto& entry : entries) request["xmls"].append(entry.second);
-        request["combinedOnly"] = true; request["threads"] = 20;
-        const auto combined_response = simulate(request); ASSERT_EQ(combined_response.status, 200) << combined_response.body;
-        Json::Value combined; ASSERT_TRUE(parse_json(combined_response.body, &combined));
-        EXPECT_TRUE(combined["batches"].empty());
-        EXPECT_EQ(combined["combined"], normal["combined"]);
-        EXPECT_EQ(combined["timeseries"], normal["timeseries"]);
-        EXPECT_EQ(combined["yearly"], normal["yearly"]);
-    }
+    request["threads"] = 1;
+    const auto baseline = simulate(request); ASSERT_EQ(baseline.status, 200) << baseline.body;
+    Json::Value normal; ASSERT_TRUE(parse_json(baseline.body, &normal));
+    // Sort by original expansion index, independent of performance order.
+    std::vector<std::pair<int, std::string>> entries;
+    for (const auto& entry : normal["batches"]) entries.emplace_back(entry["index"].asInt(), entry["xml"].asString());
+    std::sort(entries.begin(), entries.end());
+    request["xmls"] = Json::Value(Json::arrayValue);
+    for (const auto& entry : entries) request["xmls"].append(entry.second);
+    request["combinedOnly"] = true; request["threads"] = 20;
+    const auto combined_response = simulate(request); ASSERT_EQ(combined_response.status, 200) << combined_response.body;
+    Json::Value combined; ASSERT_TRUE(parse_json(combined_response.body, &combined));
+    EXPECT_TRUE(combined["batches"].empty());
+    EXPECT_EQ(combined["combined"], normal["combined"]);
+    EXPECT_EQ(combined["timeseries"], normal["timeseries"]);
+    EXPECT_EQ(combined["yearly"], normal["yearly"]);
     request["xmls"] = Json::Value(Json::arrayValue);
     EXPECT_EQ(simulate(request).status, 400);
     request["xmls"].append(request["xml"]); // An expanded template is not one concrete candidate.

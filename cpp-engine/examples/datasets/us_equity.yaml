@@ -28,6 +28,5 @@ backtest:
   initial_capital: 1000000
   transaction_fee: 1.5
   bars_per_year: 252
-  combined_mode: normalized
   execution_price: close
   missing_close_policy: carry

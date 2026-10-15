@@ -16,29 +16,25 @@
 // not grow with alpha count; cancellation wakes workers after an evaluation error.
 class OrderedSignalAccumulator {
 public:
-    OrderedSignalAccumulator(const DataPanel& data, const std::string& mode,
+    OrderedSignalAccumulator(const DataPanel& data,
                              MissingClosePolicy policy,
                              const std::vector<uint8_t>* universe = nullptr)
-        : data_(data), normalized_(mode == "normalized"), policy_(policy), universe_(universe),
+        : data_(data), policy_(policy), universe_(universe),
           signals_(data.T, std::vector<float>(data.N, std::numeric_limits<float>::quiet_NaN())),
-          next_alpha_(data.T, 0) {
-        if (mode != "normalized" && mode != "raw")
-            throw std::invalid_argument("combinedMode must be 'normalized' or 'raw'");
-    }
+          next_alpha_(data.T, 0) {}
 
     void add(std::size_t alpha_index, unsigned di, const float* row, unsigned n,
              std::vector<double>& normalized_scratch) {
         if (di >= data_.T || n != data_.N)
             throw std::invalid_argument("Combined signal dimensions must match the data panel");
-        if (normalized_)
-            normalize_signal_row(data_, di, row, normalized_scratch, policy_, universe_);
+        normalize_signal_row(data_, di, row, normalized_scratch, policy_, universe_);
         std::unique_lock<std::mutex> lock(mutex_);
         ready_.wait(lock, [&] { return cancelled_ || next_alpha_[di] == alpha_index; });
         if (cancelled_)
             throw std::runtime_error("Combined evaluation cancelled after an alpha failed");
         auto& combined = signals_[di];
         for (unsigned ii = 0; ii < n; ++ii) {
-            const float contribution = normalized_ ? static_cast<float>(normalized_scratch[ii]) : row[ii];
+            const float contribution = static_cast<float>(normalized_scratch[ii]);
             if (!std::isfinite(contribution))
                 continue;
             float& value = combined[ii];
@@ -63,12 +59,10 @@ public:
             throw std::invalid_argument("Combined signal dimensions must match the data panel");
         const unsigned count = static_cast<unsigned>(rows.size() / n);
         if (!count) return;
-        if (normalized_) {
-            for (unsigned offset = 0; offset < count; ++offset) {
-                float* row = rows.data() + static_cast<size_t>(offset) * n;
-                normalize_signal_row(data_, first_di + offset, row, scratch, policy_, universe_);
-                for (unsigned ii = 0; ii < n; ++ii) row[ii] = static_cast<float>(scratch[ii]);
-            }
+        for (unsigned offset = 0; offset < count; ++offset) {
+            float* row = rows.data() + static_cast<size_t>(offset) * n;
+            normalize_signal_row(data_, first_di + offset, row, scratch, policy_, universe_);
+            for (unsigned ii = 0; ii < n; ++ii) row[ii] = static_cast<float>(scratch[ii]);
         }
         std::unique_lock<std::mutex> lock(mutex_);
         ready_.wait(lock, [&] {
@@ -106,7 +100,6 @@ public:
 
 private:
     const DataPanel& data_;
-    bool normalized_;
     MissingClosePolicy policy_;
     const std::vector<uint8_t>* universe_;
     std::vector<std::vector<float>> signals_;

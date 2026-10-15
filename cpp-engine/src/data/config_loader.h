@@ -46,7 +46,6 @@ struct BacktestConfig {
     std::string config_dir;
     unsigned warmup_bars = 0;
     unsigned bars_per_year = 365;
-    std::string combined_mode = "normalized";
     std::string missing_close_policy = "carry"; // "carry" | "error"
     // Optional JSON file {panelSymbol: displayLabel} (e.g. tradingItemId -> ticker) served by /api/config.
     std::string symbol_labels_path;
