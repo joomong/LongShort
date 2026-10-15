@@ -58,6 +58,8 @@ A1~A11 전부 수정 완료. 방식: 파일 소유권으로 6개 패키지(E-A m
 
 추가(2026-10-15, 새 기능 meta 1·2단계, 별도 커밋): `meta_dir`·`<meta expr>`·`<ew/>`·`MMetaSource`·`MetaSetCache`/`MetaWorkerBudget`. 3패키지(M1·M2a·M2b) 코더+리뷰어, 리뷰 후속 각 1회. 실데이터 `<meta>` == combined 행 동일. 상세는 `cpp-engine/docs/math_contract.md` "Meta portfolios"와 CLAUDE.md.
 
+추가(2026-10-15, meta 3단계, 별도 커밋): 결합 방법 7종(`ew sign`·mvo·minvar·erc·ivol·spca·glasso) + 2패스 가중 누산·멤버 수익 캐시·GA 라운드 선계산. 리뷰가 잡은 것: simEnd 이후 바를 fallback으로 셈, 분산 0 멤버가 minvar/ERC 100%, 다른 요청의 취소가 캐시 대기자에게 전파, 캐시 키 숫자 포맷 충돌(1e-7≡0), 묶음 상한이 메모리를 못 줄임(삭제). 상세는 math_contract "Combination methods".
+
 리뷰가 남긴 후속 항목(이번에 안 함, C로 편입):
 - **E2-F1 꼬리**: carry 정책에서 후속주가 **부정 가격(corrupt close)** 종목에 떨어지면 거부 대신 동결됨(`require_priced_quotes`가 이전 북만 봄). 기준선 OHLC4도 같았음. math_contract 58-59행("비양수 가격은 관련 포지션에서 거부") 위반. 공유 루프에 `kQuoteInvalid && carried != 0 → throw` 한 줄.
 - 결합 재실행(`run_from_signals`)은 행 훅이 없어 시작 후 취소 불가(사전 체크만). 저장 행 단계도 행 사이에서만 취소.

@@ -3,6 +3,7 @@
 #include <arrow/api.h>
 #include <arrow/io/file.h>
 #include <parquet/arrow/reader.h>
+#include "api/meta_weights.h"
 
 #include <algorithm>
 #include <cctype>
@@ -28,6 +29,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <thread>
+#include <tuple>
 #include <unistd.h>
 #include <vector>
 
@@ -473,7 +475,7 @@ TEST_F(HttpContractTest, ConfigListsMetaDirAndSortedMetaNames) {
               fs::weakly_canonical(find_config_path().parent_path() / "meta"));
     std::vector<std::string> names;
     for (const auto& name : cfg["metaNames"]) names.push_back(name.asString());
-    EXPECT_EQ(names, (std::vector<std::string>{"broken", "empty", "heavy", "nested", "sample"}));
+    EXPECT_EQ(names, (std::vector<std::string>{"broken", "empty", "heavy", "nested", "sample", "ten"}));
 }
 
 TEST_F(HttpContractTest, SimEndIsInclusiveAndCapsAllOutputsWithoutChangingSharedData) {
@@ -1810,6 +1812,7 @@ Json::Value sample_meta_list()
     Json::Value entry;
     entry["name"] = "sample";
     entry["members"] = 3;
+    entry["combine"] = "ew";
     list.append(entry);
     return list;
 }
@@ -2042,4 +2045,237 @@ TEST_F(HttpContractTest, MetaDisconnectStopsMembers) {
     const double cpu_abort = process_cpu_seconds(pid) - abort_before;
     std::cout << "[meta disconnect] cpu_abort=" << cpu_abort << "\n";
     EXPECT_LT(cpu_abort, 0.6 * cpu_full) << "wall=" << wall << " cpu_full=" << cpu_full;
+}
+
+// Non-EW combinations (<mvo>, <minvar>, ...) of the fixture sets.
+namespace {
+std::string mvo_key(int days, const std::string& delta)
+{
+    return "mvo days=" + std::to_string(days) + " shrink=diag delta=" + delta + " rebalance=1";
+}
+}  // namespace
+
+TEST_F(HttpContractTest, MetaMvoRunsAndReports) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto mvo = simulate(meta_request("<meta expr=\"sample\"/><mvo days=\"60\"/>"));
+    const auto ew = simulate(meta_request("<meta expr=\"sample\"/>"));
+    ASSERT_EQ(mvo.status, 200) << mvo.body.substr(0, 300);
+    ASSERT_EQ(ew.status, 200) << ew.body.substr(0, 300);
+    Json::Value a, b;
+    ASSERT_TRUE(parse_json(mvo.body, &a));
+    ASSERT_TRUE(parse_json(ew.body, &b));
+    const auto& meta = a["batches"][0]["meta"];
+    ASSERT_EQ(meta.size(), 1u);
+    EXPECT_EQ(meta[0]["name"].asString(), "sample");
+    EXPECT_EQ(meta[0]["members"].asUInt(), 3u);
+    EXPECT_EQ(meta[0]["combine"].asString(), mvo_key(60, "0.5"));
+    ASSERT_TRUE(meta[0].isMember("fallbackBars"));
+    ASSERT_TRUE(meta[0].isMember("firstEstimatedBar"));
+    EXPECT_EQ(meta[0]["firstEstimatedBar"].asUInt(), a["isStartIndex"].asUInt() + 60) << compact_json(meta);
+    std::cout << "[ meta mvo ] " << compact_json(meta) << "\n";
+    EXPECT_NE(a["batches"][0]["summary"], b["batches"][0]["summary"]);
+}
+
+TEST_F(HttpContractTest, MetaMethodsAllRun) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::vector<std::tuple<std::string, std::string, std::string>> cases = {
+        {"sample", "<minvar days=\"60\"/>", "minvar days=60 shrink=diag delta=0.5 rebalance=1"},
+        {"sample", "<minvar days=\"60\" shrink=\"lw\" rebalance=\"5\"/>", "minvar days=60 shrink=lw rebalance=5"},
+        {"sample", "<erc days=\"60\"/>", "erc days=60 rebalance=1"},
+        {"sample", "<ivol days=\"60\"/>", "ivol days=60 rebalance=1"},
+        {"sample", "<spca days=\"60\" k=\"2\"/>", "spca days=60 k=2 rebalance=1"},
+        {"sample", "<glasso days=\"60\" alpha=\"0.1\"/>", "glasso days=60 alpha=0.1 rebalance=1"},
+        {"sample", "<ew sign=\"60\"/>", "ewsign days=60 rebalance=1"},
+        {"ten", "<spca days=\"60\" k=\"4\"/>", "spca days=60 k=4 rebalance=1"},
+    };
+    for (const auto& [name, tag, key] : cases) {
+        const auto response = simulate(meta_request("<meta expr=\"" + name + "\"/>" + tag));
+        ASSERT_EQ(response.status, 200) << tag << ": " << response.body.substr(0, 300);
+        Json::Value body;
+        ASSERT_TRUE(parse_json(response.body, &body));
+        const auto& meta = body["batches"][0]["meta"][0];
+        EXPECT_EQ(meta["combine"].asString(), key) << tag;
+        EXPECT_EQ(meta["members"].asUInt(), name == "ten" ? 10u : 3u);
+        EXPECT_TRUE(meta.isMember("fallbackBars")) << tag;
+        EXPECT_TRUE(std::isfinite(body["batches"][0]["summary"]["is"]["sharpe"].asDouble())) << tag;
+    }
+}
+
+TEST_F(HttpContractTest, MetaSpecErrors400) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"<meta expr=\"sample\"/><spca days=\"60\" k=\"4\"/>", "meta 'sample' <spca>: k=4 exceeds the member count 3"},
+        {"<meta expr=\"sample\"/><mvo days=\"5000\"/>", "meta 'sample' <mvo>: days=5000 exceeds the trading bars"},
+    };
+    for (const auto& [xml, needle] : cases) {
+        const auto response = simulate(meta_request(xml));
+        EXPECT_EQ(response.status, 400) << xml << ": " << response.body;
+        EXPECT_NE(response.body.find(needle), std::string::npos) << xml << ": " << response.body;
+    }
+    // In an expanded batch the failing spec fails the request too.
+    const auto batch = simulate(meta_request("<meta expr=\"sample\"/><spca days=\"60\" k=\"2|4\"/>"));
+    EXPECT_EQ(batch.status, 400) << batch.body.substr(0, 300);
+    EXPECT_NE(batch.body.find("k=4 exceeds the member count 3"), std::string::npos) << batch.body;
+}
+
+TEST_F(HttpContractTest, MetaInGAStreamWithMvoGrid) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request = meta_request("<meta expr=\"sample\"/><mvo days=\"40|60\" shrink=\"0.3|0.7\"/>");
+    // Dates used by no other test: the member-return cache is process-wide.
+    request["simStart"] = "2021-03-01";
+    request["simEnd"] = "2022-11-30";
+    request["firstSearch"] = 4; request["stopRound"] = 1; request["streamCandidates"] = true;
+    request["threads"] = 4;
+    request["metaStats"] = true;
+    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    std::istringstream stream(response.body);
+    std::string line;
+    std::vector<Json::Value> candidates;
+    Json::Value complete;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+        Json::Value event;
+        ASSERT_TRUE(parse_json(line, &event)) << line;
+        ASSERT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "candidate") candidates.push_back(event["candidate"]);
+        if (event["type"].asString() == "search_complete") complete = event;
+    }
+    ASSERT_EQ(candidates.size(), 4u);
+    std::set<std::string> keys;
+    for (const auto& candidate : candidates) {
+        EXPECT_EQ(candidate["status"].asString(), "completed") << compact_json(candidate);
+        keys.insert(candidate["meta"][0]["combine"].asString());
+        // Bars after simEnd are not counted: no fallback, first estimate at simStart + days.
+        const int sim_start_index = 18687 - 18262;  // 2021-03-01 in the daily fixture from 2020-01-01
+        const std::string key = candidate["meta"][0]["combine"].asString();
+        const int days = std::stoi(key.substr(key.find("days=") + 5));
+        EXPECT_EQ(candidate["meta"][0]["fallbackBars"].asUInt(), 0u) << compact_json(candidate["meta"]);
+        EXPECT_EQ(candidate["meta"][0]["firstEstimatedBar"].asInt(), sim_start_index + days) << key;
+    }
+    EXPECT_EQ(keys, (std::set<std::string>{mvo_key(40, "0.3"), mvo_key(40, "0.7"), mvo_key(60, "0.3"),
+                                           mvo_key(60, "0.7")}));
+    // One member-return pass and one weighted pass for the round: each member ran twice.
+    std::cout << "[ meta GA ] metaStats " << compact_json(complete["metaStats"]) << "\n";
+    EXPECT_EQ(complete["metaStats"]["materializations"].asUInt(), 1u) << compact_json(complete);
+    EXPECT_EQ(complete["metaStats"]["memberRuns"].asUInt(), 6u) << compact_json(complete);
+
+    // The candidate summary equals a live single run of its XML.
+    Json::Value live_request = request;
+    for (const char* key : {"firstSearch", "stopRound", "streamCandidates", "metaStats"}) live_request.removeMember(key);
+    live_request["xml"] = candidates[0]["xml"];
+    live_request["metricsOnly"] = true;
+    const auto live = simulate(live_request);
+    ASSERT_EQ(live.status, 200) << live.body.substr(0, 300);
+    Json::Value body;
+    ASSERT_TRUE(parse_json(live.body, &body));
+    EXPECT_EQ(candidates[0]["summary"], body["batches"][0]["summary"]);
+    EXPECT_EQ(candidates[0]["meta"], body["batches"][0]["meta"]);
+}
+
+namespace {
+// date -> symbol index -> weight, from a saved positions parquet file.
+std::map<int32_t, std::map<int, double>> read_positions(const fs::path& file)
+{
+    std::map<int32_t, std::map<int, double>> book;
+    auto input = arrow::io::ReadableFile::Open(file.string()).ValueOrDie();
+    std::unique_ptr<parquet::arrow::FileReader> reader;
+    if (!parquet::arrow::OpenFile(input, arrow::default_memory_pool(), &reader).ok()) return book;
+    std::shared_ptr<arrow::Table> table;
+    if (!reader->ReadTable(&table).ok()) return book;
+    table = table->CombineChunks().ValueOrDie();
+    auto dates = std::static_pointer_cast<arrow::Date32Array>(table->column(0)->chunk(0));
+    auto ids = std::static_pointer_cast<arrow::StringArray>(table->column(1)->chunk(0));
+    auto weights = std::static_pointer_cast<arrow::DoubleArray>(table->column(2)->chunk(0));
+    for (int64_t i = 0; i < table->num_rows(); ++i) book[dates->Value(i)][ids->GetString(i)[0] - 'A'] = weights->Value(i);
+    return book;
+}
+}  // namespace
+
+TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const Json::Value metadata = alpha_metadata("close");
+    const int32_t first_day = 19723, last_day = 20088;  // 2024-01-01, 2024-12-31
+    const unsigned T = static_cast<unsigned>(last_day - first_day + 1);
+    std::vector<std::string> xmls(kSampleMembers.begin(), kSampleMembers.end());
+    xmls.push_back("<meta expr=\"sample\"/><mvo days=\"60\"/>");
+    std::vector<std::map<int32_t, std::map<int, double>>> books;
+    MemberReturns returns;
+    returns.T = T;
+    returns.K = 3;
+    returns.sim_start = 0;
+    returns.rows.assign(T, std::vector<double>(3, 0.0));
+    std::vector<std::string> names;
+    for (std::size_t k = 0; k < xmls.size(); ++k) {
+        const std::string name = unique_alpha_name("metamvo" + std::to_string(k));
+        names.push_back(name);
+        remove(name);
+        Json::Value request;
+        request["name"] = name;
+        request["xml"] = xmls[k];
+        request["level"] = "positions";
+        request["metadata"] = metadata;
+        Json::Value row;
+        row["id"] = 0; row["xml"] = xmls[k];
+        request["rows"].append(row);
+        const auto saved = save(request);
+        ASSERT_EQ(saved.status, 200) << saved.body;
+        books.push_back(read_positions(alphas_dir() / name / "positions" / "0.parquet"));
+        ASSERT_EQ(books.back().size(), T) << xmls[k];
+        if (k == 3) continue;
+        Json::Value row_file;
+        ASSERT_TRUE(parse_json(read_text(alphas_dir() / name / "results" / "rows" / "0.json"), &row_file));
+        const Json::Value& cum = row_file["timeseries"]["cumPnlGross"];
+        ASSERT_EQ(cum.size(), T);
+        for (unsigned t = 0; t < T; ++t)
+            returns.rows[t][k] = cum[t].asDouble() - (t ? cum[t - 1].asDouble() : 0.0);
+    }
+    CombineSpec spec;
+    spec.method = CombineMethod::Mvo;
+    spec.days = 60;
+    const CombineWeights weights = compute_combine_weights(returns, spec);
+    EXPECT_EQ(weights.first_estimated_bar, 60u);
+    std::size_t checked = 0;
+    double max_diff = 0.0;
+    for (unsigned t = 0; t < T; ++t) {
+        const int32_t day = first_day + static_cast<int32_t>(t);
+        double combined[4] = {0, 0, 0, 0}, gross = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            for (int k = 0; k < 3; ++k) {
+                const auto& book = books[k].at(day);
+                const auto found = book.find(i);
+                if (found != book.end()) combined[i] += weights.rows[t][k] * found->second;
+            }
+            gross += std::fabs(combined[i]);
+        }
+        ASSERT_GT(gross, 0.0) << day;
+        for (int i = 0; i < 4; ++i) {
+            const auto& book = books[3].at(day);
+            const auto found = book.find(i);
+            const double engine = found == book.end() ? 0.0 : found->second;
+            const double diff = std::fabs(engine - combined[i] / gross);
+            max_diff = std::max(max_diff, diff);
+            EXPECT_NEAR(engine, combined[i] / gross, 1e-6) << "day " << day << " symbol " << i;
+            ++checked;
+        }
+    }
+    std::cout << "[ meta mvo oracle ] cells=" << checked << " max|diff|=" << max_diff << "\n";
+    EXPECT_EQ(checked, 4u * T);
+    for (const auto& name : names) EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
+}
+
+TEST_F(HttpContractTest, MetaCrossRequestDisconnectDoesNotFailOthers) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request = meta_request("<meta expr=\"heavy\"/><mvo days=\"40\"/>");
+    request["simStart"] = "2020-04-07";  // used by no other test: the member-return key is new
+    request["metricsOnly"] = true;
+    request["threads"] = 1;
+    // A computes the shared member returns and disconnects; B waits on the same key and must not
+    // inherit A's cancellation.
+    std::thread first([&] { (void)http_post_json(server_->port(), "/api/simulate", request, 0.8); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const auto second = simulate(request);
+    first.join();
+    EXPECT_EQ(second.status, 200) << second.body.substr(0, 300);
+    std::cout << "[ meta cross-request ] B status " << second.status << "\n";
 }

@@ -21,6 +21,7 @@
 #include "api/alpha_storage.h"
 #include "api/meta_dir.h"
 #include "api/meta_sets.h"
+#include "api/meta_returns.h"
 #include "modules/MetaSource.h"
 #include "ga/search_space.h"
 #include "ga/ga_engine.h"
@@ -28,6 +29,7 @@
 #include <fstream>
 #include <future>
 #include <set>
+#include <regex>
 
 namespace fs = std::filesystem;
 
@@ -37,6 +39,7 @@ static Json::Value g_symbol_labels;  // optional {panel symbol: display label}
 static DataPanel g_data;
 static fs::path g_alphas_dir;
 static fs::path g_meta_dir;  // optional; never created by the engine
+static MemberReturnsCache g_member_returns;  // member gross returns of non-EW sets, shared by requests
 static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
 
 static bool supports_exact_fields(std::initializer_list<const char*> names) {
@@ -327,19 +330,30 @@ static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, co
 
 using MetaMatrices = std::vector<std::shared_ptr<const MetaMatrix>>;
 
-// Points every <meta> source of `alpha` at its request-cached EW matrix. Keep the result alive
-// for the duration of the run.
+static MetaCombineContext meta_context(const RunOptions& options, MetaSetCache& cache,
+                                       const std::function<bool()>& cancelled) {
+    // Member returns depend on these request settings only (is/os split excluded).
+    const std::string settings = options.universe + "\n" + std::to_string(options.sim_start_index) + "\n" +
+        std::to_string(options.sim_end_index) + "\n" + options.execution_price + "\n" +
+        missing_close_policy_name(options.missing_close_policy);
+    return MetaCombineContext{g_data,
+                              MetaRunConfig{simulator_config(options, false), options.threads,
+                                            options.missing_close_policy, options.universe_mask},
+                              settings, g_member_returns, cache, cancelled};
+}
+
+// Points every <meta> source of `alpha` at its request-cached matrix (EW, or the set's combine
+// spec). Keep the result alive for the duration of the run.
 static MetaMatrices bind_meta_sets(CompiledAlpha& alpha, const RunOptions& options, MetaSetCache& cache,
                                    const std::function<bool()>& cancelled) {
     MetaMatrices held;
     for (auto& set : alpha.meta_sets) {
         // The listing is part of the key: a folder change mid-request never reuses a stale matrix.
-        std::string key = set.name;
-        for (const auto& path : set.member_paths) key += "\n" + path;
-        auto matrix = cache.get(key, [&] {
-            MetaRunConfig config{simulator_config(options, false), options.threads,
-                                 options.missing_close_policy, options.universe_mask};
-            return materialize_meta_set(g_data, set, config, cancelled, &cache.budget());
+        auto matrix = cache.get(meta_set_key(set, set.combine), [&] {
+            const auto context = meta_context(options, cache, cancelled);
+            if (!set.combine.is_ew()) return materialize_combined(context, set);
+            cache.record(1, set.members.size());
+            return materialize_meta_set(g_data, set, context.config, cancelled, &cache.budget());
         });
         set.source->matrix = matrix.get();
         set.members.clear();  // compiled for this alpha; the cached matrix replaces them
@@ -348,12 +362,18 @@ static MetaMatrices bind_meta_sets(CompiledAlpha& alpha, const RunOptions& optio
     return held;
 }
 
-static Json::Value meta_payload(const CompiledAlpha& alpha) {
+static Json::Value meta_payload(const CompiledAlpha& alpha, MetaSetCache& cache) {
     Json::Value sets(Json::arrayValue);
     for (const auto& set : alpha.meta_sets) {
         Json::Value entry;
         entry["name"] = set.name;
         entry["members"] = static_cast<Json::UInt64>(set.member_paths.size());
+        entry["combine"] = set.combine.key();
+        MetaCombineInfo info;
+        if (!set.combine.is_ew() && cache.info(meta_set_key(set, set.combine), &info)) {
+            entry["fallbackBars"] = info.fallback_bars;
+            entry["firstEstimatedBar"] = info.first_estimated_bar;
+        }
         sets.append(std::move(entry));
     }
     return sets;
@@ -510,6 +530,8 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     const bool single = alphas.size() == 1;
     if (options.signal_series_only && !single)
         throw std::invalid_argument("signalSeriesOnly requires one concrete alpha XML");
+    // Non-EW sets of an expanded batch: member returns once, one weighted pass for all specs.
+    if (!single) (void)prefetch_meta_sets(meta_context(options, cache, cancelled), alphas);
 
     struct BatchResult {
         std::size_t index = 0;
@@ -529,7 +551,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                                       cache, cancelled);
         batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options),
                       diagnostics_payload(single_output, options), {}};
-        if (!alphas[0].meta_sets.empty()) batches[0].meta = meta_payload(alphas[0]);
+        if (!alphas[0].meta_sets.empty()) batches[0].meta = meta_payload(alphas[0], cache);
     } else {
         OrderedSignalAccumulator accumulator(
             g_data, options.missing_close_policy,
@@ -568,7 +590,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                         auto output = execute_alpha(alphas[i], options, false, observe, {}, cache, stop);
                         batches[i] = {i, alphas[i].source_xml, full_metrics(output, options),
                                       diagnostics_payload(output, options), {}};
-                        if (!alphas[i].meta_sets.empty()) batches[i].meta = meta_payload(alphas[i]);
+                        if (!alphas[i].meta_sets.empty()) batches[i].meta = meta_payload(alphas[i], cache);
                     }
                     flush();
                     // Completed module state is no longer needed; selected plots
@@ -1124,12 +1146,13 @@ int main(int argc, char* argv[])
                     !ga_config.stop_alphas || ga_config.stop_alphas > 5000)
                     throw std::invalid_argument("GA search/round size and stopAlphas must be 1..5000, stopRound 1..1000");
                 const bool stream_candidates = body->get("streamCandidates", false).asBool();
+                const bool meta_stats = body->get("metaStats", false).asBool();
                 auto response = drogon::HttpResponse::newAsyncStreamResponse(
-                    [xml, options, ga_config, req, stream_candidates](drogon::ResponseStreamPtr stream) {
+                    [xml, options, ga_config, req, stream_candidates, meta_stats](drogon::ResponseStreamPtr stream) {
                         // The I/O loop must remain free to receive cancellation and
                         // flush generation events while the GA controller is running.
                         try {
-                            g_ga_workers.launch([xml, options, ga_config, req, stream_candidates, stream = std::move(stream)]() mutable {
+                            g_ga_workers.launch([xml, options, ga_config, req, stream_candidates, meta_stats, stream = std::move(stream)]() mutable {
                                 auto require_connection = [&] {
                                     if (g_ga_workers.stopping() || !req->connected()) throw ClientDisconnected();
                                 };
@@ -1175,7 +1198,7 @@ int main(int argc, char* argv[])
                                             payload["summary"]["os"] = summary_to_json(metrics.os_summary);
                                             payload["yearly"] = yearly_to_json(metrics.yearly);
                                             payload["missingData"] = missing_data_payload(output);
-                                            if (!alphas[0].meta_sets.empty()) payload["meta"] = meta_payload(alphas[0]);
+                                            if (!alphas[0].meta_sets.empty()) payload["meta"] = meta_payload(alphas[0], meta_cache);
                                             std::lock_guard<std::mutex> lock(payload_mutex);
                                             payloads.emplace(candidate_xml, std::move(payload));
                                         }
@@ -1183,6 +1206,29 @@ int main(int argc, char* argv[])
                                     };
                                     GAEvents events;
                                     events.cancelled = [&] { return g_ga_workers.stopping() || !req->connected(); };
+                                    // Non-EW set matrices live for one round: drop the previous round's, then
+                                    // compute this round's with one member-return and one weighted pass per set.
+                                    // Runs on this controller thread while candidate workers are idle.
+                                    std::vector<std::string> round_meta_keys;
+                                    events.round_prepare = [&](const std::vector<std::string>& round_xmls) {
+                                        meta_cache.evict(round_meta_keys);
+                                        round_meta_keys.clear();
+                                        std::vector<CompiledAlpha> round_alphas;
+                                        for (const auto& round_xml : round_xmls) {
+                                            // EW-only candidates stay on the lazy path.
+                                            static const std::regex non_ew(
+                                                R"(<(mvo|minvar|erc|ivol|spca|glasso)[\s/>]|<ew\s[^>]*sign=)");
+                                            if (!std::regex_search(round_xml, non_ew)) continue;
+                                            try {
+                                                auto compiled = compile_request_xml(round_xml, options);
+                                                for (auto& alpha : compiled) round_alphas.push_back(std::move(alpha));
+                                            } catch (const std::exception&) {
+                                                // The candidate reports its own compile error.
+                                            }
+                                        }
+                                        round_meta_keys = prefetch_meta_sets(meta_context(options, meta_cache, disconnected),
+                                                                             round_alphas);
+                                    };
                                     events.round_start = [&](unsigned round, size_t count) {
                                         if (!stream_candidates) return;
                                         Json::Value event;
@@ -1230,6 +1276,11 @@ int main(int argc, char* argv[])
                                         event["bestXml"] = best.best_xml;
                                         event["stopReason"] = best.stop_reason;
                                         event["evaluated"] = static_cast<Json::UInt64>(best.evaluated);
+                                        if (meta_stats) {
+                                            const auto stats = meta_cache.stats();
+                                            event["metaStats"]["materializations"] = static_cast<Json::UInt64>(stats.materializations);
+                                            event["metaStats"]["memberRuns"] = static_cast<Json::UInt64>(stats.member_runs);
+                                        }
                                         write(event);
                                         stream->close();
                                         return;
@@ -1246,7 +1297,7 @@ int main(int argc, char* argv[])
                                         batch[key] = diagnostics[key];
                                     batch["index"] = 0;
                                     batch["xml"] = best.best_xml;
-                                    if (!alphas[0].meta_sets.empty()) batch["meta"] = meta_payload(alphas[0]);
+                                    if (!alphas[0].meta_sets.empty()) batch["meta"] = meta_payload(alphas[0], meta_cache);
                                     append_signal_payload(batch, output.signals, output.timestamps, options);
                                     Json::Value complete;
                                     complete["type"] = "complete";

@@ -192,6 +192,45 @@ workers of all materializations in one request share the request's `threads` bud
 its workers once when it starts, so a set that starts while another holds most tokens keeps the
 smaller count until it finishes).
 
+### Combination methods (phase 3)
+
+A SET is finalized by exactly one of `<ew/>`, `<ew sign="N"/>`, `<mvo days shrink rebalance/>`,
+`<minvar days shrink rebalance/>`, `<erc days rebalance/>`, `<ivol days rebalance/>`,
+`<spca days k rebalance/>`, `<glasso days alpha rebalance/>` (an implicit finalization is `<ew/>`).
+Every method produces per-bar member weights w[t,k] applied to the members' gross-1 rows:
+EW w = 1/K; sign-EW w ∝ sign(mean); ivol w ∝ 1/σ; MVO w ∝ Σ_s⁻¹μ; minvar w ∝ Σ_s⁻¹1; ERC equal
+risk contribution on the sample Σ; sPCA and GLasso replicate the alpha_zoo research code (scaled
+PCA with k components and plug-in MVO; graphical lasso precision on 0.99·corr + 0.01·I).
+`shrink` is a number in [0,1] (Σ_δ = (1−δ)S + δ·diag S, default 0.5) or `lw` (Ledoit-Wolf, scaled
+identity target), `cc` (constant-correlation target) or `oas`. Negative member weights are allowed;
+constrained variants are separate work. Estimation uses the members' gross daily returns (collected over the
+trading period only, i.e. up to the request's simEnd) over the `days` bars ending at t−1 (never
+bar t); bars before `sim_start + days` use EW; `rebalance`
+recomputes every N bars and carries the row in between; Σ|w| = 1 on every estimated row; a failed
+or non-finite solution falls back to EW for that bar and is counted (`fallbackBars` in the
+response; carried rows after a fallback count too). Member returns are collected once per set and
+settings and cached across requests (a waiter on another request's computation never inherits that
+request's failure or cancellation; it recomputes); the weighted pass re-runs the members once for
+all candidates of a request round; the round holds one T×N float matrix per candidate
+(C × T × N × 4 bytes), so keep the meta parameter grid per round small. Bars where a method
+falls back to EW equal the `<ew/>` row up to float rounding (bit-identical only when K is a power
+of two); a member whose weight is exactly 0 contributes nothing (every member row is finite after
+normalization, so combined rows are NaN only on bars no member emits). Conventions: sPCA standardizes the window by its sd, applies the research
+`_spca_weight` logic verbatim (no market neutralization: the engine has no market series) and maps
+the standardized weights back by 1/sd; GLasso ports sklearn's coordinate-descent `graphical_lasso`
+(max_iter 100, dual-gap tol 1e-4 as the research call) and keeps the research `(Σ+μμᵀ)⁻¹μ` form,
+falling back to EW on non-convergence where the research used the unconverged estimate; `lw`/`oas` use the
+sklearn formulas on the centered window; `cc` is Ledoit-Wolf (2004) covCor. A member whose window has zero variance (a flat book) makes that bar an
+estimator failure for every method except sign-EW (EW row, counted); with `shrink="0"` and
+`days ≤ K` the sample covariance is singular and the ridge-regularized solve returns a null-space
+portfolio, so use δ > 0 there. Cost at K≈200: every method except GLasso takes seconds per candidate
+even with daily rebalancing; GLasso takes minutes with `rebalance=1` and a few seconds with
+`rebalance=21` when windows converge (non-converging windows cost 100 sweeps each; the research
+used monthly), so use a rebalance of 21 or more for it. Linear algebra comes from Eigen 3.4.0 (header-only, fetched at configure time).
+Responses: every meta batch and GA candidate event carries `meta: [{name, members, combine}]`,
+plus `fallbackBars` and `firstEstimatedBar` (absolute panel bar) for non-EW combinations; a GA
+request with `metaStats: true` adds `metaStats{materializations, memberRuns}` to `search_complete`.
+
 ## GA search and streamed results
 
 The objective remains gross IS Sharpe. The initial search evaluates up to `firstSearch`

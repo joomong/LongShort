@@ -2,6 +2,7 @@
 
 #include "expansion.h"
 #include "module.h"
+#include "combine_spec.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -52,6 +53,7 @@ struct MetaSet {
     std::vector<std::string> member_paths;          // as given by the resolver, in order
     std::vector<CompiledAlpha> members;             // one compiled alpha per member, same order
     MMetaSource* source = nullptr;                  // module in `pipeline` yielding the combined row
+    CombineSpec combine;                            // finalizer tag (<ew/>, <mvo>, ...); implicit -> Ew
 };
 
 // (path, xml) pairs for a meta name; throws std::runtime_error for unknown name / empty folder.

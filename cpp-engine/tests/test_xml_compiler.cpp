@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include "module.h"
 #include "compiler/xml_parser.h"
@@ -977,4 +978,125 @@ TEST(XmlCompiler, UnnamedMetaChainRestartRejected) {
     auto dp = make_panel();
     MetaResolver resolver = make_resolver(default_metas());
     EXPECT_EQ(compile_xml(R"(<data expr="close"/><meta expr="t"/>)", &dp, nullptr, &resolver).size(), 1u);
+}
+
+// ---------------------------------------------------------------------------
+// Set finalizers: <ew sign>, <mvo>, <minvar>, <erc>, <ivol>, <spca>, <glasso> -> MetaSet::combine
+// ---------------------------------------------------------------------------
+static CombineSpec compile_combine(const std::string& xml) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(xml, &dp, nullptr, &resolver);
+    EXPECT_EQ(alphas.size(), 1u);
+    EXPECT_EQ(alphas[0].meta_sets.size(), 1u);
+    EXPECT_EQ(alphas[0].pipeline.size(), 1u);
+    EXPECT_NE(dynamic_cast<MMetaSource*>(alphas[0].pipeline[0]), nullptr);
+    EXPECT_EQ(alphas[0].meta_sets[0].source, alphas[0].pipeline[0]);
+    return alphas[0].meta_sets[0].combine;
+}
+
+TEST(XmlCompiler, CombineMvoShape) {
+    auto lw = compile_combine(R"(<meta expr="s"/><mvo days="252" shrink="lw" rebalance="21"/>)");
+    EXPECT_EQ(lw.method, CombineMethod::Mvo);
+    EXPECT_EQ(lw.days, 252u);
+    EXPECT_EQ(lw.rebalance, 21u);
+    EXPECT_EQ(lw.shrink, ShrinkMode::LedoitWolf);
+    EXPECT_EQ(lw.key(), "mvo days=252 shrink=lw rebalance=21");
+    auto diag = compile_combine(R"(<meta expr="s"/><mvo days="252" shrink="0.7"/>)");
+    EXPECT_EQ(diag.shrink, ShrinkMode::Diag);
+    EXPECT_DOUBLE_EQ(diag.delta, 0.7);
+    EXPECT_EQ(diag.rebalance, 1u);
+    EXPECT_EQ(diag.key(), "mvo days=252 shrink=diag delta=0.7 rebalance=1");
+    auto def = compile_combine(R"(<meta expr="s"/><mvo days="252"/>)");
+    EXPECT_EQ(def.shrink, ShrinkMode::Diag);
+    EXPECT_DOUBLE_EQ(def.delta, 0.5);
+    EXPECT_EQ(def.key(), "mvo days=252 shrink=diag delta=0.5 rebalance=1");
+}
+
+TEST(XmlCompiler, CombineOtherShapes) {
+    auto mv = compile_combine(R"(<meta expr="s"/><minvar days="100" shrink="cc"/>)");
+    EXPECT_EQ(mv.method, CombineMethod::MinVar);
+    EXPECT_EQ(mv.shrink, ShrinkMode::ConstantCorrelation);
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><minvar days="100" shrink="oas"/>)").shrink, ShrinkMode::Oas);
+    auto erc = compile_combine(R"(<meta expr="s"/><erc days="60" rebalance="5"/>)");
+    EXPECT_EQ(erc.method, CombineMethod::Erc);
+    EXPECT_EQ(erc.days, 60u);
+    EXPECT_EQ(erc.rebalance, 5u);
+    auto ivol = compile_combine(R"(<meta expr="s"/><ivol days="20"/>)");
+    EXPECT_EQ(ivol.method, CombineMethod::Ivol);
+    EXPECT_EQ(ivol.days, 20u);
+    auto spca = compile_combine(R"(<meta expr="s"/><spca days="252" k="4"/>)");
+    EXPECT_EQ(spca.method, CombineMethod::Spca);
+    EXPECT_EQ(spca.k, 4u);
+    EXPECT_EQ(spca.key(), "spca days=252 k=4 rebalance=1");
+    auto gl = compile_combine(R"(<meta expr="s"/><glasso days="252" alpha="0.1"/>)");
+    EXPECT_EQ(gl.method, CombineMethod::Glasso);
+    EXPECT_DOUBLE_EQ(gl.alpha, 0.1);
+    EXPECT_EQ(gl.key(), "glasso days=252 alpha=0.1 rebalance=1");
+    auto sign = compile_combine(R"(<meta expr="s"/><ew sign="252"/>)");
+    EXPECT_EQ(sign.method, CombineMethod::EwSign);
+    EXPECT_EQ(sign.days, 252u);
+    EXPECT_EQ(sign.key(), "ewsign days=252 rebalance=1");
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><ew/>)").method, CombineMethod::Ew);
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/>)").method, CombineMethod::Ew);
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><ew/>)").key(), "ew");
+}
+
+TEST(XmlCompiler, CombineFollowedByModules) {
+    auto dp = make_panel();
+    dp.arrays["sector"].assign(dp.T * dp.N, 1.0f);
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(R"(<meta expr="s"/><mvo days="252"/><neutralize group="sector"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 1u);
+    const auto& a = alphas[0];
+    ASSERT_EQ(a.pipeline.size(), 2u);
+    EXPECT_NE(dynamic_cast<MMetaSource*>(a.pipeline[0]), nullptr);
+    EXPECT_NE(dynamic_cast<MNeutralize*>(a.pipeline[1]), nullptr);
+    ASSERT_EQ(a.meta_sets.size(), 1u);
+    EXPECT_EQ(a.meta_sets[0].combine.method, CombineMethod::Mvo);
+    // Implicit finalization before a module stays EW.
+    auto implicit = compile_xml(R"(<meta expr="s"/><neutralize group="sector"/>)", &dp, nullptr, &resolver);
+    EXPECT_EQ(implicit[0].meta_sets[0].combine.method, CombineMethod::Ew);
+}
+
+TEST(XmlCompiler, CombineExpansion) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(R"(<meta expr="s"/><mvo days="100|200" shrink="0.3|0.7"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 4u);
+    std::set<std::string> keys;
+    for (const auto& a : alphas) keys.insert(a.meta_sets.at(0).combine.key());
+    EXPECT_EQ(keys.size(), 4u);
+}
+
+TEST(XmlCompiler, CombineRejections) {
+    const auto m = default_metas();
+    for (const char* tag : {"mvo", "minvar", "erc", "ivol", "spca", "glasso"}) {
+        const std::string t = tag;
+        expect_meta_error("<data expr=\"close\"/><" + t + " days=\"252\"/>", m,
+                          "<" + t + "> requires an alpha set from <meta>");
+    }
+    expect_meta_error(R"(<data expr="close"/><ew sign="5"/>)", m, "<ew> requires an alpha set from <meta>");
+    expect_meta_error(R"(<meta expr="s"/><mvo/>)", m, "<mvo> requires attribute 'days'");
+    expect_meta_error(R"(<meta expr="s"/><erc/>)", m, "<erc> requires attribute 'days'");
+    expect_meta_error(R"(<meta expr="s"/><spca days="10"/>)", m, "<spca> requires attribute 'k'");
+    expect_meta_error(R"(<meta expr="s"/><glasso days="10"/>)", m, "<glasso> requires attribute 'alpha'");
+    expect_meta_error(R"(<meta expr="s"/><spca days="1" k="2"/>)", m,
+                      "Invalid value for <spca> attribute 'days': '1' (expected integer >= 2)");
+    expect_meta_error(R"(<meta expr="s"/><mvo days="252" shrink="x"/>)", m,
+                      "Invalid value for <mvo> attribute 'shrink': 'x' (expected a number in [0,1] or lw|cc|oas)");
+    expect_meta_error(R"(<meta expr="s"/><mvo days="252" shrink="1.5"/>)", m,
+                      "Invalid value for <mvo> attribute 'shrink': '1.5' (expected a number in [0,1] or lw|cc|oas)");
+    expect_meta_error(R"(<meta expr="s"/><spca days="252" k="0"/>)", m,
+                      "Invalid value for <spca> attribute 'k': '0' (expected integer >= 1)");
+    expect_meta_error(R"(<meta expr="s"/><glasso days="252" alpha="0"/>)", m,
+                      "Invalid value for <glasso> attribute 'alpha': '0' (expected number > 0)");
+    expect_meta_error(R"(<meta expr="s"/><ivol days="252" rebalance="0"/>)", m,
+                      "Invalid value for <ivol> attribute 'rebalance': '0' (expected integer >= 1)");
+    expect_meta_error(R"(<meta expr="s"/><ew sign="0"/>)", m,
+                      "Invalid value for <ew> attribute 'sign': '0' (expected integer >= 1)");
+    expect_meta_error(R"(<meta expr="s"/><mvo days="252" foo="1"/>)", m, "Unknown attribute 'foo' for <mvo>");
+    expect_meta_error(R"(<meta expr="s"/><signal id="x"/><meta expr="t"/><mvo days="252" input="x"/>)", m,
+                      "Unknown attribute 'input' for <mvo>");
+    expect_meta_error(R"(<meta expr="s"/><ew foo="1"/>)", m, "Unknown attribute 'foo' for <ew>");
 }

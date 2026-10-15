@@ -71,6 +71,9 @@ def main():
     heavy = '<data expr="close" delay="1"/>' + '<tsrank days="2000" min_count="1"/>' * 100
     for k in range(3):
         members[f"heavy/m{k}.xml"] = heavy
+    # Ten cheap members for member-count checks of the combination methods.
+    for k in range(10):
+        members[f"ten/m{k}.xml"] = f'<data expr="close" delay="1"/><tsmean days="{k + 1}"/><rank/>'
     for rel, xml in members.items():
         (meta / rel).parent.mkdir(parents=True, exist_ok=True)
         (meta / rel).write_text(xml + "\n")

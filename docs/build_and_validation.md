@@ -39,7 +39,7 @@ NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:50007" npm run dev -- --port 50006
 
 ## 빌드 의존성과 모듈 발견
 
-C++17 컴파일러와 CMake, Arrow/Parquet, Boost, Drogon 및 저장소 CMake가 요구하는 라이브러리가 필요하다. CMake 패키지를 이미 준비한 경로를 우선 사용한다. PyArrow 번들 Arrow/Parquet를 쓰면 해당 Python을 명시한다.
+C++17 컴파일러와 CMake, Arrow/Parquet, Boost, Drogon 및 저장소 CMake가 요구하는 라이브러리가 필요하다. pugixml·yaml-cpp·drogon·googletest·Eigen(3.4.0, 헤더 전용, SHA256 고정)은 configure 때 FetchContent로 내려받으므로 최초 configure에는 네트워크가 필요하다. CMake 패키지를 이미 준비한 경로를 우선 사용한다. PyArrow 번들 Arrow/Parquet를 쓰면 해당 Python을 명시한다.
 
 ```bash
 python3 cpp-engine/tools/run_engine.py --config /path/to/config.yaml \

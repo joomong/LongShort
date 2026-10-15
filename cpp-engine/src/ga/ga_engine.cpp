@@ -124,6 +124,7 @@ GAResult GAEngine::run_impl(EvalFunc evaluate, const GAEvents& events) {
         if (events.round_start) events.round_start(round, candidates.size());
         std::vector<std::string> xmls;
         for (const auto& candidate : candidates) xmls.push_back(candidate.xml);
+        if (events.round_prepare) events.round_prepare(xmls);
         const auto evaluations = evaluator.evaluate_results(xmls, [&](size_t index, const EvaluationResult& value) {
             candidates[index].fitness = value.fitness;
             candidates[index].error = value.error;

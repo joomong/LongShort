@@ -47,6 +47,14 @@ FetchContent_Declare(googletest
     GIT_SHALLOW    TRUE
 )
 
+# Eigen 3.4.0 (header-only linear algebra for <meta> combination weights).
+FetchContent_Declare(eigen
+    URL      https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+    URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR  headers-only   # no such directory: download only, Eigen's CMake project is not configured
+)
+
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
@@ -70,7 +78,7 @@ FetchContent_Declare(drogon
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(pugixml yaml-cpp drogon)
+FetchContent_MakeAvailable(pugixml yaml-cpp drogon eigen)
 if(LONGSHORT_BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
 endif()
@@ -117,6 +125,8 @@ add_library(engine STATIC
     src/api/alpha_storage.cpp
     src/api/meta_dir.cpp
     src/api/meta_sets.cpp
+    src/api/meta_weights.cpp
+    src/api/meta_returns.cpp
 )
 
 include(cmake/DiscoverModules.cmake)
@@ -142,6 +152,8 @@ target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+target_include_directories(engine SYSTEM PUBLIC ${eigen_SOURCE_DIR})
 
 target_compile_options(engine PUBLIC
     "$<$<CXX_COMPILER_ID:MSVC>:SHELL:/FI \"${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h\">"
@@ -213,6 +225,11 @@ add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
 add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
 add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
 add_engine_test(test_meta_sets        tests/test_meta_sets.cpp)
+add_engine_test(test_meta_weights     tests/test_meta_weights.cpp)
+
+# Test-only CLI for the Python oracle of the combination weights.
+add_executable(meta_weights_probe tools/meta_weights_probe.cpp)
+target_link_libraries(meta_weights_probe PRIVATE engine)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
 add_engine_test(test_execution_price  tests/test_execution_price.cpp)
@@ -234,4 +251,8 @@ set_tests_properties(test_build_group_panels PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME test_example_configs
     COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_example_configs.py")
 set_tests_properties(test_example_configs PROPERTIES SKIP_RETURN_CODE 77)
+add_test(NAME test_meta_weights_oracle
+    COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_meta_weights_oracle.py"
+            "$<TARGET_FILE:meta_weights_probe>")
+set_tests_properties(test_meta_weights_oracle PROPERTIES SKIP_RETURN_CODE 77)
 endif()

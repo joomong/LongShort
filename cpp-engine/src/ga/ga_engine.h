@@ -40,6 +40,8 @@ struct GAEvents {
     std::function<void(unsigned, size_t)> round_start;
     std::function<void(const GACandidate&)> candidate;
     std::function<void(unsigned, const std::string&, double)> round_end;
+    // Called with every round's candidate XMLs (the initial search included) before they are evaluated.
+    std::function<void(const std::vector<std::string>& xmls)> round_prepare;
     ParallelEvaluator::Cancelled cancelled;
 };
 

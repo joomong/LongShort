@@ -213,7 +213,8 @@ class ReservedTagsMatchEngineRegistry(unittest.TestCase):
         self.assertTrue(modules)
         # Structural tags handled in compile_pipeline (data, signal, event, meta, ew), expansion (choice)
         # and the alpha wrapper (alpha); kept by hand because they are not registry entries.
-        structural = {'data', 'signal', 'event', 'choice', 'alpha', 'meta', 'ew'}
+        structural = {'data', 'signal', 'event', 'choice', 'alpha', 'meta', 'ew',
+                      'mvo', 'minvar', 'erc', 'ivol', 'spca', 'glasso'}
         self.assertEqual(generator.RESERVED_TAGS, frozenset(modules | structural))
 
 

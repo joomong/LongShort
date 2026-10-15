@@ -277,6 +277,90 @@ static bool contains_meta(const std::vector<XmlElement>& elements) {
     return false;
 }
 
+// Set finalizer tags: they turn the pending <meta> SET into a SIGNAL (see combine_spec.h).
+static bool is_combine_tag(const std::string& tag) {
+    return tag == "ew" || tag == "mvo" || tag == "minvar" || tag == "erc" || tag == "ivol" ||
+           tag == "spca" || tag == "glasso";
+}
+
+static unsigned parse_combine_uint(const std::map<std::string, std::string>& attribs, const std::string& tag,
+                                   const std::string& key, int min_value, bool required, unsigned fallback) {
+    auto it = attribs.find(key);
+    if (it == attribs.end()) {
+        if (required) throw CompileError("<" + tag + "> requires attribute '" + key + "'");
+        return fallback;
+    }
+    const std::string expected = "integer >= " + std::to_string(min_value);
+    int value = 0;
+    try {
+        value = module_attributes::parse_int(it->second, tag, key);
+    } catch (const CompileError&) {
+        throw module_attributes::detail::invalid_value(it->second, tag, key, expected.c_str());
+    }
+    if (value < min_value)
+        throw module_attributes::detail::invalid_value(it->second, tag, key, expected.c_str());
+    return static_cast<unsigned>(value);
+}
+
+static CombineSpec parse_combine_spec(const std::string& tag, const std::map<std::string, std::string>& attribs) {
+    CombineSpec spec;
+    if (tag == "ew") {
+        module_attributes::validate_keys(attribs, {"sign"}, "ew", false);
+        if (attribs.count("sign")) {
+            spec.method = CombineMethod::EwSign;
+            spec.days = parse_combine_uint(attribs, tag, "sign", 1, true, 0);
+        }
+        return spec;
+    }
+    if (tag == "mvo" || tag == "minvar") {
+        module_attributes::validate_keys(attribs, {"days", "shrink", "rebalance"}, tag, false);
+        spec.method = tag == "mvo" ? CombineMethod::Mvo : CombineMethod::MinVar;
+        auto it = attribs.find("shrink");
+        if (it != attribs.end()) {
+            const std::string value = module_attributes::detail::trim(it->second);
+            if (value == "lw") spec.shrink = ShrinkMode::LedoitWolf;
+            else if (value == "cc") spec.shrink = ShrinkMode::ConstantCorrelation;
+            else if (value == "oas") spec.shrink = ShrinkMode::Oas;
+            else {
+                const char* expected = "a number in [0,1] or lw|cc|oas";
+                double delta = 0.0;
+                try {
+                    delta = module_attributes::parse_float(it->second, tag, "shrink");
+                } catch (const CompileError&) {
+                    throw module_attributes::detail::invalid_value(it->second, tag, "shrink", expected);
+                }
+                if (!(delta >= 0.0 && delta <= 1.0))
+                    throw module_attributes::detail::invalid_value(it->second, tag, "shrink", expected);
+                spec.delta = delta;
+            }
+        }
+    } else if (tag == "erc" || tag == "ivol") {
+        module_attributes::validate_keys(attribs, {"days", "rebalance"}, tag, false);
+        spec.method = tag == "erc" ? CombineMethod::Erc : CombineMethod::Ivol;
+    } else if (tag == "spca") {
+        module_attributes::validate_keys(attribs, {"days", "k", "rebalance"}, tag, false);
+        spec.method = CombineMethod::Spca;
+        spec.k = parse_combine_uint(attribs, tag, "k", 1, true, 0);
+    } else {  // glasso
+        module_attributes::validate_keys(attribs, {"days", "alpha", "rebalance"}, tag, false);
+        spec.method = CombineMethod::Glasso;
+        auto it = attribs.find("alpha");
+        if (it == attribs.end()) throw CompileError("<glasso> requires attribute 'alpha'");
+        const char* expected = "number > 0";
+        double alpha = 0.0;
+        try {
+            alpha = module_attributes::parse_float(it->second, tag, "alpha");
+        } catch (const CompileError&) {
+            throw module_attributes::detail::invalid_value(it->second, tag, "alpha", expected);
+        }
+        if (!(alpha > 0.0)) throw module_attributes::detail::invalid_value(it->second, tag, "alpha", expected);
+        spec.alpha = alpha;
+    }
+    spec.days = parse_combine_uint(attribs, tag, "days", 2, true, 0);
+    spec.rebalance = parse_combine_uint(attribs, tag, "rebalance", 1, false, 1);
+    return spec;
+}
+
 // Compile the member alphas of <meta expr="NAME"> into a MetaSet (state SET until finalized).
 static MetaSet compile_meta_set(const std::map<std::string, std::string>& attribs,
                                 const DataPanel* panel,
@@ -341,7 +425,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
     // implicit before any other op / at the end) appends its MMetaSource; state -> SIGNAL.
     bool pending_set = false;
     bool meta_chain_unnamed = false;  // current chain began with <meta>, no <signal id> yet
-    auto finalize_set = [&]() {
+    auto finalize_set = [&](const CombineSpec& spec) {
+        result.meta_sets.back().combine = spec;
         auto source = std::make_unique<MMetaSource>();
         source->name = result.meta_sets.back().name;
         result.meta_sets.back().source = source.get();
@@ -357,14 +442,13 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
         const std::string& tag    = ops[i].first;
         const auto&        attribs = ops[i].second;
 
-        if (tag == "ew") {
+        if (is_combine_tag(tag)) {
             if (!pending_set)
-                throw CompileError("<ew> requires an alpha set from <meta>");
-            module_attributes::validate_keys(attribs, {}, "ew", false);
-            finalize_set();
+                throw CompileError("<" + tag + "> requires an alpha set from <meta>");
+            finalize_set(parse_combine_spec(tag, attribs));
             continue;
         }
-        if (pending_set) finalize_set();
+        if (pending_set) finalize_set(CombineSpec{});
 
         // A <meta> chain left unnamed would run all its members for nothing.
         if ((tag == "meta" || tag == "data") && meta_chain_unnamed)
@@ -499,7 +583,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
         result.modules.push_back(std::move(mod));
     }
 
-    if (pending_set) finalize_set();
+    if (pending_set) finalize_set(CombineSpec{});
     result.output = current;
     return result;
 }
