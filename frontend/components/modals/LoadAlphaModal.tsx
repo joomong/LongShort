@@ -59,7 +59,7 @@ export default function LoadAlphaModal() {
         const alphas = saved.rows.filter(row => row.status === 'completed').map(adaptGACandidate);
         store.setBacktestError(null);
         store.loadSavedResult({ combined: null, alphas, sourceXml: alpha.xml, savedSource: alpha.name,
-          runSettings: { ...metadata, threads: useAlphaStore.getState().settings.nJobs } });
+          runSettings: { ...metadata, universe, threads: useAlphaStore.getState().settings.nJobs } });
       } else {
         store.exitDetailView();
       }

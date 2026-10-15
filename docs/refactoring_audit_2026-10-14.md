@@ -34,6 +34,35 @@
 | A10 | V1(프론트) | 저장본 불러올 때 유니버스가 없으면 UI는 대체 유니버스를 쓴다고 표시하지만 `runSettings`엔 원래 이름이 남아 라운드 탭 combined·Signals 재실행이 400, 그 오류는 영구 캐시 | 코드 추적 | `runSettings.universe`를 모달이 고른 값으로 | 테스트 추가 | S |
 | A11 | E2-F1 | close 체결에서 후속주(successor)가 시세 없는 종목에 떨어지면 동결 예산을 건너뜀 → gross 1.5, error 정책도 안 던짐(OHLC4/VWAP는 정상). `math_contract` 54·56행 위반 | 스크래치 빌드 재현. 현 캐시의 후속 이동 2,963건 중 해당 0건, 한 바만 지속, 실서버는 vwap | 동결·error 게이트를 `apply_successor_transfers` 뒤에서 세 체결가 공통으로 한 번 계산 | `ThinMoves.SuccessorIntoQuotelessDestinationReservesBudget` 추가, 기존 frozen_gross 핀 유지 | M |
 
+
+### 1.1 진행 상황 (2026-10-15)
+
+A1~A11 전부 수정 완료. 방식: 파일 소유권으로 6개 패키지(E-A main.cpp / E-B 컴파일러 / E-C 설정 / E-D 시뮬레이터 / F-A 스토어 / F-B API 클라이언트), 패키지마다 코딩 에이전트 1 + 적대적 리뷰어 1, 리드가 별도 빌드로 재검증. 전부 미커밋.
+
+| 패키지 | 항목 | 리뷰 | 리뷰에서 잡힌 것 |
+|---|---|---|---|
+| E-A | A3, A4, A6 | PASS | skip 게이트를 wall→CPU 시간으로, 미사용 include (리드 반영) |
+| E-B | A1, A9 | PASS (2회) | 1차 PASS 뒤 같은 부류 2건 추가 수정: 비-choice 요소의 자식 묵살(`<data><delay/></data>`가 delay 0으로 컴파일), 구조 태그의 `input` 묵살 |
+| E-C | A7, A8 | PASS | `test_example_configs`가 상대 `base.cache`를 cwd 기준으로 풀고 universe parquet 부재를 skip 처리 (리드 반영); README 주의문 복원 |
+| E-D | A11 | PASS | 30,000 패널 차분 퍼징: 차이는 목표 사례(close 체결·후속주→시세 없는 종목)뿐. 메시지 문구·테스트 정밀도 (리드 반영) |
+| F-A | A2, A10 | FAIL→PASS | **A2 전제 오류**: `enforceSettingsDates`는 simEnd 뒤 분할만 리셋하므로 블록 삭제만 하면 데이터 창이 기본 분할 뒤/앞에 있을 때 IS가 1일로 붕괴. 좁힌 가드 `osStart <= minDate || isStart > maxDate`로 수정, 4개 케이스 핀 |
+| F-B | A5 | PASS | 실 스트림(Node fetch) 프로브로 abort/done/truncated 경로 불변 확인 |
+
+새 테스트: 엔진 gtest +9 (xml_compiler 41→47, thin_moves 14→15, config_loader 11→13, http_contract 36→38), 파이썬 `test_example_configs`·`ReservedTagsMatchEngineRegistry`, 프론트 +6 (124→130). 삭제: `examples/datasets/{equities_monthly_afl,compare_v2_all}.yaml`, `<shuffle>`·`<choice bind>`, `get_int/get_double/get_bool`, 레거시 4키 전용 거부.
+
+리드 검증: 새 빌드 경고 0(서드파티 drogon 2), CTest 31/31(HTTP 픽스처 포함, skip 0), 프론트 단위 130/130·tsc·lint·e2e 20 통과(1 skip = 라이브 엔진 spec). 실데이터 골든(라이브 50007=수정 전 vs 수정 빌드 50161, 같은 워크스페이스 데이터): XML 7개 metricsOnly·combined 3개·full 1개(47MB, sha256) **9/9 동일**. 거부 케이스는 수정 전 200(`dealy` 알파 IS Sharpe 0.675 vs 올바른 delay 1은 0.595 — look-ahead 부풀림의 실측)에서 수정 후 400(`threads` 0/33, `dealy`, `dayz`, `<shuffle>`).
+
+문서 반영: math_contract(threads 규칙·shuffle 제거), CLAUDE.md·data_contract(모든 미지 키 거부), examples README, plan/progress, `xml_parser.h` 주석. §0-3 레포 밖 결합은 `restart_engine.{sh,py}`·`test_build_group_panels.py` 헤더와 `build_and_validation.md`에 기록함.
+
+리뷰가 남긴 후속 항목(이번에 안 함, C로 편입):
+- **E2-F1 꼬리**: carry 정책에서 후속주가 **부정 가격(corrupt close)** 종목에 떨어지면 거부 대신 동결됨(`require_priced_quotes`가 이전 북만 봄). 기준선 OHLC4도 같았음. math_contract 58-59행("비양수 가격은 관련 포지션에서 거부") 위반. 공유 루프에 `kQuoteInvalid && carried != 0 → throw` 한 줄.
+- 결합 재실행(`run_from_signals`)은 행 훅이 없어 시작 후 취소 불가(사전 체크만). 저장 행 단계도 행 사이에서만 취소.
+- `check_group_neutralize_oracle.py`의 `DEFAULT_GROUPS/DEFAULT_CACHE/--universe`가 여전히 cache_v1 → E3-F10(오라클 정리)과 함께.
+- `fetchConfig` 분할 규칙의 경계: osStart가 데이터 시작 직후면 IS 1~2일(의도된 "클램프는 분할 유지" 규칙, 현 워크스페이스는 해당 없음). 최소 IS 길이는 새 규칙이라 보류.
+- `ddof/min_count/eps/maxholddays` 범위 검사 없음(기준선과 동일).
+- 저장본 로드 시 `executionPrice`도 유니버스처럼 엔진 미지원 값을 그대로 재실행에 씀(A10의 자매).
+- GA 템플릿 경로는 자식 요소 오류를 후보 컴파일 시점에야 냄.
+
 ---
 
 ## 2. 등급 B — 구조 정리 (순서가 있음)

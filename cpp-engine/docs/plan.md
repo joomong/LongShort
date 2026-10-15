@@ -127,7 +127,7 @@ target_compile_options(engine PUBLIC
 5. `input="id"` 참조 지원: `<tsmean days="20" input="sig1"/>`. 참조는 저장된 출력값(SignalVector)의 복사이며, 모듈 인스턴스를 공유하지 않는다. 동일 `id`를 여러 곳에서 참조해도 각 소비자는 독립적으로 값을 읽는다.
 6. `<signal id="x"/>` 는 현재 출력을 이름 `x`로 저장 후 chain-break.
 7. `input` 미지정 모듈은 직전 출력 체이닝.
-8. 확장 규칙 (Phase 2): pipe `"A|B|C"`, range `"20...10...60"`, `<choice>`, `<shuffle>`.
+8. 확장 규칙 (Phase 2): pipe `"A|B|C"`, range `"20...10...60"`, `<choice>`. (`<shuffle>`은 2026-10-15 제거)
 9. 오류 처리: unknown signal id, missing attr, invalid range, alpha overflow(`config.max_alpha_count` 초과, 기본값 1000) → 컴파일 에러.
 
 ---
@@ -284,14 +284,14 @@ XML alpha DSL을 C++ Module DAG로 컴파일.
 ```
 src/compiler/
   xml_parser.h / .cpp       // XML 파싱 (pugixml)
-  expansion.h / .cpp         // Phase 2 확장 (pipe, range, choice, shuffle)
+  expansion.h / .cpp         // Phase 2 확장 (pipe, range, choice)
   dag_builder.h / .cpp       // Module DAG 조립 + 태그 레지스트리
   expr_parser.h / .cpp       // safe expression parser
 ```
 
 ### 컴파일 3단계
 1. **Phase 1 Parse**: XML -> pipeline (순차적 태그 리스트).
-2. **Phase 2 Expand**: pipe/range/choice/shuffle 확장 -> 최대 1000개 alpha variant 생성.
+2. **Phase 2 Expand**: pipe/range/choice 확장 -> 최대 1000개 alpha variant 생성.
 3. **Phase 3 Build**: 태그 레지스트리 참조로 Module DAG 조립.
 
 ### 태그 레지스트리 (STAR 스타일 팩토리)

@@ -178,13 +178,15 @@ The objective remains gross IS Sharpe. The initial search evaluates up to `first
 once and the run finishes in round 1. Later rounds evaluate up to `roundSize` new XMLs
 (default 50), including 20% uniform exploration and offspring from successful parents.
 Previously scheduled XMLs never consume another evaluation slot. Parameter lists are
-trimmed and deduplicated. Structural choice/shuffle searches use the compiler expansion
+trimmed and deduplicated. Structural `<choice>` searches use the compiler expansion
 contract and its existing 5,000-pipeline cap; ordinary parameter spaces stay factored.
+`<shuffle>` and `<choice bind>` were removed (2026-10-15): they silently dropped or mispaired variants.
 
 `stopRound` (default 40) includes the initial round. `stopAlphas` (default 400) limits
 unique evaluation attempts, including failed candidates. Exhaustion, round limit or
 candidate limit ends the run; budgets are reserved before parallel dispatch. `threads`
-(default 20 in HTTP requests) limits candidate workers. Workers take the next available
+(one rule for simulate, save and GA requests: omitted means 20, otherwise 1..32, else 400;
+each site uses at most its work count) limits candidate workers. Workers take the next available
 candidate; controller-thread callbacks serialize events. XML keys, rather than hash
 values alone, identify duplicates. Parent selection and equal-score ties use planned
 candidate order, independent of completion order.

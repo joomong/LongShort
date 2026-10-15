@@ -15,7 +15,7 @@ struct GAConfig {
     unsigned tournament_size  = 3;
     double   crossover_rate   = 0.8;
     double   mutation_rate    = 0.1;
-    unsigned n_threads        = 0;    // 0 = auto (hardware_concurrency)
+    unsigned n_threads        = 20;
     unsigned seed             = 42;
 };
 

@@ -210,10 +210,8 @@ private:
                 missing_bars_[ii] = 0;
             } else {
                 ++missing_bars_[ii];
-                if (trading && carried_[ii] != 0.0) {
+                if (trading && carried_[ii] != 0.0)
                     ++diagnostics.missing_held_count;
-                    diagnostics.frozen_gross += std::fabs(carried_[ii]);
-                }
             }
         }
     }
@@ -309,10 +307,8 @@ private:
                 missing_bars_[ii] = 0;
             } else {
                 ++missing_bars_[ii];
-                if (trading && carried_[ii] != 0.0) {
+                if (trading && carried_[ii] != 0.0)
                     ++diagnostics.missing_held_count;
-                    diagnostics.frozen_gross += std::fabs(carried_[ii]);
-                }
             }
         }
     }
@@ -320,15 +316,13 @@ private:
     // OHLC4/VWAP is a fixed-book trading-return convention, matching the team's
     // StatsHandler: market_trade * (close / fill - 1). It does not change targets
     // into share quantities or add price-drift rebalancing to the turnover.
-    void prepare_execution_prices(unsigned di, const float* close,
-                                  MissingDataDiagnostics& diagnostics) {
+    void prepare_execution_prices(unsigned di, const float* close) {
         const bool vwap = config_.execution_price == ExecutionPrice::Vwap;
         const char* label = vwap ? "VWAP" : "OHLC4";
         const float* fill_source = data_.row(vwap ? "vwap" : "open", di);
         const float* high = data_.row("high", di);
         const float* low = data_.row("low", di);
         const auto& desired = execution_intent();
-        diagnostics.frozen_gross = 0.0;
         for (unsigned ii = 0; ii < data_.N; ++ii) {
             execution_prices_[ii] = kNaN;
             execution_available_[ii] = 0;
@@ -354,15 +348,10 @@ private:
                     execution_available_[ii] = 1;
                 }
             }
-            if (!execution_available_[ii]) {
-                if (config_.missing_close_policy == MissingClosePolicy::Error && desired[ii] != carried_[ii])
-                    throw std::runtime_error(std::string("Cannot execute: missing or inconsistent ") + label + " price at bar " + std::to_string(di) +
-                                             ", asset " + std::to_string(ii));
-                // The close can still be observable and used for holding P&L.
-                // Reserve an unfillable existing position's budget, including
-                // successor stock that arrived before execution on this bar.
-                diagnostics.frozen_gross += std::fabs(carried_[ii]);
-            }
+            if (!execution_available_[ii] && config_.missing_close_policy == MissingClosePolicy::Error &&
+                desired[ii] != carried_[ii])
+                throw std::runtime_error(std::string("Cannot execute: missing or inconsistent ") + label + " price at bar " + std::to_string(di) +
+                                         ", asset " + std::to_string(ii));
         }
     }
 
@@ -371,10 +360,20 @@ private:
     double execute(unsigned di, const float* close, MissingDataDiagnostics& diagnostics, double& turnover) {
         const auto& desired = execution_intent();
         const bool intraday_fill = config_.execution_price != ExecutionPrice::Close;
-        if (intraday_fill) prepare_execution_prices(di, close, diagnostics);
+        if (intraday_fill) prepare_execution_prices(di, close);
         const auto can_trade = [&](unsigned ii) {
             return intraday_fill ? execution_available_[ii] != 0 : quote_state_[ii] == kQuoteObserved;
         };
+        // Frozen budget and the Error gate see the post-transfer book, so
+        // successor stock landing on an unfillable name is reserved or rejected.
+        diagnostics.frozen_gross = 0.0;
+        for (unsigned ii = 0; ii < data_.N; ++ii) {
+            if (retired_[ii] || can_trade(ii)) continue;
+            if (!intraday_fill && config_.missing_close_policy == MissingClosePolicy::Error && desired[ii] != carried_[ii])
+                throw std::runtime_error("Cannot execute: missing or invalid close price at bar " + std::to_string(di) +
+                                         ", asset " + std::to_string(ii));
+            diagnostics.frozen_gross += std::fabs(carried_[ii]);
+        }
         double execution_pnl = 0.0;
         double scale = 1.0;
         if (diagnostics.frozen_gross > 0.0) {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { runSimulate, runGAStream } from '@/lib/api';
 
-function makeStreamResponse(chunks: string[]): Response {
+function makeStreamResponse(chunks: string[], cancel = vi.fn(async () => {})): Response {
   let idx = 0;
   const encoder = new TextEncoder();
 
@@ -15,6 +15,7 @@ function makeStreamResponse(chunks: string[]): Response {
       idx += 1;
       return { done: false, value };
     },
+    cancel,
   };
 
   return {
@@ -148,6 +149,22 @@ describe('api client contract', () => {
     const events: unknown[] = [];
     await expect(runGAStream('<xml/>', '2020-01-01', '2021-01-01', '2024-01-01', 200, 40, 20, event => events.push(event))).rejects.toThrow('before completion');
     expect(events).toHaveLength(1);
+  });
+
+  it('a malformed stream line cancels the reader', async () => {
+    const cancel = vi.fn(async () => {});
+    vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse([JSON.stringify({ type: 'round_start', round: 1, size: 1 }) + '\n', '{bad json\n'], cancel));
+    const events: unknown[] = [];
+    await expect(runGAStream('<xml/>', '2020-01-01', '2021-01-01', '2024-01-01', 200, 40, 20, event => events.push(event))).rejects.toThrow(SyntaxError);
+    expect(events).toHaveLength(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing event handler cancels the reader', async () => {
+    const cancel = vi.fn(async () => {});
+    vi.mocked(globalThis.fetch).mockResolvedValue(makeStreamResponse([JSON.stringify({ type: 'round_start', round: 1, size: 1 }) + '\n'], cancel));
+    await expect(runGAStream('<xml/>', '2020-01-01', '2021-01-01', '2024-01-01', 200, 40, 20, () => { throw new Error('handler failed'); })).rejects.toThrow('handler failed');
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   it('runGAStream throws detail on non-2xx response', async () => {

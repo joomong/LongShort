@@ -329,20 +329,25 @@ export async function runGAStream(
     onEvent(event);
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (line.trim()) {
-        receive(line);
+  // A parse or handler error must drop the connection: the engine stops the GA only on disconnect.
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.trim()) {
+          receive(line);
+        }
       }
     }
-  }
-  if (buffer.trim()) {
-    receive(buffer);
+    if (buffer.trim()) {
+      receive(buffer);
+    }
+  } finally {
+    reader.cancel().catch(() => {});
   }
   if (!completed) throw new Error('GA connection ended before completion.');
 }

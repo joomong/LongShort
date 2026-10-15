@@ -1,20 +1,20 @@
 # C++ Parquet 데이터 연결 예제
 
-현재 thin-v1 설정은 `equities_monthly_afl.yaml`·`us_equity.yaml`·`compare_v2_all.yaml`의 실제 `base.cache` 경로와 manifest를 확인한다. 예제 파일명은 발행 build 이름을 보장하지 않는다. 개인 폴더에 YAML과 `afl_catalog.json`을 함께 복사한 뒤 실행한다. 현재 계약은 [데이터 계약](../../../docs/data_contract.md), 최초 빌드는 [빌드 안내](../../../docs/build_and_validation.md)를 따른다.
+현재 thin-v1 설정 예제는 `us_equity.yaml` 하나이며 실제 `base.cache` 경로와 manifest를 확인한다. 예제 파일명은 발행 build 이름을 보장하지 않는다. 개인 폴더에 YAML과 `afl_catalog.json`을 함께 복사한 뒤 실행한다. 현재 계약은 [데이터 계약](../../../docs/data_contract.md), 최초 빌드는 [빌드 안내](../../../docs/build_and_validation.md)를 따른다.
 
-thin 예제는 `master.parquet`의 `tradingItemId`와 `symbol`에서 UI 라벨을 읽는다(`symbol`이 없으면 `companyName`). 명시적인 `backtest.symbol_labels_path` JSON이 있으면 그 파일이 우선한다. ALL 예제는 옛 캐시의 라벨 파일에 의존하지 않는다.
+thin 예제는 `master.parquet`의 `tradingItemId`와 `symbol`에서 UI 라벨을 읽는다(`symbol`이 없으면 `companyName`). 명시적인 `backtest.symbol_labels_path` JSON이 있으면 그 파일이 우선한다. 옛 캐시의 라벨 파일에는 의존하지 않는다.
 
 최상위 `alphas_dir`(선택, 기본 `alphas`)는 웹에서 저장하는 알파 폴더이며 상대경로는 YAML 폴더 기준이다.
 
 ```bash
-python3 cpp-engine/tools/run_engine.py --config /path/to/my/equities_monthly_afl.yaml
+python3 cpp-engine/tools/run_engine.py --config /path/to/my/us_equity.yaml
 ```
 
 ## thin-v1 캐시
 
-`base.cache/manifest.json`의 `layout: thin-v1`을 로더가 판별한다. 이 캐시의 `base_data.parquet`은 조정 전(raw) 가격이며, `returns.parquet`은 CRSP식 총수익률(배당·분할·분사·합병/상폐 정산 반영)로 기본 신호 `returns`이자 보유 손익 입력이다. `adj_returns.parquet`은 분할조정 가격 수익률로 신호 필드 `adj_returns`로 쓴다. `returns_total.parquet`이 남은 옛 thin 캐시(rc2f3 등)는 설정 로드에서 거부되므로 다시 빌드한다. `adj_factor.parquet`은 분할 단위 변환에 쓰고, `events.parquet`은 종료·승계·자회사 position 이동만 담는다. 현금·주식 대가를 엔진에서 다시 평가하지 않는다. `universe.parquet`은 구간형 멤버십이므로 `universe.path`와 함께 `universe.name: Top500` 또는 `ALL`을 지정한다. 이동 목적지 종목은 로더가 패널에 추가한다.
+`base.cache/manifest.json`의 `layout: thin-v1`을 로더가 판별한다. 이 캐시의 `base_data.parquet`은 조정 전(raw) 가격이며, `returns.parquet`은 CRSP식 총수익률(배당·분할·분사·합병/상폐 정산 반영)로 기본 신호 `returns`이자 보유 손익 입력이다. `adj_returns.parquet`은 분할조정 가격 수익률로 신호 필드 `adj_returns`로 쓴다. `returns_total.parquet`이 남은 옛 thin 캐시(rc2f3 등)는 설정 로드에서 거부되므로 다시 빌드한다. `adj_factor.parquet`은 분할 단위 변환에 쓰고, `events.parquet`은 종료·승계·자회사 position 이동만 담는다. 현금·주식 대가를 엔진에서 다시 평가하지 않는다. `universe.parquet`은 구간형 멤버십이므로 `universe.path`와 함께 `universe.name`(또는 `universe.names`)을 지정한다. 이름은 해당 캐시 `universe.parquet`의 `universe` 열에 있는 구간 이름 중 하나여야 한다(예: `TOP3000`). 대소문자까지 정확히 일치해야 하며, 없는 이름은 시작 시 실패한다. 이동 목적지 종목은 로더가 패널에 추가한다.
 
-설정에는 최상위 `events:`나 `backtest.corporate_actions:`를 넣지 않는다. thin은 해당 값들을 `returns`(총수익률)와 이동 행에 반영하며, 현재 로더는 옛 설정 블록을 거부한다. 이 예제의 rc2f3 캐시는 전환 검증용으로, 미해결 사건의 임시 정산값과 대기 자회사 사례를 manifest에 기록한다. 새 결과를 확정된 정제 데이터로 해석하지 않는다. 다른 thin 캐시로 바꿀 때는 manifest·구간형 유니버스 이름·그룹 패널 범위를 확인한다. AFL은 별도의 기존 wide 입력으로 유지된다.
+설정에는 최상위 `events:`나 `backtest.corporate_actions:`를 넣지 않는다. thin은 해당 값들을 `returns`(총수익률)와 이동 행에 반영하며, 현재 로더는 옛 설정 블록을 포함해 읽지 않는 모든 키를 `Unknown config key` 오류로 거부한다. 미해결 사건의 임시 정산값과 대기 자회사 사례는 캐시 manifest의 `transitional`에 기록된다(현재 캐시에도 있음). 새 결과를 확정된 정제 데이터로 해석하지 않는다. 다른 thin 캐시로 바꿀 때는 manifest·구간형 유니버스 이름·그룹 패널 범위를 확인한다. AFL은 별도의 기존 wide 입력으로 유지된다.
 
 아래 `BaseData/*.parquet` 설명은 manifest가 thin-v1이 아닌 기존 wide 캐시에 적용한다. 일반 long/wide `datasets:` 경로도 계속 지원한다.
 
@@ -93,7 +93,7 @@ python3 cpp-engine/tools/build_afl_catalog.py \
 - Interval/`mode`와 암묵적 목표 포지션 지연은 제거했다. XML 출력 신호는 현재 날짜의 마스크로 정규화·체결한다. `delay="1"`은 XML에서 명시한다. 데이터 지연과 유니버스 마스크 지연은 서로 다르며, 마스크를 함께 shift하지 않는다.
 - 보유 중인 종목의 종가가 없을 때의 처리는 `backtest.missing_close_policy`가 정한다. 기본 `carry`는 보유를 동결하고, `error`는 기존처럼 실행을 실패시킨다. 유니버스 이탈과 실제 가격 결측은 여전히 다른 상태다.
 - `alignment: exact`는 같은 시각의 관측만 사용한다. `asof`는 해당 시각 이전의 마지막 관측을 유지하고, 최초 관측 이전은 NaN이다. 미래 값을 과거로 채우지 않는다. 파일의 날짜가 실제로 사용 가능한 시각이라는 데이터 계약이 필요하며, 이 옵션이 사후 수정 데이터의 과거 버전을 복원하지는 않는다.
-- 이 예제의 `AflData_M`은 월별 관측 캐시다. 2026-09-10 확인 당시 963번 팩터의 마지막 관측은 2026-08-28이었다. `asof` 결과가 매일 있어도 매일 갱신된 AFL 데이터는 아니다. 일별 AFL을 쓰려면 일별 원천 데이터와 사용 가능 날짜를 검증한 파일로 경로를 바꾼다.
+- AFL 데이터셋은 `alignment: asof`로 읽는다. `asof` 결과가 매일 있어도 원천이 매일 갱신된다는 뜻은 아니다(월별 관측 캐시 `AflData_M`은 월 1회 값을 유지한다). 원천의 관측 주기와 사용 가능 날짜를 확인한 뒤 경로를 고른다.
 
 ## 결측 종가와 일반 nonthin 데이터
 

@@ -16,7 +16,7 @@
 | `universe.parquet` | named universe의 구간 멤버십 |
 | `groups/` | sector·industry 그룹 패널 |
 
-옛 발행 이름 `returns_total.parquet`이 남은 thin 캐시는 다시 빌드해야 한다. cache_v2.1 builder의 `derived/returns_total.parquet`은 과거 원장 경로의 중간 결과이므로 발행 thin의 파일명과 구분한다. thin과 nonthin 모두 옛 최상위 `events:` 및 `backtest.corporate_actions:` 설정은 거부한다. 기존 `build_events.py`는 과거 캐시 빌더의 의존 도구로 남아 있지만 현행 엔진의 사건별 현금 원장 경로를 의미하지 않는다.
+옛 발행 이름 `returns_total.parquet`이 남은 thin 캐시는 다시 빌드해야 한다. cache_v2.1 builder의 `derived/returns_total.parquet`은 과거 원장 경로의 중간 결과이므로 발행 thin의 파일명과 구분한다. 설정 로더는 읽지 않는 모든 키를 `Unknown config key '<경로>'` 오류로 거부하며, 옛 최상위 `events:` 및 `backtest.corporate_actions:` 설정도 thin·nonthin 모두 그 규칙으로 거부된다(2026-10-15). 기존 `build_events.py`는 과거 캐시 빌더의 의존 도구로 남아 있지만 현행 엔진의 사건별 현금 원장 경로를 의미하지 않는다.
 
 현행 실제 캐시는 설정 YAML의 `base.cache`와 manifest를 확인한다. `us_equity.yaml` 같은 예제 파일명이 현재 발행 build의 이름을 보장하지 않는다. source 종료 후 승계와 비종료 분사는 엔진 적용 순서가 다르며, 기업행동 이동 자체를 시장 거래비나 execution leg로 가산하지 않는다.
 

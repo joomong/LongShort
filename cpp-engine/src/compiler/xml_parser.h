@@ -7,7 +7,7 @@
 struct XmlElement {
     std::string tag;
     std::map<std::string, std::string> attribs;
-    std::vector<XmlElement> children;  // for <choice>, <shuffle>
+    std::vector<XmlElement> children;  // for <choice>
 };
 
 // Parse XML string → list of top-level elements.

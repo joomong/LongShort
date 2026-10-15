@@ -49,7 +49,7 @@ python3 cpp-engine/tools/run_engine.py --config /path/to/config.yaml \
 
 헤더와 라이브러리는 같은 설치에서 가져온다. 사용자 모듈의 `.h/.hpp/.cpp/.cc/.cxx`를 발견하고 빌드 경로의 `generated/`에 registry를 생성한다. 점으로 시작하는 하위 경로는 검색에서 제외된다. 변경 없는 registry는 다시 쓰지 않고, 파일 추가·수정·삭제는 증분 빌드가 반영한다. 모듈 문법과 속성은 [모듈 규약](../modules/README.md)을 따른다.
 
-현재 60서버에서 새 workspace를 최초 빌드할 때 쓰는 의존성 설정은 다음과 같다. 의존성은 플랫폼 쪽에 있으며 개인 빌드 결과는 workspace에 생성된다. 첫 configure 이후에는 CMake 캐시에 유지된다.
+현재 60서버에서 새 workspace를 최초 빌드할 때 쓰는 의존성 설정은 다음과 같다. 의존성은 플랫폼 쪽에 있으며 개인 빌드 결과는 workspace에 생성된다. 첫 configure 이후에는 CMake 캐시에 유지된다. 아래 `cpp-engine/examples/datasets/.longshort/deps/metrics-20261013`은 gitignore된 폴더지만 **현재 운영 엔진 빌드의 의존성 prefix**(jsoncpp·uuid 헤더)다. 예제 폴더 정리 때 지우지 않는다.
 
 ```bash
 /home/jgo/usr/venv-3.11/bin/python /home/jgo/longshort_platform/cpp-engine/tools/run_engine.py \

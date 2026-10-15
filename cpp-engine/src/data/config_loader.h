@@ -39,7 +39,7 @@ struct BacktestConfig {
     std::string start_date;
     std::string end_date; // latest (or empty) selects the last nonblank close row on load
     double initial_capital = 1000000.0;
-    double transaction_fee_rate = 0.00015;
+    double transaction_fee_rate = 1.5 * 0.0001; // 1.5 bp, the same product from_yaml forms from transaction_fee
 
     std::vector<DatasetConfig> datasets;
     UniverseConfig universe;

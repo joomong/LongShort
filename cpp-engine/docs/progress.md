@@ -23,7 +23,7 @@
 
 ## Phase 2: XML Compiler
 - [x] xml_parser.h / xml_parser.cpp (pugixml-based)
-- [x] expansion.h / expansion.cpp (pipe, range, choice, choice bind="same", shuffle)
+- [x] expansion.h / expansion.cpp (pipe, range, choice; bind="same" and shuffle removed 2026-10-15)
 - [x] dag_builder.h / dag_builder.cpp (ModuleRegistry, compile_xml)
 - [x] expr_parser.h / expr_parser.cpp (recursive descent, "return" expansion)
 - [x] test_xml_compiler.cpp (7/7 pass)

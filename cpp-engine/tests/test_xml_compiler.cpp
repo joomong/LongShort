@@ -8,6 +8,9 @@
 #include "compiler/dag_builder.h"
 #include "data/data_panel.h"
 #include "modules/Neutralize.h"
+#include "modules/Delay.h"
+#include "modules/Rank.h"
+#include "modules/TsZscore.h"
 #include "signal_vector.h"
 
 // ---------------------------------------------------------------------------
@@ -656,4 +659,107 @@ TEST(XmlCompiler, NeutralizeGroupAttributeIsWhitespaceTrimmed) {
     ASSERT_NE(mod, nullptr);
     EXPECT_EQ(mod->group, "sector");
     EXPECT_EQ(mod->column_name, "sector");
+}
+
+// ---------------------------------------------------------------------------
+// TEST: A misspelt delay on <data> must not compile to delay 0 (look-ahead)
+// ---------------------------------------------------------------------------
+TEST(XmlCompiler, DataRejectsUnknownAttribute) {
+    auto dp = make_panel();
+    expect_compile_error_contains(R"(<data expr="close" dealy="1"/><rank/>)", dp,
+                                  {"Unknown attribute 'dealy' for <data>"});
+    expect_compile_error_contains(R"(<data expr="close" Delay="1"/><rank/>)", dp,
+                                  {"Unknown attribute 'Delay' for <data>"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><signal id="a"/><data expr="close" dealy="1"/><rank/>)", dp,
+        {"Unknown attribute 'dealy' for <data>"});
+
+    auto baseline = compile_xml(R"(<data expr="close"/><rank/>)", &dp);
+    ASSERT_EQ(baseline.size(), 1u);
+    EXPECT_EQ(baseline[0].pipeline.size(), 2u);
+    auto delayed = compile_xml(R"(<data expr="close" delay="1"/><rank/>)", &dp);
+    ASSERT_EQ(delayed.size(), 1u);
+    EXPECT_EQ(delayed[0].pipeline.size(), 3u);
+    EXPECT_NE(dynamic_cast<MDelay*>(delayed[0].pipeline[1]), nullptr);
+}
+
+TEST(XmlCompiler, BuiltinRejectsUnknownAttribute) {
+    auto dp = make_panel();
+    expect_compile_error_contains(R"(<data expr="close"/><tsmean dayz="5"/>)", dp,
+                                  {"Unknown attribute 'dayz' for <tsmean>"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><rank pct="flase"/>)", dp,
+        {"Invalid value for <rank> attribute 'pct': 'flase' (expected true|false|1|0)"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><tszscore ddof="1.9"/>)", dp,
+        {"Invalid value for <tszscore> attribute 'ddof': '1.9' (expected integer within int range)"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><tszscore ddof="x"/>)", dp,
+        {"Invalid value for <tszscore> attribute 'ddof': 'x' (expected integer within int range)"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><signal id="t"/><event trigger="t" maxhold="3"/>)", dp,
+        {"Unknown attribute 'maxhold' for <event>"});
+    expect_compile_error_contains(R"(<data expr="close"/><signal id="t" name="x"/>)", dp,
+                                  {"Unknown attribute 'name' for <signal>"});
+
+    for (const char* xml : {R"(<data expr="close"/><rank pct="false"/>)",
+                            R"(<data expr="close"/><rank pct="0"/>)"}) {
+        auto alphas = compile_xml(xml, &dp);
+        ASSERT_EQ(alphas.size(), 1u);
+        auto* rank = dynamic_cast<MRank*>(alphas[0].pipeline[1]);
+        ASSERT_NE(rank, nullptr);
+        EXPECT_EQ(rank->pct.value, 0) << xml;
+    }
+    for (int ddof : {1, 2}) {
+        auto alphas = compile_xml(
+            "<data expr=\"close\"/><tszscore ddof=\"" + std::to_string(ddof) + "\"/>", &dp);
+        ASSERT_EQ(alphas.size(), 1u);
+        auto* ts = dynamic_cast<MTsZscore*>(alphas[0].pipeline[1]);
+        ASSERT_NE(ts, nullptr);
+        EXPECT_EQ(ts->ddof.value, ddof);
+    }
+}
+
+TEST(XmlCompiler, ShuffleTagIsRejected) {
+    auto dp = make_panel();
+    expect_compile_error_contains(
+        R"(<data expr="close"/><shuffle><rank/><zscore/></shuffle>)", dp,
+        {"<shuffle> does not take child elements"});
+    expect_compile_error_contains(R"(<data expr="close"/><shuffle/>)", dp,
+                                  {"Unknown module tag: 'shuffle'"});
+}
+
+TEST(XmlCompiler, ChoiceBindAttributeIsRejected) {
+    auto dp = make_panel();
+    expect_compile_error_contains(
+        R"(<data expr="close"/><choice bind="x"><rank/><zscore/></choice>)", dp,
+        {"Unknown attribute 'bind' for <choice>"});
+}
+
+TEST(XmlCompiler, ChildElementsRejectedOutsideChoice) {
+    auto dp = make_panel();
+    // A nested delay used to be dropped silently: same-bar look-ahead.
+    expect_compile_error_contains(R"(<data expr="close"><delay days="1"/></data><rank/>)", dp,
+                                  {"<data> does not take child elements"});
+    expect_compile_error_contains(R"(<data expr="close"/><rank><zscore/></rank>)", dp,
+                                  {"<rank> does not take child elements"});
+}
+
+TEST(XmlCompiler, InputRejectedOnStructuralTags) {
+    auto dp = make_panel();
+    // First data op and chain-restart data op both reject input=.
+    expect_compile_error_contains(R"(<data expr="close" input="t"/><rank/>)", dp,
+                                  {"Unknown attribute 'input' for <data>"});
+    expect_compile_error_contains(R"(<data expr="close"/><signal id="t"/><data expr="close" input="t"/><rank/>)",
+                                  dp, {"Unknown attribute 'input' for <data>"});
+    expect_compile_error_contains(R"(<data expr="close"/><signal id="t"/><signal id="u" input="t"/>)", dp,
+                                  {"Unknown attribute 'input' for <signal>"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><signal id="t"/><event trigger="t" input="t"/>)", dp,
+        {"Unknown attribute 'input' for <event>"});
+    expect_compile_error_contains(
+        R"(<data expr="close"/><signal id="t"/><choice input="t"><rank/><zscore/></choice>)", dp,
+        {"Unknown attribute 'input' for <choice>"});
+    // Registry modules still resolve input=.
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><signal id="t"/><rank/><zscore input="t"/>)", &dp).size(), 1u);
 }

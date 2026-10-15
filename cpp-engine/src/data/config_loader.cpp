@@ -4,6 +4,7 @@
 #include <cmath>
 #include <ctime>
 #include <filesystem>
+#include <initializer_list>
 #include <limits>
 #include <regex>
 #include <set>
@@ -22,6 +23,17 @@ unsigned unsigned_option(const YAML::Node& node, unsigned fallback, bool positiv
     if (value < (positive ? 1 : 0) || static_cast<unsigned long long>(value) > std::numeric_limits<unsigned>::max())
         throw std::runtime_error("Integer config option is outside the supported range");
     return static_cast<unsigned>(value);
+}
+// Every YAML block accepts exactly the keys from_yaml reads; anything else (a typo or a removed
+// setting) is an error rather than a silently ignored default.
+void require_known_keys(const YAML::Node& node, const std::string& prefix,
+                        std::initializer_list<const char*> allowed) {
+    if (!node.IsMap()) return;
+    for (const auto& entry : node) {
+        const auto key = entry.first.as<std::string>();
+        if (std::none_of(allowed.begin(), allowed.end(), [&](const char* name) { return key == name; }))
+            throw std::runtime_error("Unknown config key '" + prefix + key + "'");
+    }
 }
 void merge_fields(std::map<std::string, std::string>& fields, const YAML::Node& node) {
     if (!node) return;
@@ -59,6 +71,7 @@ DatasetConfig base_dataset(const std::string& name, const std::string& path,
 }
 void parse_base(BacktestConfig& cfg, const YAML::Node& node) {
     if (!node.IsMap()) throw std::runtime_error("base must be a mapping with cache and groups");
+    require_known_keys(node, "base.", {"cache", "groups"});
     const auto directory = [&](const char* key) {
         if (!node[key] || node[key].IsNull())
             throw std::runtime_error(std::string("base requires ") + key + " (base: {cache, groups})");
@@ -144,6 +157,7 @@ int64_t config_date_ms(const std::string& value) {
 BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const YAML::Node root = YAML::LoadFile(yaml_path);
     BacktestConfig cfg;
+    require_known_keys(root, "", {"base", "datasets", "universe", "backtest", "alphas_dir"});
     cfg.config_dir = std::filesystem::absolute(yaml_path).parent_path().lexically_normal().string();
     const auto base = root["base"];
     const auto datasets = root["datasets"];
@@ -158,8 +172,12 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     for (const auto& ds : cfg.datasets) dataset_names.insert(ds.name);
     const YAML::Node user_datasets =
         datasets && datasets.IsSequence() ? datasets : YAML::Node(YAML::NodeType::Sequence);
+    std::size_t dataset_index = 0;
     for (const auto& ds : user_datasets) {
         if (!ds.IsMap()) throw std::runtime_error("Each dataset must be a mapping");
+        require_known_keys(ds, "datasets[" + std::to_string(dataset_index++) + "].",
+                           {"name", "enabled", "path", "format", "time_col", "symbol_col", "lazy", "catalog",
+                            "alignment", "fields", "use_col"});
         DatasetConfig dataset;
         dataset.name = ds["name"] ? ds["name"].as<std::string>() : "dataset_" + std::to_string(cfg.datasets.size());
         if (!dataset_names.insert(dataset.name).second) throw std::runtime_error("Duplicate dataset name: " + dataset.name);
@@ -221,6 +239,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const auto universe = root["universe"];
     if (universe && universe.IsSequence()) parse_symbols(cfg.universe.symbols, universe);
     else if (universe && universe.IsMap()) {
+        require_known_keys(universe, "universe.", {"path", "time_col", "symbols", "name", "names", "alignment"});
         if (universe["path"]) cfg.universe.path = universe["path"].as<std::string>();
         if (universe["time_col"]) cfg.universe.time_col = universe["time_col"].as<std::string>();
         if (universe["symbols"]) parse_symbols(cfg.universe.symbols, universe["symbols"]);
@@ -243,6 +262,9 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
 
     const auto bt = root["backtest"];
     if (!bt || !bt.IsMap()) throw std::runtime_error("config.yaml: missing backtest mapping");
+    require_known_keys(bt, "backtest.", {"start_date", "end_date", "initial_capital", "transaction_fee",
+                                         "bars_per_year", "execution_price", "warmup_bars", "combined_mode",
+                                         "symbol_labels_path", "missing_close_policy"});
     cfg.start_date = bt["start_date"] ? bt["start_date"].as<std::string>() : "";
     cfg.end_date = bt["end_date"] && !bt["end_date"].IsNull()
         ? bt["end_date"].as<std::string>() : "latest";
@@ -252,16 +274,16 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     if (!cfg.start_date.empty() && cfg.end_date != "latest" && cfg.start_date > cfg.end_date)
         throw std::runtime_error("backtest.start_date must not be after end_date");
     cfg.initial_capital = bt["initial_capital"] ? bt["initial_capital"].as<double>() : cfg.initial_capital;
-    const double fee_bps = bt["transaction_fee"] ? bt["transaction_fee"].as<double>() : 1.5;
-    if (!std::isfinite(fee_bps) || fee_bps < 0 || !std::isfinite(cfg.initial_capital) || cfg.initial_capital <= 0)
+    if (bt["transaction_fee"]) cfg.transaction_fee_rate = bt["transaction_fee"].as<double>() * 0.0001; // bp
+    if (!std::isfinite(cfg.transaction_fee_rate) || cfg.transaction_fee_rate < 0 ||
+        !std::isfinite(cfg.initial_capital) || cfg.initial_capital <= 0)
         throw std::runtime_error("Capital must be positive and fees finite/nonnegative");
-    cfg.transaction_fee_rate = fee_bps * 0.0001;
-    cfg.bars_per_year = unsigned_option(bt["bars_per_year"], 365, true);
-    cfg.execution_price = bt["execution_price"] ? bt["execution_price"].as<std::string>() : "close";
+    cfg.bars_per_year = unsigned_option(bt["bars_per_year"], cfg.bars_per_year, true);
+    cfg.execution_price = bt["execution_price"] ? bt["execution_price"].as<std::string>() : cfg.execution_price;
     if (cfg.execution_price != "close" && cfg.execution_price != "ohlc4" && cfg.execution_price != "vwap")
         throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
     cfg.warmup_bars = unsigned_option(bt["warmup_bars"], 0, false);
-    cfg.combined_mode = bt["combined_mode"] ? bt["combined_mode"].as<std::string>() : "normalized";
+    cfg.combined_mode = bt["combined_mode"] ? bt["combined_mode"].as<std::string>() : cfg.combined_mode;
     if (bt["symbol_labels_path"] && !bt["symbol_labels_path"].IsNull()) {
         std::filesystem::path labels = bt["symbol_labels_path"].as<std::string>();
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
@@ -278,11 +300,8 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         throw std::runtime_error("combined_mode must be normalized or raw");
     // Missing-close policy applies to ordinary and thin panels.
     cfg.missing_close_policy = bt["missing_close_policy"] && !bt["missing_close_policy"].IsNull()
-        ? bt["missing_close_policy"].as<std::string>() : "carry";
+        ? bt["missing_close_policy"].as<std::string>() : cfg.missing_close_policy;
     if (cfg.missing_close_policy != "carry" && cfg.missing_close_policy != "error")
         throw std::runtime_error("backtest.missing_close_policy must be 'carry' or 'error'");
-    if (root["events"] || bt["corporate_actions"] || bt["default_delisting_return"] ||
-        bt["stale_quote_settle_bars"])
-        throw std::runtime_error("Legacy settlement and corporate-action config is no longer supported; use a thin-v1 cache");
     return cfg;
 }

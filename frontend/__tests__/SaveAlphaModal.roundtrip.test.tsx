@@ -8,6 +8,7 @@ import AlphaRankingTable from '@/components/multi-alpha/AlphaRankingTable';
 import GADetailLoader from '@/components/visualization/GADetailLoader';
 import GACombinedLoader from '@/components/visualization/GACombinedLoader';
 import { canShortcutRun, useAlphaStore } from '@/store/alphaStore';
+import { runCombinedAlphas } from '@/lib/api';
 import type { BacktestAlphaResult, SavedAlphaInfo, StarConfigResponse } from '@/types';
 import single from './fixtures/cpp_single.json';
 import multi from './fixtures/cpp_multi.json';
@@ -163,8 +164,12 @@ describe('load alpha', () => {
     expect(await screen.findByText(/Saved universe "OLD_V1" is unavailable; using "TOP3000"/)).toBeInTheDocument();
     expect(useAlphaStore.getState().xmlCode).toBe(editorXml);
     expect(useAlphaStore.getState().settings.universe).toBe('TOP3000');
-    // The loaded result still describes how it was computed.
-    expect(useAlphaStore.getState().result?.runSettings?.universe).toBe('OLD_V1');
+    // Replays must use the resolved universe; the engine rejects the unavailable saved one.
+    const replay = useAlphaStore.getState().result!.runSettings!;
+    expect(replay.universe).toBe('TOP3000');
+    await runCombinedAlphas(['<data expr="close" delay="1"/>'], replay).catch(() => undefined); // GACombinedLoader's engine path
+    const simulate = calls.find(call => call.url.includes('/api/simulate'))!;
+    expect(JSON.parse(String(simulate.init!.body)).universe).toBe('TOP3000');
   });
 
   it('shows the real error and refuses results if a run started during the fetch', async () => {

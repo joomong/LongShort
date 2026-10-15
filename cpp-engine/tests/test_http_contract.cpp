@@ -13,6 +13,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <json/json.h>
 #include <yaml-cpp/yaml.h>
@@ -111,7 +112,8 @@ HttpResult http_get(int port, const std::string& path)
     return out;
 }
 
-HttpResult http_post_json(int port, const std::string& path, const Json::Value& payload)
+HttpResult http_post_json(int port, const std::string& path, const Json::Value& payload,
+                          double max_time_seconds = 0.0)
 {
     HttpResult out;
     const fs::path payload_file = fs::temp_directory_path() /
@@ -132,8 +134,9 @@ HttpResult http_post_json(int port, const std::string& path, const Json::Value& 
         << " -H \"Content-Type: application/json\""
         << " -X POST "
         << shell_quote("http://127.0.0.1:" + std::to_string(port) + path)
-        << " --data-binary @" << shell_quote(payload_file.string())
-        << " 2>/dev/null";
+        << " --data-binary @" << shell_quote(payload_file.string());
+    if (max_time_seconds > 0.0) cmd << " --max-time " << max_time_seconds;
+    cmd << " 2>/dev/null";
 
     int rc = 0;
     const std::string status_str = run_command_capture(cmd.str(), &rc);
@@ -268,6 +271,7 @@ public:
     }
 
     int port() const { return port_; }
+    pid_t pid() const { return pid_; }
 
 private:
     bool wait_until_ready()
@@ -1696,4 +1700,84 @@ TEST_F(AlphaStorageHttpTest, RowRoundDefaultsToZeroAndIdsAreJavaScriptSafe) {
     request["name"] = std::string(201, 'n');
     EXPECT_EQ(save(request).status, 400);
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
+}
+
+TEST_F(HttpContractTest, SimulateRejectsThreadsOutside1To32) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\"/><tsmean days=\"5\"/>";
+    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
+    request["metricsOnly"] = true;
+    const auto omitted = simulate(request);
+    ASSERT_EQ(omitted.status, 200) << omitted.body;
+    for (const int threads : {0, 33}) {
+        request["threads"] = threads;
+        const auto rejected = simulate(request);
+        EXPECT_EQ(rejected.status, 400) << threads << ": " << rejected.body.substr(0, 200);
+        EXPECT_NE(rejected.body.find("threads must be between 1 and 32"), std::string::npos)
+            << rejected.body.substr(0, 200);
+    }
+    request["threads"] = 32;
+    const auto accepted = simulate(request);
+    ASSERT_EQ(accepted.status, 200) << accepted.body;
+    Json::Value body, omitted_body;
+    ASSERT_TRUE(parse_json(accepted.body, &body)) << accepted.body;
+    ASSERT_TRUE(parse_json(omitted.body, &omitted_body));
+    EXPECT_EQ(body["batches"].size(), 1u);
+    EXPECT_EQ(compact_json(body["batches"]), compact_json(omitted_body["batches"]));
+
+    Json::Value ga;
+    ga["xml"] = "<data expr=\"close\"/><tsmean days=\"1...4\"/>";
+    ga["isStart"] = "2000-01-01"; ga["osStart"] = "2100-01-01";
+    ga["threads"] = 33;
+    const auto ga_rejected = http_post_json(server_->port(), "/api/ga/stream", ga);
+    EXPECT_EQ(ga_rejected.status, 400) << ga_rejected.body;
+}
+
+namespace {
+// utime + stime of the server process, in seconds.
+double process_cpu_seconds(pid_t pid)
+{
+    std::ifstream in("/proc/" + std::to_string(pid) + "/stat");
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto close = text.rfind(')');
+    if (close == std::string::npos) return -1.0;
+    std::istringstream fields(text.substr(close + 2));
+    std::string field;
+    unsigned long long utime = 0, stime = 0;
+    for (int index = 3; fields >> field; ++index) {
+        if (index == 14) utime = std::stoull(field);
+        if (index == 15) { stime = std::stoull(field); break; }
+    }
+    return static_cast<double>(utime + stime) / static_cast<double>(::sysconf(_SC_CLK_TCK));
+}
+}  // namespace
+
+TEST_F(HttpContractTest, SimulateStopsWhenClientDisconnects) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    std::string xml = "<data expr=\"close\"/>";
+    // min_count 1 keeps every rank finite so each module does O(days) work per cell (~3 s total).
+    for (int i = 0; i < 300; ++i) xml += "<tsrank days=\"2000\" min_count=\"1\"/>";
+    Json::Value request;
+    request["xml"] = xml;
+    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
+    const pid_t pid = server_->pid();
+
+    const double cpu_before = process_cpu_seconds(pid);
+    const auto wall_start = std::chrono::steady_clock::now();
+    const auto full = simulate(request);
+    const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_start).count();
+    const double cpu_full = process_cpu_seconds(pid) - cpu_before;
+    ASSERT_EQ(full.status, 200) << full.body.substr(0, 300);
+    // Gate on CPU time: a loaded machine inflates wall time while CPU stays small, and a fast
+    // machine must not skip silently. The server must have had real work to abandon.
+    if (cpu_full < 1.5) GTEST_SKIP() << "single run used only " << cpu_full << " s CPU on this fixture";
+
+    const double abort_before = process_cpu_seconds(pid);
+    const auto aborted = http_post_json(server_->port(), "/api/simulate", request, 0.3);
+    EXPECT_EQ(aborted.status, 0);
+    std::this_thread::sleep_for(std::chrono::duration<double>(wall + 0.5));
+    const double cpu_abort = process_cpu_seconds(pid) - abort_before;
+    std::cout << "[disconnect] wall=" << wall << " cpu_full=" << cpu_full << " cpu_abort=" << cpu_abort << "\n";
+    EXPECT_LT(cpu_abort, 0.6 * cpu_full) << "wall=" << wall << " cpu_full=" << cpu_full;
 }

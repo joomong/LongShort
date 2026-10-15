@@ -38,9 +38,12 @@ struct Thin {
     }
     // Per-bar end-of-bar weights (after received children joined).
     std::vector<std::vector<double>> weights;
-    SimulatorOutput run() {
+    SimulatorOutput run(MissingClosePolicy policy = MissingClosePolicy::Carry,
+                        ExecutionPrice price = ExecutionPrice::Close) {
         SimulatorConfig config;
         config.T = panel.T; config.N = panel.N; config.fee_rate = kFee;
+        config.missing_close_policy = policy;
+        config.execution_price = price;
         weights.assign(panel.T, {});
         config.accounting_row_callback = [this](const AccountingRowView& row) {
             weights[row.bar] = row.weights;
@@ -249,4 +252,38 @@ TEST(ThinMoves, SettlementBarWithoutQuote) {
     EXPECT_NEAR(out.turnover[1], 1.0, kTol);
     EXPECT_EQ(out.missing_data[1].missing_held_count, 0u);
     EXPECT_EQ(out.missing_data[1].retirement_count, 1u);
+}
+
+// A successor position landing on a quoteless name cannot trade on the move bar:
+// its budget is reserved and Error rejects the required sale, for every execution price.
+TEST(ThinMoves, SuccessorIntoQuotelessDestinationReservesBudget) {
+    const auto make = [] {
+        Thin c(3, 3);
+        c.signals[0] = {1.0f, 0.0f, 0.0f};
+        c.signals[1] = {0.0f, 0.0f, 1.0f};
+        c.signals[2] = {0.0f, 0.0f, 1.0f};
+        c.close(1, 0) = kNaNf; c.close(1, 1) = kNaNf; c.close(2, 1) = kNaNf;
+        c.move(1, 0, 1, 0.5, true);
+        for (const char* name : {"open", "high", "low"})
+            c.panel.arrays[name] = c.panel.arrays["close"];
+        return c;
+    };
+    for (ExecutionPrice price : {ExecutionPrice::Close, ExecutionPrice::Ohlc4}) {
+        Thin c = make();
+        auto out = c.run(MissingClosePolicy::Carry, price);
+        for (unsigned bar : {1u, 2u}) {
+            EXPECT_EQ(c.weights[bar], (std::vector<double>{0.0, 0.5, 0.5})) << "bar " << bar;
+            EXPECT_DOUBLE_EQ(out.missing_data[bar].frozen_gross, 0.5) << "bar " << bar;
+        }
+        Thin e = make();
+        try {
+            e.run(MissingClosePolicy::Error, price);
+            ADD_FAILURE() << "Error policy must reject the unfillable sale";
+        } catch (const std::runtime_error& error) {
+            // Rejected on the move bar, not only later by the pre-valuation gate.
+            const std::string what = error.what();
+            EXPECT_NE(what.find("Cannot execute"), std::string::npos) << what;
+            EXPECT_NE(what.find("at bar 1, asset 1"), std::string::npos) << what;
+        }
+    }
 }

@@ -2,6 +2,7 @@
 #include "xml_parser.h"
 #include "expansion.h"
 #include "expr_parser.h"
+#include "module_attributes.h"
 #include "../data/data_panel.h"
 #include "../modules/Data.h"
 #include "../modules/Delay.h"
@@ -22,14 +23,25 @@
 #include <cctype>
 
 // ---------------------------------------------------------------------------
-// Helper: get required int/double/bool attrib with default
+// Helpers: optional attribs with default, parsed strictly by module_attributes
 // ---------------------------------------------------------------------------
 
-static int get_int(const std::map<std::string, std::string>& a,
-                   const std::string& key, int def = 0) {
+static int opt_int(const std::map<std::string, std::string>& a, const std::string& tag,
+                   const std::string& key, int def) {
     auto it = a.find(key);
-    if (it == a.end()) return def;
-    return std::stoi(it->second);
+    return it == a.end() ? def : module_attributes::parse_int(it->second, tag, key);
+}
+
+static double opt_float(const std::map<std::string, std::string>& a, const std::string& tag,
+                        const std::string& key, double def) {
+    auto it = a.find(key);
+    return it == a.end() ? def : module_attributes::parse_float(it->second, tag, key);
+}
+
+static bool opt_bool(const std::map<std::string, std::string>& a, const std::string& tag,
+                     const std::string& key, bool def) {
+    auto it = a.find(key);
+    return it == a.end() ? def : module_attributes::parse_bool(it->second, tag, key);
 }
 
 static int panel_time_limit(const DataPanel* panel) {
@@ -102,21 +114,6 @@ static int get_bounded_int(const std::map<std::string, std::string>& attribs,
     return parse_bounded_int(tag, attribute, it->second, min_value, max_value);
 }
 
-static double get_double(const std::map<std::string, std::string>& a,
-                         const std::string& key, double def = 0.0) {
-    auto it = a.find(key);
-    if (it == a.end()) return def;
-    return std::stod(it->second);
-}
-
-static bool get_bool(const std::map<std::string, std::string>& a,
-                     const std::string& key, bool def = false) {
-    auto it = a.find(key);
-    if (it == a.end()) return def;
-    const std::string& v = it->second;
-    return (v == "true" || v == "1" || v == "yes");
-}
-
 static std::string xml_escape(const std::string& v) {
     std::string out;
     out.reserve(v.size());
@@ -172,6 +169,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         ModuleRegistry r;
 
         r.register_module("tsmean", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "tsmean");
             auto m = std::make_unique<MTsMean>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tsmean", "days", 20, 1, max_days));
@@ -179,26 +177,29 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         });
 
         r.register_module("tszscore", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "ddof", "min_count", "eps"}, "tszscore");
             auto m = std::make_unique<MTsZscore>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tszscore", "days", 20, 1, max_days));
-            m->ddof = IntParameter(get_int(a, "ddof", 1));
-            m->min_count = IntParameter(get_int(a, "min_count", -1));
-            m->eps = FloatParameter(get_double(a, "eps", 1e-12));
+            m->ddof = IntParameter(opt_int(a, "tszscore", "ddof", 1));
+            m->min_count = IntParameter(opt_int(a, "tszscore", "min_count", -1));
+            m->eps = FloatParameter(opt_float(a, "tszscore", "eps", 1e-12));
             return m;
         });
 
         r.register_module("tsrank", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "pct", "min_count"}, "tsrank");
             auto m = std::make_unique<MTsRank>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tsrank", "days", 20, 1, max_days));
-            m->pct = IntParameter(get_bool(a, "pct", true) ? 1 : 0);
+            m->pct = IntParameter(opt_bool(a, "tsrank", "pct", true) ? 1 : 0);
 
-            m->min_count = IntParameter(get_int(a, "min_count", -1));
+            m->min_count = IntParameter(opt_int(a, "tsrank", "min_count", -1));
             return m;
         });
 
         r.register_module("decay", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "decay");
             auto m = std::make_unique<MDecay>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "decay", "days", 20, 1, max_days));
@@ -206,6 +207,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         });
 
         r.register_module("delay", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "delay");
             auto m = std::make_unique<MDelay>();
             const int max_delay = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "delay", "days", 1, 0, max_delay));
@@ -213,22 +215,25 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         });
 
         r.register_module("rank", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"pct"}, "rank");
             auto m = std::make_unique<MRank>();
             m->panel = panel;
-            m->pct = IntParameter(get_bool(a, "pct", true) ? 1 : 0);
+            m->pct = IntParameter(opt_bool(a, "rank", "pct", true) ? 1 : 0);
             return m;
         });
 
         r.register_module("zscore", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"ddof", "min_count", "eps"}, "zscore");
             auto m = std::make_unique<MZscore>();
             m->panel = panel;
-            m->ddof = IntParameter(get_int(a, "ddof", 1));
-            m->min_count = IntParameter(get_int(a, "min_count", 2));
-            m->eps = FloatParameter(get_double(a, "eps", 1e-12));
+            m->ddof = IntParameter(opt_int(a, "zscore", "ddof", 1));
+            m->min_count = IntParameter(opt_int(a, "zscore", "min_count", 2));
+            m->eps = FloatParameter(opt_float(a, "zscore", "eps", 1e-12));
             return m;
         });
 
         r.register_module("neutralize", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group"}, "neutralize");
             auto it = a.find("group");
             if (it == a.end())
                 throw CompileError(
@@ -278,6 +283,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         throw CompileError("First pipeline element must be 'data', got '" + ops[0].first + "'");
 
     const auto& data_attribs = ops[0].second;
+    // A misspelt delay must not compile to delay 0 (same-bar look-ahead).
+    module_attributes::validate_keys(data_attribs, {"expr", "delay"}, "data", false);
 
     std::string expr_str = "close";
     {
@@ -312,6 +319,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
 
         if (tag == "data") {
             ++data_chain_count;
+            module_attributes::validate_keys(attribs, {"expr", "delay"}, "data", false);
             std::string expr = "close";
             {
                 auto it = attribs.find("expr");
@@ -338,6 +346,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         }
 
         if (tag == "signal") {
+            module_attributes::validate_keys(attribs, {"id"}, "signal", false);
             auto it = attribs.find("id");
             if (it == attribs.end())
                 throw CompileError("<signal> tag missing 'id' attribute");
@@ -354,6 +363,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         }
 
         if (tag == "event") {
+            module_attributes::validate_keys(
+                attribs, {"signal", "trigger", "threshold", "maxholddays", "betall"}, "event", false);
             std::string sig_id, trig_id;
             {
                 auto it = attribs.find("signal");
@@ -394,9 +405,9 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
             mod->signal_cache   = sig_cache;
             mod->trigger_cache  = trig_cache;
             mod->useCurrentSignal = IntParameter(use_current_signal ? 1 : 0);
-            mod->threshold      = FloatParameter(get_double(attribs, "threshold", 0.0));
-            mod->maxHolddays    = IntParameter(get_int(attribs, "maxholddays", 5));
-            mod->betAll         = IntParameter(get_bool(attribs, "betall", true) ? 1 : 0);
+            mod->threshold      = FloatParameter(opt_float(attribs, "event", "threshold", 0.0));
+            mod->maxHolddays    = IntParameter(opt_int(attribs, "event", "maxholddays", 5));
+            mod->betAll         = IntParameter(opt_bool(attribs, "event", "betall", true) ? 1 : 0);
             current = mod.get();
             result.pipeline.push_back(current);
             result.modules.push_back(std::move(mod));

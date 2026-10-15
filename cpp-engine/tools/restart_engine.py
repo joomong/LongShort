@@ -1,5 +1,6 @@
 #!/home/jgo/usr/venv-3.11/bin/python
 """restart_engine.py — restart the longshort-server on one port after a cache publish and verify /api/config (2H, DAG task restart_engine).
+Production caller (outside this repo): /home/jgo/universe_builder/dag/run_step.sh -> restart_engine.sh -> this file. Keep the CLI stable.
 
 Generalises ~/longshort_workspace/research/universe_v2_20261002/V2DEPLOY/rename/restart.py (left untouched):
 SIGTERM -> restart -> /api/config check -> roll back to the previous launch on failure.

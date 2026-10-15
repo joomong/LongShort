@@ -326,12 +326,8 @@ export const useAlphaStore = create<AlphaState>((set) => ({
         const minDate = config.simStart;
         const maxDate = config.simEnd;
         s.simEnd = config.supportsSimEnd && state.config ? s.simEnd : maxDate;
-        // If current settings are outside data range, compute fresh defaults
-        const outOfRange = s.isStart < minDate || s.isStart > maxDate ||
-          s.osStart < minDate || s.osStart > maxDate;
-        if (outOfRange) {
-          resetSplit(s, minDate, s.simEnd || maxDate);
-        }
+        // Reset only when the whole IS period lies outside the data window; a merely clamped start keeps the user's split.
+        if (s.osStart <= minDate || s.isStart > maxDate) resetSplit(s, minDate, s.simEnd || maxDate);
         return { config, settings: enforceSettingsDates(s, minDate, maxDate) };
       });
     } catch {

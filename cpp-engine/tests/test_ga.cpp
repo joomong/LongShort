@@ -54,7 +54,7 @@ TEST(GA, SearchSpaceDecodePutsOneModulePerLine) {
     EXPECT_EQ(extract_search_space(xml).decode({1}),
               "<data delay=\"0\" expr=\"close\"/>\n<tsmean days=\"20\"/>\n<rank/>");
 
-    const std::string choices = R"(<data expr="close"/><choice><tsmean days="5"/><delay n="1"/></choice><rank/>)";
+    const std::string choices = R"(<data expr="close"/><choice><tsmean days="5"/><delay days="1"/></choice><rank/>)";
     const auto space = extract_search_space(choices);
     ASSERT_EQ(space.total_combinations(), 2u);
     EXPECT_EQ(space.decode({0}), "<data expr=\"close\"/>\n<tsmean days=\"5\"/>\n<rank/>");
@@ -62,7 +62,7 @@ TEST(GA, SearchSpaceDecodePutsOneModulePerLine) {
 
 TEST(GA, SearchSpaceTotalCombinations) {
     // Two genes: 3 × 2 = 6 combinations
-    std::string xml = R"(<tsmean days="10|20|30"/><delay n="1|2"/>)";
+    std::string xml = R"(<tsmean days="10|20|30"/><delay days="1|2"/>)";
     SearchSpace space = extract_search_space(xml);
 
     size_t total = space.total_combinations();
@@ -194,7 +194,7 @@ TEST(GA, LimitsUniqueEvaluationsAndRoundsWithoutOvershooting) {
 }
 
 TEST(GA, SerialAndTwentyThreadsSelectTheSameCandidatesAcrossRounds) {
-    const std::string xml = "<tsmean days=\"1...100\"/><delay n=\"0|1|2\"/>";
+    const std::string xml = "<tsmean days=\"1...100\"/><delay days=\"0|1|2\"/>";
     GAConfig config; config.first_search = 9; config.population_size = 7; config.stop_alphas = 30;
     std::vector<std::pair<size_t, std::string>> serial, parallel;
     auto run = [&](unsigned threads, auto& collected) {
@@ -216,7 +216,7 @@ TEST(GA, SingleXmlAndRepeatedChoicesAreEvaluatedOnce) {
     EXPECT_EQ(GAEngine(xml, space, config).run([](const std::string&) { return 0.0; }).evaluated, 2u);
     const std::string single = "<tsmean days=\"2\"/>";
     EXPECT_EQ(GAEngine(single, extract_search_space(single), config).run([](const std::string&) { return 0.0; }).evaluated, 1u);
-    const std::string choices = "<choice><tsmean days=\"2|3\"/><delay n=\"1|2\"/></choice>";
+    const std::string choices = "<choice><tsmean days=\"2|3\"/><delay days=\"1|2\"/></choice>";
     EXPECT_EQ(extract_search_space(choices).total_combinations(), 4u);
 }
 

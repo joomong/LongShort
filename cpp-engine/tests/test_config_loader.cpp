@@ -155,10 +155,36 @@ TEST(ConfigLoader, RemovedSettlementAndCorporateActionSettingsAreRejected) {
             BacktestConfig::from_yaml(files.file("removed.yaml", base + setting));
             ADD_FAILURE() << "accepted removed setting: " << setting;
         } catch (const std::exception& error) {
-            EXPECT_NE(std::string(error.what()).find("no longer supported"), std::string::npos)
+            EXPECT_NE(std::string(error.what()).find("Unknown config key"), std::string::npos)
                 << setting << " threw: " << error.what();
         }
     }
+}
+TEST(ConfigLoader, RejectsUnknownKeys) {
+    ConfigFiles files;
+    const std::string dataset = "datasets: [{path: p, use_col: [close]}]\n";
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {dataset + "backtest: {missing_close_polcy: error}", "backtest.missing_close_polcy"},
+        {dataset + "backtest: {}\nalpha_dir: alphas", "alpha_dir"},
+        {"datasets: [{path: p, use_col: [close], use_cols: [open]}]\nbacktest: {}", "datasets[0].use_cols"},
+        {dataset + "universe: {path: u.parquet, nmae: TOP500}\nbacktest: {}", "universe.nmae"},
+    };
+    for (const auto& [body, key] : cases) {
+        try {
+            BacktestConfig::from_yaml(files.file("unknown.yaml", body));
+            ADD_FAILURE() << "accepted unknown key: " << key;
+        } catch (const std::exception& error) {
+            EXPECT_EQ(std::string(error.what()), "Unknown config key '" + key + "'");
+        }
+    }
+}
+// Parsing alone touches no cache file except an optional manifest.json probe (exists() check).
+TEST(ConfigLoader, AcceptsRepositoryExampleConfig) {
+    const auto path = std::filesystem::path(__FILE__).parent_path().parent_path() / "examples/datasets/us_equity.yaml";
+    ASSERT_TRUE(std::filesystem::exists(path)) << path;
+    const auto config = BacktestConfig::from_yaml(path.string());
+    EXPECT_EQ(config.universe.name, "TOP3000");
+    EXPECT_EQ(config.bars_per_year, 252u);
 }
 
 // base: expands into the standard price/group datasets without listing every field

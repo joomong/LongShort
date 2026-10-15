@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Synthetic-fixture checks for tools/data/build_group_panels.py. No real cache is read."""
+"""Synthetic-fixture checks for tools/data/build_group_panels.py. No real cache is read.
+
+tools/data is a symlink to /home/jgo/universe_builder/cache (outside this repo); the builder script lives there.
+CTest registers this test only when that link resolves (see CMakeLists.txt). Do not delete the link."""
 import hashlib
 import importlib.util
 import json

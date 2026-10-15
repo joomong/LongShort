@@ -38,7 +38,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPO / "cpp-engine/examples/datasets/equities_monthly_afl.yaml"
+DEFAULT_CONFIG = REPO / "cpp-engine/examples/datasets/us_equity.yaml"
 DEFAULT_GROUPS = REPO / "data/groups/cache_v1_cash_1d"
 DEFAULT_CACHE = Path("/home/base/cache/cache_v1_cash_1d")
 TEAM_SIM_UTILS = "/home/base/sim/utils"

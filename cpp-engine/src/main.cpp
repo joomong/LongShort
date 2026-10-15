@@ -186,7 +186,7 @@ struct RunOptions {
     int64_t os_ms = 0;
     unsigned sim_start_index = 0;
     unsigned sim_end_index = 0; // exclusive panel row; request simEnd is inclusive
-    unsigned threads = 0;
+    unsigned threads = 20;
     bool collect_signals = false;
     bool metrics_only = false;
     bool signal_series_only = false;
@@ -243,7 +243,12 @@ static RunOptions parse_run_options(const Json::Value& body) {
     }
     if (options.sim_start_index >= options.sim_end_index)
         throw std::invalid_argument("Sim period has no trading bars: simEnd must be on or after simStart");
-    options.threads = parse_uint_option(body, "threads", 0);
+    if (body.isMember("threads")) {
+        const Json::Value& threads = body["threads"];
+        if (!threads.isIntegral() || !threads.isInt64() || threads.asInt64() < 1 || threads.asInt64() > 32)
+            throw std::invalid_argument("threads must be between 1 and 32");
+        options.threads = static_cast<unsigned>(threads.asInt64());
+    }
     options.collect_signals = body.get("collectSignals", false).asBool();
     options.metrics_only = body.get("metricsOnly", false).asBool();
     options.signal_series_only = body.get("signalSeriesOnly", false).asBool();
@@ -462,18 +467,18 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     std::vector<BatchResult> batches(alphas.size());
     SimulatorOutput single_output;
     std::vector<std::vector<float>> combined_signals;
+    const auto stop_on_cancel = [&cancelled](unsigned, const float*, unsigned) {
+        if (cancelled()) throw EvaluationCancelled();
+    };
     if (single && !combined_only) {
-        single_output = execute_alpha(alphas[0], options, !options.metrics_only, {}, accounting);
+        single_output = execute_alpha(alphas[0], options, !options.metrics_only, stop_on_cancel, accounting);
         batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options),
                       diagnostics_payload(single_output, options)};
     } else {
         OrderedSignalAccumulator accumulator(
             g_data, options.combined_mode, options.missing_close_policy,
             options.universe_mask);
-        unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
-        const unsigned thread_count = std::max(1u, std::min<unsigned>(
-            options.threads == 0 ? hardware : options.threads,
-            static_cast<unsigned>(alphas.size())));
+        const unsigned thread_count = std::min<unsigned>(options.threads, static_cast<unsigned>(alphas.size()));
         std::atomic<std::size_t> next_index{0};
         std::atomic<bool> failed{false};
         std::exception_ptr first_error;
@@ -558,7 +563,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         entry["xml"] = batch.xml;
         if (!single && options.collect_signals && !options.metrics_only && i < options.signal_top_k) {
             auto selected = compile_xml(batch.xml, &g_data, options.universe_mask);
-            auto output = execute_alpha(selected.at(0), options, true);
+            auto output = execute_alpha(selected.at(0), options, true, stop_on_cancel);
             append_signal_payload(entry, output.signals, output.timestamps, options);
         }
         batch_array.append(std::move(entry));
@@ -569,6 +574,8 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         if (!options.metrics_only)
             append_signal_payload(response, single_output.signals, single_output.timestamps, options);
     } else {
+        // run_from_signals has no row hook; check once before the portfolio-only replay.
+        if (cancelled()) throw EvaluationCancelled();
         Simulator combined_simulator(g_data, simulator_config(options, false));
         auto combined_output = combined_simulator.run_from_signals(combined_signals);
         Json::Value combined = metrics_payload(full_metrics(combined_output, options));
@@ -751,12 +758,8 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
         const auto cancelled = [] { return g_alpha_workers.stopping(); };
         const bool positions = metadata.level == "positions";
         std::vector<Json::Value> entries(rows.size());
-        // Metadata carries no thread count; stay at the GA default so a save on the
-        // shared machine does not take every core and hold one position buffer per core.
-        const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
-        const unsigned thread_count = std::max(1u, std::min<unsigned>(
-            {options.threads == 0 ? std::min(hardware, 20u) : options.threads,
-             static_cast<unsigned>(rows.size())}));
+        // The request's threads (1..32, default 20) bound the row replays and the batch replay below.
+        const unsigned thread_count = std::min<unsigned>(options.threads, static_cast<unsigned>(rows.size()));
         std::atomic<std::size_t> next_index{0};
         std::atomic<bool> failed{false};
         std::exception_ptr first_error;
@@ -825,6 +828,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
         batch_request["xmls"] = Json::Value(Json::arrayValue);
         batch_request["combinedOnly"] = true;
         batch_request["metricsOnly"] = true;
+        batch_request["threads"] = thread_count;
         for (std::size_t i = 0; i < rows.size(); ++i) {
             index["rows"].append(std::move(entries[i]));
             batch_request["xmls"].append(rows[i].xml);
@@ -1050,12 +1054,12 @@ int main(int argc, char* argv[])
                 ga_config.population_size = parse_uint_option(*body, "roundSize", 50);
                 ga_config.generations = parse_uint_option(*body, "stopRound", parse_uint_option(*body, "generations", 40));
                 ga_config.stop_alphas = parse_uint_option(*body, "stopAlphas", 400);
-                ga_config.n_threads = options.threads == 0 ? 20 : options.threads;
+                ga_config.n_threads = options.threads;
                 if (!ga_config.first_search || ga_config.first_search > 5000 ||
                     !ga_config.population_size || ga_config.population_size > 5000 ||
                     !ga_config.generations || ga_config.generations > 1000 ||
-                    !ga_config.stop_alphas || ga_config.stop_alphas > 5000 || ga_config.n_threads > 32)
-                    throw std::invalid_argument("GA search/round size and stopAlphas must be 1..5000, stopRound 1..1000, threads 1..32");
+                    !ga_config.stop_alphas || ga_config.stop_alphas > 5000)
+                    throw std::invalid_argument("GA search/round size and stopAlphas must be 1..5000, stopRound 1..1000");
                 const bool stream_candidates = body->get("streamCandidates", false).asBool();
                 auto response = drogon::HttpResponse::newAsyncStreamResponse(
                     [xml, options, ga_config, req, stream_candidates](drogon::ResponseStreamPtr stream) {

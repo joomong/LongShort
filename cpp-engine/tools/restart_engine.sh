@@ -4,6 +4,8 @@
 # roll back to the previous launch on failure.
 #   bash restart_engine.sh [--config PATH] [--port N] [--timeout S] [--stop] [--binary PATH] [--log-dir DIR]
 #   defaults: ~/longshort_workspace/config.yaml, 50007, 600; log ~/longshort_workspace/.longshort/logs/engine_<port>.log
+# Production caller (outside this repo): /home/jgo/universe_builder/dag/run_step.sh:21 execs this script with
+# --port 50007 --timeout 1800 and the STEP_CONTRACT common args --build/--prev. Do not rename, move or change its CLI.
 # Logic lives in restart_engine.py next to this file; its exit code is passed through
 # (0 ok / 1 failed — rolled back when an old server existed / 4 --stop with nothing running).
 set -euo pipefail

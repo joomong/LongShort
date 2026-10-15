@@ -65,7 +65,7 @@ std::string SearchSpace::decode(const std::vector<int>& indices) const {
 //   pipe:   "10|20|30"           → Gene with values ["10","20","30"]
 //   range:  "20...10...60"       → Gene with values ["20","30","40","50","60"]
 //           "20...60"            → Gene with values ["20","21",...,"60"]
-//   (choice/shuffle: not yet supported; treated as literal)
+//   <choice>: handled up front as one "pipeline" gene (see below)
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -131,11 +131,11 @@ SearchSpace extract_search_space(const std::string& xml_template) {
     // Parse the XML
     std::vector<XmlElement> elements = parse_xml(xml_template);
 
-    // Structural choices use the compiler's existing expansion contract,
-    // including bound choices and shuffle. Ordinary parameter searches stay
+    // Structural choices use the compiler's existing expansion contract
+    // (plain <choice> alternatives). Ordinary parameter searches stay
     // factored so large Cartesian spaces are never expanded up front.
     if (std::any_of(elements.begin(), elements.end(), [](const XmlElement& element) {
-            return element.tag == "choice" || element.tag == "shuffle";
+            return element.tag == "choice";
         })) {
         SearchSpace::Gene gene;
         gene.description = "pipeline";
@@ -164,8 +164,8 @@ SearchSpace extract_search_space(const std::string& xml_template) {
     // Process each element's attributes
     std::vector<XmlElement> modified = elements;
     for (auto& elem : modified) {
-        // Skip structural tags (choice, shuffle)
-        if (elem.tag == "choice" || elem.tag == "shuffle") continue;
+        // Skip structural tags (choice)
+        if (elem.tag == "choice") continue;
 
         for (auto& kv : elem.attribs) {
             const std::string& val = kv.second;

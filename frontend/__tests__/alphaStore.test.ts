@@ -72,6 +72,44 @@ describe('fetchConfig', () => {
     expect(settings.isStart < settings.osStart).toBe(true);
   });
 
+  it('keeps the default split when only the start is clamped', async () => {
+    vi.mocked(getConfig).mockResolvedValue({
+      symbols: ['A'], simStart: '2016-01-04', simEnd: '2026-09-15', feeRate: 0.001, barsPerYear: 252, T: 10, N: 1, columns: [],
+    });
+    expect(useAlphaStore.getState().settings).toMatchObject({ simStart: '2016-01-01', isStart: '2016-01-01', osStart: '2024-01-01' });
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings).toMatchObject({
+      simStart: '2016-01-04', isStart: '2016-01-04', osStart: '2024-01-01', simEnd: '2026-09-15' });
+  });
+
+  it('resets the split when it lies entirely before the data window', async () => {
+    vi.mocked(getConfig).mockResolvedValue({
+      symbols: ['A'], simStart: '2020-01-01', simEnd: '2025-01-28', feeRate: 0.001, barsPerYear: 252, T: 10, N: 1, columns: [],
+    });
+    useAlphaStore.getState().setSettings({ simStart: '2018-01-01', simEnd: '', isStart: '2018-01-01', osStart: '2018-07-01' });
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings).toMatchObject({
+      simStart: '2020-01-01', isStart: '2020-01-01', osStart: '2023-07-22', simEnd: '2025-01-28' });
+  });
+
+  it('resets the split when the data window starts after the default osStart', async () => {
+    vi.mocked(getConfig).mockResolvedValue({
+      symbols: ['A'], simStart: '2024-06-03', simEnd: '2026-09-15', feeRate: 0.001, barsPerYear: 252, T: 10, N: 1, columns: [],
+    });
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings).toMatchObject({
+      simStart: '2024-06-03', isStart: '2024-06-03', osStart: '2026-01-08', simEnd: '2026-09-15' });
+  });
+
+  it('resets the split when the data window ends before the default isStart', async () => {
+    vi.mocked(getConfig).mockResolvedValue({
+      symbols: ['A'], simStart: '2005-01-03', simEnd: '2015-06-30', feeRate: 0.001, barsPerYear: 252, T: 10, N: 1, columns: [],
+    });
+    await useAlphaStore.getState().fetchConfig();
+    expect(useAlphaStore.getState().settings).toMatchObject({
+      simStart: '2005-01-03', isStart: '2005-01-03', osStart: '2012-05-07', simEnd: '2015-06-30' });
+  });
+
   it('selects the default universe and keeps a still-valid choice', async () => {
     const mockConfig = {
       symbols: ['A'], simStart: '2020-01-01', simEnd: '2025-01-28', feeRate: 0.001, barsPerYear: 252,

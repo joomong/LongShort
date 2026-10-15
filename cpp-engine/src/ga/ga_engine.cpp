@@ -3,7 +3,6 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-#include <thread>
 #include <unordered_set>
 
 GAEngine::GAEngine(const std::string& xml_template, const SearchSpace& space, const GAConfig& config)
@@ -56,9 +55,7 @@ int GAEngine::tournament_select(const std::vector<double>& scores, std::mt19937&
     return best;
 }
 GAResult GAEngine::run_impl(EvalFunc evaluate, const GAEvents& events) {
-    unsigned threads = config_.n_threads;
-    if (!threads) threads = std::max(1u, std::thread::hardware_concurrency());
-    ParallelEvaluator evaluator(threads, std::move(evaluate));
+    ParallelEvaluator evaluator(config_.n_threads, std::move(evaluate));
     std::mt19937 rng(config_.seed);
     std::unordered_set<std::string> scheduled;
     struct Parent { Individual genes; double score; size_t id; };
