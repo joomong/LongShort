@@ -57,9 +57,29 @@ def main():
         write_wide(output / "groups" / f"{name}.parquet", index,
                    {s: np.full(len(days), float(codes[s])) for s in SYMBOLS})
 
+    meta = output / "meta"
+    members = {
+        "sample/a_rank.xml": '<data expr="close" delay="1"/><rank/>',
+        "sample/b_tsmean_zscore.xml": '<data expr="close" delay="1"/><tsmean days="5"/><zscore/>',
+        "sample/sub/c_tsrank.xml": '<data expr="close" delay="1"/><tsrank days="10"/>',
+        "sample/.hidden.xml": '<data expr="close" delay="1"/><rank/>',
+        "broken/ok.xml": '<data expr="close" delay="1"/><rank/>',
+        "broken/bad.xml": '<data expr="close" delay="1"/><tsmean dayz="5"/>',
+        "nested/x.xml": '<meta expr="sample"/>',
+    }
+    # Disconnect test: enough work per member (min_count 1 keeps every rank O(days)) for a few CPU seconds.
+    heavy = '<data expr="close" delay="1"/>' + '<tsrank days="2000" min_count="1"/>' * 100
+    for k in range(3):
+        members[f"heavy/m{k}.xml"] = heavy
+    for rel, xml in members.items():
+        (meta / rel).parent.mkdir(parents=True, exist_ok=True)
+        (meta / rel).write_text(xml + "\n")
+    (meta / "empty").mkdir(parents=True, exist_ok=True)
+
     config = {"base": {"cache": str(output), "groups": str(output / "groups")},
               "universe": ["all"], "backtest": {"start_date": "2020-01-01", "end_date": "2025-12-31",
-              "initial_capital": 1000000, "transaction_fee": 5}}
+              "initial_capital": 1000000, "transaction_fee": 5},
+              "meta_dir": str(meta)}
     (output / "config.yaml").write_text(json.dumps(config, indent=2))
     print(output / "config.yaml")
 

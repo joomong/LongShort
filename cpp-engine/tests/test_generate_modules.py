@@ -211,9 +211,9 @@ class ReservedTagsMatchEngineRegistry(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / 'src/compiler/dag_builder.cpp').read_text()
         modules = set(re.findall(r'register_module\("(\w+)"', source))
         self.assertTrue(modules)
-        # Structural tags handled in compile_pipeline (data, signal, event), expansion (choice)
+        # Structural tags handled in compile_pipeline (data, signal, event, meta, ew), expansion (choice)
         # and the alpha wrapper (alpha); kept by hand because they are not registry entries.
-        structural = {'data', 'signal', 'event', 'choice', 'alpha'}
+        structural = {'data', 'signal', 'event', 'choice', 'alpha', 'meta', 'ew'}
         self.assertEqual(generator.RESERVED_TAGS, frozenset(modules | structural))
 
 

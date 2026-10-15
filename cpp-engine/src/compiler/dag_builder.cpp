@@ -5,6 +5,7 @@
 #include "module_attributes.h"
 #include "../data/data_panel.h"
 #include "../modules/Data.h"
+#include "../modules/MetaSource.h"
 #include "../modules/Delay.h"
 #include "../modules/TsMean.h"
 #include "../modules/TsRank.h"
@@ -270,55 +271,119 @@ ModuleRegistry& ModuleRegistry::default_registry() {
 // compile_pipeline (STAR-style: field injection, no constructors)
 // ---------------------------------------------------------------------------
 
-CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
+static bool contains_meta(const std::vector<XmlElement>& elements) {
+    for (const auto& element : elements)
+        if (element.tag == "meta" || contains_meta(element.children)) return true;
+    return false;
+}
+
+// Compile the member alphas of <meta expr="NAME"> into a MetaSet (state SET until finalized).
+static MetaSet compile_meta_set(const std::map<std::string, std::string>& attribs,
+                                const DataPanel* panel,
+                                const std::vector<uint8_t>* universe,
+                                const MetaResolver* resolver) {
+    module_attributes::validate_keys(attribs, {"expr"}, "meta", false);
+    auto it = attribs.find("expr");
+    if (it == attribs.end())
+        throw CompileError("<meta> requires attribute 'expr'");
+    if (resolver == nullptr || !*resolver)
+        throw CompileError("meta_dir is not configured");
+    MetaSet set;
+    set.name = it->second;
+    std::vector<std::pair<std::string, std::string>> listed;
+    try {
+        listed = (*resolver)(set.name);
+    } catch (const CompileError&) {
+        throw;
+    } catch (const std::runtime_error& e) {
+        throw CompileError(e.what());
+    }
+    const std::string prefix = "meta '" + set.name + "' member ";
+    for (const auto& [path, xml] : listed) {
+        std::vector<CompiledAlpha> compiled;
+        try {
+            if (contains_meta(parse_xml(xml)))
+                throw CompileError(prefix + path + ": nested <meta> is not allowed");
+            compiled = compile_xml(xml, panel, universe, nullptr);
+        } catch (const CompileError& e) {
+            const std::string msg = e.what();
+            if (msg.rfind(prefix, 0) == 0) throw;
+            throw CompileError(prefix + path + ": " + msg);
+        } catch (const std::runtime_error& e) {
+            throw CompileError(prefix + path + ": " + e.what());
+        }
+        if (compiled.size() != 1)
+            throw CompileError(prefix + path + " must compile to exactly one alpha (got " +
+                               std::to_string(compiled.size()) + ")");
+        set.member_paths.push_back(path);
+        set.members.push_back(std::move(compiled.front()));
+    }
+    return set;
+}
+
+CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
+                               const std::vector<uint8_t>* universe,
+                               const MetaResolver* resolver) {
     if (ops.empty())
         throw CompileError("Pipeline is empty");
 
     CompiledAlpha result;
     // cache_registry: MSignalSave* for input/signal/event cache restoration
     std::map<std::string, MSignalSave*> cache_registry;
-    unsigned data_chain_count = 1;
+    unsigned data_chain_count = 0;
+    Module* current = nullptr;
 
-    if (ops[0].first != "data")
+    if (ops[0].first != "data" && ops[0].first != "meta")
         throw CompileError("First pipeline element must be 'data', got '" + ops[0].first + "'");
+    const bool starts_with_meta = ops[0].first == "meta";
 
-    const auto& data_attribs = ops[0].second;
-    // A misspelt delay must not compile to delay 0 (same-bar look-ahead).
-    module_attributes::validate_keys(data_attribs, {"expr", "delay"}, "data", false);
-
-    std::string expr_str = "close";
-    {
-        auto it = data_attribs.find("expr");
-        if (it != data_attribs.end()) expr_str = it->second;
-    }
-
-    Module* current = parse_expr(expr_str, panel, result.modules);
-    result.pipeline.push_back(current);
-
-    // Apply delay if present on the data tag
-    {
-        auto it = data_attribs.find("delay");
-        if (it != data_attribs.end()) {
-            const int max_lookback = panel_time_limit(panel);
-            int d = parse_bounded_int("data", "delay", it->second, 0, max_lookback);
-            if (d != 0) {
-                auto delay = std::make_unique<MDelay>();
-                delay->days = IntParameter(d);
-                current = delay.get();
-                result.pipeline.push_back(current);
-                result.modules.push_back(std::move(delay));
-            }
-        }
-    }
+    // SET state: the last meta_sets entry has no source yet. Finalizing (explicit <ew/> or
+    // implicit before any other op / at the end) appends its MMetaSource; state -> SIGNAL.
+    bool pending_set = false;
+    bool meta_chain_unnamed = false;  // current chain began with <meta>, no <signal id> yet
+    auto finalize_set = [&]() {
+        auto source = std::make_unique<MMetaSource>();
+        source->name = result.meta_sets.back().name;
+        result.meta_sets.back().source = source.get();
+        current = source.get();
+        result.pipeline.push_back(current);
+        result.modules.push_back(std::move(source));
+        pending_set = false;
+    };
 
     const ModuleRegistry& reg = ModuleRegistry::default_registry();
 
-    for (size_t i = 1; i < ops.size(); ++i) {
+    for (size_t i = 0; i < ops.size(); ++i) {
         const std::string& tag    = ops[i].first;
         const auto&        attribs = ops[i].second;
 
-        if (tag == "data") {
+        if (tag == "ew") {
+            if (!pending_set)
+                throw CompileError("<ew> requires an alpha set from <meta>");
+            module_attributes::validate_keys(attribs, {}, "ew", false);
+            finalize_set();
+            continue;
+        }
+        if (pending_set) finalize_set();
+
+        // A <meta> chain left unnamed would run all its members for nothing.
+        if ((tag == "meta" || tag == "data") && meta_chain_unnamed)
+            throw CompileError("a <meta> chain must be named with <signal id> before another chain starts");
+        if (tag == "signal") meta_chain_unnamed = false;
+
+        if (tag == "meta") {
+            meta_chain_unnamed = true;
             ++data_chain_count;
+            result.meta_sets.push_back(compile_meta_set(attribs, panel, universe, resolver));
+            pending_set = true;
+            continue;
+        }
+
+        if (tag == "data") {
+            if (starts_with_meta)
+                throw CompileError("<data> cannot restart a pipeline that began with <meta>");
+            ++data_chain_count;
+            // A misspelt delay must not compile to delay 0 (same-bar look-ahead).
             module_attributes::validate_keys(attribs, {"expr", "delay"}, "data", false);
             std::string expr = "close";
             {
@@ -434,6 +499,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
         result.modules.push_back(std::move(mod));
     }
 
+    if (pending_set) finalize_set();
     result.output = current;
     return result;
 }
@@ -443,14 +509,15 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel) {
 // ---------------------------------------------------------------------------
 
 std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel,
-                                       const std::vector<uint8_t>* universe) {
+                                       const std::vector<uint8_t>* universe,
+                                       const MetaResolver* resolver) {
     auto elements = parse_xml(xml);
     auto pipelines = expand_pipelines(elements);
 
     std::vector<CompiledAlpha> result;
     result.reserve(pipelines.size());
     for (auto& pipe : pipelines) {
-        auto compiled = compile_pipeline(pipe, panel);
+        auto compiled = compile_pipeline(pipe, panel, universe, resolver);
         compiled.source_xml = pipeline_to_xml(pipe);
         if (universe)
             for (auto& module : compiled.modules) {

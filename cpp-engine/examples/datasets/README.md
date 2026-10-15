@@ -4,7 +4,7 @@
 
 thin 예제는 `master.parquet`의 `tradingItemId`와 `symbol`에서 UI 라벨을 읽는다(`symbol`이 없으면 `companyName`). 명시적인 `backtest.symbol_labels_path` JSON이 있으면 그 파일이 우선한다. 옛 캐시의 라벨 파일에는 의존하지 않는다.
 
-최상위 `alphas_dir`(선택, 기본 `alphas`)는 웹에서 저장하는 알파 폴더이며 상대경로는 YAML 폴더 기준이다.
+최상위 `alphas_dir`(선택, 기본 `alphas`)는 웹에서 저장하는 알파 폴더이며 상대경로는 YAML 폴더 기준이다. 최상위 `meta_dir`(선택, 기본 `meta`, 엔진이 만들지 않음)는 포트폴리오 조합용 멤버 폴더로, `meta/<이름>/**/*.xml`을 `<meta expr="이름"/>`로 불러온다.
 
 ```bash
 python3 cpp-engine/tools/run_engine.py --config /path/to/my/us_equity.yaml

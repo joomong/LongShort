@@ -48,7 +48,7 @@ CLASS = re.compile(
 NAMESPACE = re.compile(r"\bnamespace\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\s*\{")
 RESERVED_TAGS = frozenset({"data", "signal", "event", "choice", "alpha",
                            "tsmean", "tsrank", "tszscore", "decay", "delay", "rank", "zscore",
-                           "neutralize"})
+                           "neutralize", "meta", "ew"})
 
 
 def error(path: Path, source: str, offset: int, message: str):

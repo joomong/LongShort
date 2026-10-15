@@ -57,6 +57,7 @@ struct BacktestConfig {
     bool base_thin = false; // base.cache/manifest.json declares layout thin-v1
     std::string execution_price = "close"; // "close" | "ohlc4" | "vwap"; stock examples select ohlc4
     std::string alphas_dir; // absolute; top-level `alphas_dir`, default <config dir>/alphas
+    std::string meta_dir;   // absolute; top-level `meta_dir`, default <config dir>/meta
 
     static BacktestConfig from_yaml(const std::string& yaml_path);
 };

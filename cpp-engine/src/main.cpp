@@ -19,6 +19,9 @@
 #include "api/json_serializer.h"
 #include "api/combined_signals.h"
 #include "api/alpha_storage.h"
+#include "api/meta_dir.h"
+#include "api/meta_sets.h"
+#include "modules/MetaSource.h"
 #include "ga/search_space.h"
 #include "ga/ga_engine.h"
 #include <thread>
@@ -33,6 +36,7 @@ static BacktestConfig g_config;
 static Json::Value g_symbol_labels;  // optional {panel symbol: display label}
 static DataPanel g_data;
 static fs::path g_alphas_dir;
+static fs::path g_meta_dir;  // optional; never created by the engine
 static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
 
 static bool supports_exact_fields(std::initializer_list<const char*> names) {
@@ -309,10 +313,58 @@ static SimulatorConfig simulator_config(const RunOptions& options, bool collect)
     return config;
 }
 
+// Members are listed per compile, so a meta folder change is picked up by the next request.
+static const MetaResolver g_meta_resolver = [](const std::string& name) {
+    std::vector<std::pair<std::string, std::string>> pairs;
+    for (auto& member : meta_dir::members(g_meta_dir, name))
+        pairs.emplace_back(std::move(member.path), std::move(member.xml));
+    return pairs;
+};
+
+static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, const RunOptions& options) {
+    return compile_xml(xml, &g_data, options.universe_mask, &g_meta_resolver);
+}
+
+using MetaMatrices = std::vector<std::shared_ptr<const MetaMatrix>>;
+
+// Points every <meta> source of `alpha` at its request-cached EW matrix. Keep the result alive
+// for the duration of the run.
+static MetaMatrices bind_meta_sets(CompiledAlpha& alpha, const RunOptions& options, MetaSetCache& cache,
+                                   const std::function<bool()>& cancelled) {
+    MetaMatrices held;
+    for (auto& set : alpha.meta_sets) {
+        // The listing is part of the key: a folder change mid-request never reuses a stale matrix.
+        std::string key = set.name;
+        for (const auto& path : set.member_paths) key += "\n" + path;
+        auto matrix = cache.get(key, [&] {
+            MetaRunConfig config{simulator_config(options, false), options.threads,
+                                 options.missing_close_policy, options.universe_mask};
+            return materialize_meta_set(g_data, set, config, cancelled, &cache.budget());
+        });
+        set.source->matrix = matrix.get();
+        set.members.clear();  // compiled for this alpha; the cached matrix replaces them
+        held.push_back(std::move(matrix));
+    }
+    return held;
+}
+
+static Json::Value meta_payload(const CompiledAlpha& alpha) {
+    Json::Value sets(Json::arrayValue);
+    for (const auto& set : alpha.meta_sets) {
+        Json::Value entry;
+        entry["name"] = set.name;
+        entry["members"] = static_cast<Json::UInt64>(set.member_paths.size());
+        sets.append(std::move(entry));
+    }
+    return sets;
+}
+
 static SimulatorOutput execute_alpha(
     CompiledAlpha& alpha, const RunOptions& options, bool collect,
-    const SimulatorConfig::SignalRowCallback& callback = {},
-    const SimulatorConfig::AccountingRowCallback& accounting = {}) {
+    const SimulatorConfig::SignalRowCallback& callback,
+    const SimulatorConfig::AccountingRowCallback& accounting,
+    MetaSetCache& cache, const std::function<bool()>& cancelled) {
+    const auto meta_matrices = bind_meta_sets(alpha, options, cache, cancelled);
     auto config = simulator_config(options, collect);
     config.signal_row_callback = callback;
     config.accounting_row_callback = accounting;
@@ -430,8 +482,11 @@ static void append_signal_payload(
 // Shared by /api/simulate and saved alpha results so both produce the same body.
 // `accounting` observes a single-alpha run only (saved positions); it does not change the body.
 static Json::Value simulate_response(const Json::Value& body, const std::function<bool()>& cancelled,
-                                     const SimulatorConfig::AccountingRowCallback& accounting = {}) {
+                                     const SimulatorConfig::AccountingRowCallback& accounting = {},
+                                     MetaSetCache* shared_cache = nullptr) {
     const RunOptions options = parse_run_options(body);
+    MetaSetCache request_cache(options.threads);  // one per request unless the caller shares one (save rows)
+    MetaSetCache& cache = shared_cache ? *shared_cache : request_cache;
     const bool combined_only = body.get("combinedOnly", false).asBool();
     std::vector<CompiledAlpha> alphas;
     if (body.isMember("xmls")) {
@@ -441,7 +496,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         for (const auto& value : xmls) {
             if (!value.isString() || value.asString().empty())
                 throw std::invalid_argument("Every xmls entry must be a nonempty XML string");
-            auto compiled = compile_xml(value.asString(), &g_data, options.universe_mask);
+            auto compiled = compile_request_xml(value.asString(), options);
             if (compiled.size() != 1)
                 throw std::invalid_argument("Every xmls entry must compile to exactly one alpha");
             alphas.push_back(std::move(compiled[0]));
@@ -449,7 +504,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     } else {
         const std::string xml = body["xml"].asString();
         if (xml.empty()) throw std::invalid_argument("Missing 'xml' field");
-        alphas = compile_xml(xml, &g_data, options.universe_mask);
+        alphas = compile_request_xml(xml, options);
     }
     if (alphas.empty()) throw std::invalid_argument("No alpha compiled from XML");
     const bool single = alphas.size() == 1;
@@ -461,6 +516,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         std::string xml;
         FullMetricsResult metrics;
         Json::Value diagnostics;
+        Json::Value meta;  // [{name, members}] for alphas with <meta> sets, else null
     };
     std::vector<BatchResult> batches(alphas.size());
     SimulatorOutput single_output;
@@ -469,9 +525,11 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         if (cancelled()) throw EvaluationCancelled();
     };
     if (single && !combined_only) {
-        single_output = execute_alpha(alphas[0], options, !options.metrics_only, stop_on_cancel, accounting);
+        single_output = execute_alpha(alphas[0], options, !options.metrics_only, stop_on_cancel, accounting,
+                                      cache, cancelled);
         batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options),
-                      diagnostics_payload(single_output, options)};
+                      diagnostics_payload(single_output, options), {}};
+        if (!alphas[0].meta_sets.empty()) batches[0].meta = meta_payload(alphas[0]);
     } else {
         OrderedSignalAccumulator accumulator(
             g_data, options.missing_close_policy,
@@ -502,12 +560,15 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                         signal_block.insert(signal_block.end(), row, row + n);
                         if (signal_block.size() == static_cast<size_t>(32) * n) flush();
                     };
+                    const auto stop = [&] { return failed.load() || cancelled(); };
                     if (combined_only) {
+                        const auto meta_matrices = bind_meta_sets(alphas[i], options, cache, stop);
                         Simulator(g_data, simulator_config(options, false)).run_signal_rows(alphas[i].pipeline, observe);
                     } else {
-                        auto output = execute_alpha(alphas[i], options, false, observe);
+                        auto output = execute_alpha(alphas[i], options, false, observe, {}, cache, stop);
                         batches[i] = {i, alphas[i].source_xml, full_metrics(output, options),
-                                      diagnostics_payload(output, options)};
+                                      diagnostics_payload(output, options), {}};
+                        if (!alphas[i].meta_sets.empty()) batches[i].meta = meta_payload(alphas[i]);
                     }
                     flush();
                     // Completed module state is no longer needed; selected plots
@@ -559,9 +620,10 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
             entry[key] = batch.diagnostics[key];
         entry["index"] = static_cast<Json::UInt64>(batch.index);
         entry["xml"] = batch.xml;
+        if (!batch.meta.isNull()) entry["meta"] = batch.meta;
         if (!single && options.collect_signals && !options.metrics_only && i < options.signal_top_k) {
-            auto selected = compile_xml(batch.xml, &g_data, options.universe_mask);
-            auto output = execute_alpha(selected.at(0), options, true, stop_on_cancel);
+            auto selected = compile_request_xml(batch.xml, options);
+            auto output = execute_alpha(selected.at(0), options, true, stop_on_cancel, {}, cache, cancelled);
             append_signal_payload(entry, output.signals, output.timestamps, options);
         }
         batch_array.append(std::move(entry));
@@ -737,7 +799,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
             if (!item["xml"].isString() || item["xml"].asString().empty())
                 throw invalid("Every row needs a nonempty xml string");
             try {
-                if (compile_xml(item["xml"].asString(), &g_data, options.universe_mask).size() != 1)
+                if (compile_request_xml(item["xml"].asString(), options).size() != 1)
                     throw std::invalid_argument("must compile to exactly one alpha");
             } catch (const std::exception& error) {
                 throw invalid("Row " + std::to_string(item["id"].asUInt64()) + " xml: " + error.what());
@@ -754,6 +816,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
     if (!rows.empty()) {
         const auto cancelled = [] { return g_alpha_workers.stopping(); };
         const bool positions = metadata.level == "positions";
+        MetaSetCache meta_cache(options.threads);  // shared by every row replay and the batch replay of this save
         std::vector<Json::Value> entries(rows.size());
         // The request's threads (1..32, default 20) bound the row replays and the batch replay below.
         const unsigned thread_count = std::min<unsigned>(options.threads, static_cast<unsigned>(rows.size()));
@@ -785,7 +848,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
                         };
                     }
                     const Json::Value response = simulate_response(
-                        request, [&] { return failed.load() || cancelled(); }, accounting);
+                        request, [&] { return failed.load() || cancelled(); }, accounting, &meta_cache);
                     save.write(fs::path("results") / "rows" / (id + ".json"), json_text(response));
                     if (writer) writer->write(save.prepare(fs::path("positions") / (id + ".parquet")));
                     Json::Value entry;
@@ -832,7 +895,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
         }
         index["hasBatch"] = rows.size() >= 2;
         if (rows.size() >= 2)
-            save.write(fs::path("results") / "batch.json", json_text(simulate_response(batch_request, cancelled)));
+            save.write(fs::path("results") / "batch.json", json_text(simulate_response(batch_request, cancelled, {}, &meta_cache)));
         save.write(fs::path("results") / "index.json", json_text(index));
     }
     if (!save.commit())
@@ -890,6 +953,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     g_alphas_dir = g_config.alphas_dir;
+    g_meta_dir = g_config.meta_dir;
     try {
         alpha_storage::prepare_directory(g_alphas_dir);
     } catch (const std::exception& error) {
@@ -979,6 +1043,9 @@ int main(int argc, char* argv[])
             json["missingClosePolicy"] = missing_close_policy_name(g_missing_close_policy);
             json["thinLayout"] = g_data.thin_layout;
             json["alphasDir"] = g_alphas_dir.string();
+            json["metaDir"] = g_meta_dir.string();
+            json["metaNames"] = Json::Value(Json::arrayValue);
+            for (const auto& name : meta_dir::names(g_meta_dir)) json["metaNames"].append(name);
             Json::Value universes(Json::arrayValue);
             for (const auto& name : g_data.universe_names) universes.append(name);
             json["universes"] = universes;  // empty: a single configured universe
@@ -1090,12 +1157,17 @@ int main(int argc, char* argv[])
                                         event["type"] = "search_start";
                                         write(event);
                                     }
+                                    // One set cache for the whole search: the first candidate needing a set
+                                    // materializes it with options.threads member workers, the others wait.
+                                    MetaSetCache meta_cache(options.threads);
+                                    const auto disconnected = [&] { return g_ga_workers.stopping() || !req->connected(); };
                                     auto evaluate = [&](const std::string& candidate_xml) {
                                         require_connection();
-                                        auto alphas = compile_xml(candidate_xml, &g_data, options.universe_mask);
+                                        auto alphas = compile_request_xml(candidate_xml, options);
                                         if (alphas.size() != 1) throw std::runtime_error("GA candidate must compile to exactly one alpha");
                                         auto output = execute_alpha(alphas[0], options, false,
-                                            [&](unsigned, const float*, unsigned) { require_connection(); });
+                                            [&](unsigned, const float*, unsigned) { require_connection(); }, {},
+                                            meta_cache, disconnected);
                                         const auto metrics = full_metrics(output, options);
                                         if (stream_candidates) {
                                             Json::Value payload;
@@ -1103,6 +1175,7 @@ int main(int argc, char* argv[])
                                             payload["summary"]["os"] = summary_to_json(metrics.os_summary);
                                             payload["yearly"] = yearly_to_json(metrics.yearly);
                                             payload["missingData"] = missing_data_payload(output);
+                                            if (!alphas[0].meta_sets.empty()) payload["meta"] = meta_payload(alphas[0]);
                                             std::lock_guard<std::mutex> lock(payload_mutex);
                                             payloads.emplace(candidate_xml, std::move(payload));
                                         }
@@ -1162,16 +1235,18 @@ int main(int argc, char* argv[])
                                         return;
                                     }
                                     require_connection();
-                                    auto alphas = compile_xml(best.best_xml, &g_data, options.universe_mask);
+                                    auto alphas = compile_request_xml(best.best_xml, options);
                                     if (alphas.empty()) throw std::runtime_error("Best GA alpha did not compile");
                                     auto output = execute_alpha(alphas[0], options, true,
-                                        [&](unsigned, const float*, unsigned) { require_connection(); });
+                                        [&](unsigned, const float*, unsigned) { require_connection(); }, {},
+                                        meta_cache, disconnected);
                                     Json::Value batch = metrics_payload(full_metrics(output, options));
                                     const Json::Value diagnostics = diagnostics_payload(output, options);
                                     for (const auto& key : diagnostics.getMemberNames())
                                         batch[key] = diagnostics[key];
                                     batch["index"] = 0;
                                     batch["xml"] = best.best_xml;
+                                    if (!alphas[0].meta_sets.empty()) batch["meta"] = meta_payload(alphas[0]);
                                     append_signal_payload(batch, output.signals, output.timestamps, options);
                                     Json::Value complete;
                                     complete["type"] = "complete";

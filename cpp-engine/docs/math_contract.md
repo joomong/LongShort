@@ -171,6 +171,27 @@ This document is the single source of truth for C++ engine test math.
   - `tests/test_pipeline_contract.cpp`
 
 
+## Meta portfolios
+
+`<meta expr="NAME"/>` begins a chain from the member alphas in `meta_dir/NAME/**/*.xml`
+(sorted by relative path). Its value is an alpha SET, not a signal. `<ew/>` turns a SET into
+a signal: every member's raw row is normalized to gross 1 with the request's universe mask
+and missing-close policy, the K rows are summed in member order, and the simulator
+normalizes the sum again at execution. This is the same computation as the combined
+batch of those members, so `<meta expr="x"/>` alone equals `/api/simulate` with
+`xmls=[members]` and `combinedOnly`. Any op that needs a signal (pipeline end, `<signal id>`,
+an ordinary module) while the value is a SET applies `<ew/>` implicitly. `<meta>` takes no
+`delay`: members keep their own `<data delay>` and the engine adds no shift. Members are
+re-run under the meta request's settings, must compile to exactly one alpha, may not contain
+`<meta>`, and one failing member fails the request with the member path in the message.
+`<data>` may not restart a pipeline that began with `<meta>`, and a chain that began with
+`<meta>` must be named with `<signal id>` before another chain starts (an unnamed set would
+run its members for nothing). Sets are materialized once per
+request (also across GA candidates); only the combined T×N matrix is kept, and the member
+workers of all materializations in one request share the request's `threads` budget (a set takes
+its workers once when it starts, so a set that starts while another holds most tokens keeps the
+smaller count until it finishes).
+
 ## GA search and streamed results
 
 The objective remains gross IS Sharpe. The initial search evaluates up to `firstSearch`

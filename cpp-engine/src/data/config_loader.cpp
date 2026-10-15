@@ -157,7 +157,7 @@ int64_t config_date_ms(const std::string& value) {
 BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const YAML::Node root = YAML::LoadFile(yaml_path);
     BacktestConfig cfg;
-    require_known_keys(root, "", {"base", "datasets", "universe", "backtest", "alphas_dir"});
+    require_known_keys(root, "", {"base", "datasets", "universe", "backtest", "alphas_dir", "meta_dir"});
     cfg.config_dir = std::filesystem::absolute(yaml_path).parent_path().lexically_normal().string();
     const auto base = root["base"];
     const auto datasets = root["datasets"];
@@ -288,13 +288,16 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
         cfg.symbol_labels_path = labels.lexically_normal().string();
     }
-    std::filesystem::path alphas = root["alphas_dir"] && !root["alphas_dir"].IsNull()
-        ? root["alphas_dir"].as<std::string>() : "alphas";
-    if (alphas.empty()) throw std::runtime_error("alphas_dir must not be empty");
-    if (alphas.is_relative()) alphas = std::filesystem::path(cfg.config_dir) / alphas;
-    alphas = alphas.lexically_normal();
-    if (!alphas.has_filename() && alphas.has_relative_path()) alphas = alphas.parent_path();
-    cfg.alphas_dir = alphas.string();
+    auto directory_option = [&](const char* key, const char* fallback) {
+        std::filesystem::path dir = root[key] && !root[key].IsNull() ? root[key].as<std::string>() : fallback;
+        if (dir.empty()) throw std::runtime_error(std::string(key) + " must not be empty");
+        if (dir.is_relative()) dir = std::filesystem::path(cfg.config_dir) / dir;
+        dir = dir.lexically_normal();
+        if (!dir.has_filename() && dir.has_relative_path()) dir = dir.parent_path();
+        return dir.string();
+    };
+    cfg.alphas_dir = directory_option("alphas_dir", "alphas");
+    cfg.meta_dir = directory_option("meta_dir", "meta");
     // Missing-close policy applies to ordinary and thin panels.
     cfg.missing_close_policy = bt["missing_close_policy"] && !bt["missing_close_policy"].IsNull()
         ? bt["missing_close_policy"].as<std::string>() : cfg.missing_close_policy;

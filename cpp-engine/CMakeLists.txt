@@ -115,6 +115,8 @@ add_library(engine STATIC
     # Phase 8: API
     src/api/json_serializer.cpp
     src/api/alpha_storage.cpp
+    src/api/meta_dir.cpp
+    src/api/meta_sets.cpp
 )
 
 include(cmake/DiscoverModules.cmake)
@@ -209,6 +211,8 @@ add_engine_test(test_golden_crossval  tests/test_golden_crossval.cpp)
 add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
 add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
+add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
+add_engine_test(test_meta_sets        tests/test_meta_sets.cpp)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
 add_engine_test(test_execution_price  tests/test_execution_price.cpp)

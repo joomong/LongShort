@@ -465,6 +465,17 @@ TEST_F(HttpContractTest, ExecutionPriceIsValidatedAndScopedToEachRequest) {
     EXPECT_EQ(cfg["executionPrices"][2].asString(), "vwap");
 }
 
+TEST_F(HttpContractTest, ConfigListsMetaDirAndSortedMetaNames) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value cfg;
+    ASSERT_TRUE(parse_json(http_get(server_->port(), "/api/config").body, &cfg));
+    EXPECT_EQ(fs::weakly_canonical(cfg["metaDir"].asString()),
+              fs::weakly_canonical(find_config_path().parent_path() / "meta"));
+    std::vector<std::string> names;
+    for (const auto& name : cfg["metaNames"]) names.push_back(name.asString());
+    EXPECT_EQ(names, (std::vector<std::string>{"broken", "empty", "heavy", "nested", "sample"}));
+}
+
 TEST_F(HttpContractTest, SimEndIsInclusiveAndCapsAllOutputsWithoutChangingSharedData) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value req;
@@ -1778,5 +1789,257 @@ TEST_F(HttpContractTest, SimulateStopsWhenClientDisconnects) {
     std::this_thread::sleep_for(std::chrono::duration<double>(wall + 0.5));
     const double cpu_abort = process_cpu_seconds(pid) - abort_before;
     std::cout << "[disconnect] wall=" << wall << " cpu_full=" << cpu_full << " cpu_abort=" << cpu_abort << "\n";
+    EXPECT_LT(cpu_abort, 0.6 * cpu_full) << "wall=" << wall << " cpu_full=" << cpu_full;
+}
+
+// <meta expr>: fixture sets under <fixture>/meta (sample, broken, empty, nested).
+namespace {
+Json::Value meta_request(const std::string& xml)
+{
+    Json::Value request;
+    request["xml"] = xml;
+    request["isStart"] = "2000-01-01";
+    request["osStart"] = "2100-01-01";
+    request["signalPlotMaxCells"] = 1000;
+    return request;
+}
+
+Json::Value sample_meta_list()
+{
+    Json::Value list(Json::arrayValue);
+    Json::Value entry;
+    entry["name"] = "sample";
+    entry["members"] = 3;
+    list.append(entry);
+    return list;
+}
+
+const std::vector<std::string> kSampleMembers = {
+    "<data expr=\"close\" delay=\"1\"/><rank/>\n",
+    "<data expr=\"close\" delay=\"1\"/><tsmean days=\"5\"/><zscore/>\n",
+    "<data expr=\"close\" delay=\"1\"/><tsrank days=\"10\"/>\n"};
+}  // namespace
+
+TEST_F(HttpContractTest, MetaEqualsCombinedBatch) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto started = std::chrono::steady_clock::now();
+    const auto meta = simulate(meta_request("<meta expr=\"sample\"/>"));
+    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    std::cout << "[ meta run ] <meta expr=\"sample\"/> full body: " << elapsed << " s\n";
+    ASSERT_EQ(meta.status, 200) << meta.body;
+    Json::Value combined_request = meta_request("");
+    combined_request.removeMember("xml");
+    combined_request["xmls"] = Json::Value(Json::arrayValue);
+    for (const auto& xml : kSampleMembers) combined_request["xmls"].append(xml);
+    combined_request["combinedOnly"] = true;
+    combined_request["metricsOnly"] = true;
+    const auto combined = simulate(combined_request);
+    ASSERT_EQ(combined.status, 200) << combined.body;
+    Json::Value meta_body, combined_body;
+    ASSERT_TRUE(parse_json(meta.body, &meta_body));
+    ASSERT_TRUE(parse_json(combined.body, &combined_body));
+    const auto& batch = meta_body["batches"][0];
+    const auto& expected = combined_body["combined"];
+    EXPECT_EQ(batch["meta"], sample_meta_list());
+    for (const char* key : {"summary", "yearly", "timeseries", "missingData", "isStartIndex", "osStartIndex"})
+        EXPECT_EQ(batch[key], expected[key]) << key;
+    EXPECT_EQ(meta_body["timeseries"], combined_body["timeseries"]);
+    EXPECT_TRUE(meta_body.isMember("signalPlot"));
+}
+
+TEST_F(HttpContractTest, MetaWithPostModule) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto plain = simulate(meta_request("<meta expr=\"sample\"/>"));
+    const auto neutral = simulate(meta_request("<meta expr=\"sample\"/><neutralize group=\"sector\"/>"));
+    ASSERT_EQ(plain.status, 200) << plain.body;
+    ASSERT_EQ(neutral.status, 200) << neutral.body;
+    Json::Value a, b;
+    ASSERT_TRUE(parse_json(plain.body, &a));
+    ASSERT_TRUE(parse_json(neutral.body, &b));
+    EXPECT_EQ(b["batches"][0]["meta"], sample_meta_list());
+    EXPECT_NE(a["batches"][0]["summary"], b["batches"][0]["summary"]);
+    // An ordinary alpha carries no meta key.
+    const auto ordinary = simulate(meta_request("<data expr=\"close\" delay=\"1\"/><rank/>"));
+    Json::Value c;
+    ASSERT_TRUE(parse_json(ordinary.body, &c));
+    EXPECT_FALSE(c["batches"][0].isMember("meta"));
+}
+
+TEST_F(HttpContractTest, MetaExplicitEwEqualsImplicit) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto implicit = simulate(meta_request("<meta expr=\"sample\"/>"));
+    const auto explicit_ew = simulate(meta_request("<meta expr=\"sample\"/><ew/>"));
+    ASSERT_EQ(implicit.status, 200) << implicit.body;
+    ASSERT_EQ(explicit_ew.status, 200) << explicit_ew.body;
+    Json::Value a, b;
+    ASSERT_TRUE(parse_json(implicit.body, &a));
+    ASSERT_TRUE(parse_json(explicit_ew.body, &b));
+    a["batches"][0].removeMember("xml");
+    b["batches"][0].removeMember("xml");
+    EXPECT_EQ(a, b);
+}
+
+TEST_F(HttpContractTest, MetaExprPipeGivesTwoBatches) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto broken = simulate(meta_request("<meta expr=\"sample|broken\"/>"));
+    EXPECT_EQ(broken.status, 400) << broken.body;
+    EXPECT_NE(broken.body.find("bad.xml"), std::string::npos) << broken.body;
+    // simulate does not dedupe expanded alphas: two identical batches.
+    const auto twice = simulate(meta_request("<meta expr=\"sample|sample\"/>"));
+    ASSERT_EQ(twice.status, 200) << twice.body;
+    Json::Value body;
+    ASSERT_TRUE(parse_json(twice.body, &body));
+    ASSERT_EQ(body["batches"].size(), 2u);
+    EXPECT_EQ(body["batches"][0]["summary"], body["batches"][1]["summary"]);
+    EXPECT_EQ(body["batches"][0]["meta"], sample_meta_list());
+    EXPECT_EQ(body["batches"][1]["meta"], sample_meta_list());
+    const auto single = simulate(meta_request("<meta expr=\"sample\"/>"));
+    Json::Value single_body;
+    ASSERT_TRUE(parse_json(single.body, &single_body));
+    EXPECT_EQ(body["batches"][0]["summary"], single_body["batches"][0]["summary"]);
+}
+
+TEST_F(HttpContractTest, MetaRequestErrorsReturn400) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::vector<std::pair<std::string, std::vector<std::string>>> cases = {
+        {"<meta expr=\"nope\"/>", {"Unknown meta 'nope'"}},
+        {"<meta expr=\"empty\"/>", {"meta 'empty' has no .xml files"}},
+        {"<meta expr=\"nested\"/>", {"nested <meta> is not allowed", "x.xml"}},
+        {"<meta expr=\"broken\"/>", {"meta 'broken' member bad.xml", "dayz"}},
+    };
+    for (const auto& [xml, needles] : cases) {
+        const auto response = simulate(meta_request(xml));
+        EXPECT_EQ(response.status, 400) << xml << ": " << response.body;
+        for (const auto& needle : needles)
+            EXPECT_NE(response.body.find(needle), std::string::npos) << xml << ": " << response.body;
+    }
+}
+
+TEST_F(HttpContractTest, MetaInGAStream) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request = meta_request("<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>");
+    request["firstSearch"] = 2; request["stopRound"] = 1; request["streamCandidates"] = true;
+    request["threads"] = 4;
+    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    std::istringstream stream(response.body);
+    std::string line;
+    std::vector<Json::Value> candidates;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+        Json::Value event;
+        ASSERT_TRUE(parse_json(line, &event)) << line;
+        ASSERT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "candidate") candidates.push_back(event["candidate"]);
+    }
+    ASSERT_EQ(candidates.size(), 2u);
+    for (const auto& candidate : candidates) {
+        EXPECT_EQ(candidate["status"].asString(), "completed") << compact_json(candidate);
+        EXPECT_EQ(candidate["meta"], sample_meta_list());
+        Json::Value live_request = meta_request(candidate["xml"].asString());
+        live_request["metricsOnly"] = true;
+        const auto live = simulate(live_request);
+        ASSERT_EQ(live.status, 200) << live.body;
+        Json::Value body;
+        ASSERT_TRUE(parse_json(live.body, &body));
+        EXPECT_EQ(candidate["summary"], body["batches"][0]["summary"]) << candidate["xml"].asString();
+    }
+}
+
+TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::string name = unique_alpha_name("meta");
+    remove(name);
+    const Json::Value metadata = alpha_metadata();
+    const std::vector<std::string> xmls = {
+        "<meta expr=\"sample\"/>\n<neutralize group=\"sector\"/>",
+        "<meta expr=\"sample\"/>\n<neutralize group=\"industry\"/>"};
+    Json::Value request;
+    request["name"] = name;
+    request["xml"] = "<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>";
+    request["level"] = "results";
+    request["metadata"] = metadata;
+    request["rows"] = Json::Value(Json::arrayValue);
+    for (std::size_t i = 0; i < xmls.size(); ++i) {
+        Json::Value row;
+        row["id"] = static_cast<Json::UInt64>(i);
+        row["xml"] = xmls[i];
+        request["rows"].append(row);
+    }
+    const auto saved = save(request);
+    ASSERT_EQ(saved.status, 200) << saved.body;
+    const auto index_response = http_get(server_->port(), "/api/alphas/" + name + "/results");
+    ASSERT_EQ(index_response.status, 200) << index_response.body;
+    Json::Value index;
+    ASSERT_TRUE(parse_json(index_response.body, &index));
+    ASSERT_EQ(index["rows"].size(), 2u);
+    for (std::size_t i = 0; i < xmls.size(); ++i) {
+        Json::Value live_request;
+        live_request["xml"] = xmls[i];
+        live_request["metricsOnly"] = true;
+        const auto live = simulate(with_metadata(live_request, metadata));
+        ASSERT_EQ(live.status, 200) << live.body;
+        Json::Value expected, stored;
+        ASSERT_TRUE(parse_json(live.body, &expected));
+        EXPECT_EQ(expected["batches"][0]["meta"], sample_meta_list());
+        EXPECT_EQ(index["rows"][static_cast<Json::ArrayIndex>(i)]["summary"], expected["batches"][0]["summary"]);
+        const auto file = http_get(server_->port(), "/api/alphas/" + name + "/results/rows/" + std::to_string(i));
+        ASSERT_TRUE(parse_json(file.body, &stored));
+        EXPECT_EQ(stored, expected);
+    }
+    EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
+}
+
+TEST_F(HttpContractTest, MetaInGAStreamNonStreamingBest) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request = meta_request("<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>");
+    request["firstSearch"] = 2; request["stopRound"] = 1; request["threads"] = 4;
+    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
+    ASSERT_EQ(response.status, 200) << response.body;
+    std::istringstream stream(response.body);
+    std::string line;
+    Json::Value complete;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+        Json::Value event;
+        ASSERT_TRUE(parse_json(line, &event)) << line;
+        ASSERT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "complete") complete = event;
+    }
+    ASSERT_EQ(complete["batches"].size(), 1u) << response.body.substr(0, 300);
+    const auto& batch = complete["batches"][0];
+    EXPECT_EQ(batch["meta"], sample_meta_list());
+    Json::Value live_request = meta_request(complete["bestXml"].asString());
+    live_request["metricsOnly"] = true;
+    const auto live = simulate(live_request);
+    ASSERT_EQ(live.status, 200) << live.body;
+    Json::Value body;
+    ASSERT_TRUE(parse_json(live.body, &body));
+    EXPECT_EQ(batch["summary"], body["batches"][0]["summary"]);
+}
+
+TEST_F(HttpContractTest, MetaDisconnectStopsMembers) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request = meta_request("<meta expr=\"heavy\"/>");
+    request["metricsOnly"] = true;
+    // One member worker: the CPU spent before the disconnect is then ~0.3 s regardless of CPU speed,
+    // which keeps the 0.6 x cpu_full margin wide.
+    request["threads"] = 1;
+    const pid_t pid = server_->pid();
+    const double cpu_before = process_cpu_seconds(pid);
+    const auto wall_start = std::chrono::steady_clock::now();
+    const auto full = simulate(request);
+    const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_start).count();
+    const double cpu_full = process_cpu_seconds(pid) - cpu_before;
+    ASSERT_EQ(full.status, 200) << full.body.substr(0, 300);
+    std::cout << "[meta disconnect] wall=" << wall << " cpu_full=" << cpu_full << "\n";
+    if (cpu_full < 1.5) GTEST_SKIP() << "meta run used only " << cpu_full << " s CPU on this fixture";
+
+    const double abort_before = process_cpu_seconds(pid);
+    const auto aborted = http_post_json(server_->port(), "/api/simulate", request, 0.3);
+    EXPECT_EQ(aborted.status, 0);
+    std::this_thread::sleep_for(std::chrono::duration<double>(wall + 0.5));
+    const double cpu_abort = process_cpu_seconds(pid) - abort_before;
+    std::cout << "[meta disconnect] cpu_abort=" << cpu_abort << "\n";
     EXPECT_LT(cpu_abort, 0.6 * cpu_full) << "wall=" << wall << " cpu_full=" << cpu_full;
 }

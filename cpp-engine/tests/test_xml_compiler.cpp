@@ -2,6 +2,8 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <map>
+#include <stdexcept>
 #include "module.h"
 #include "compiler/xml_parser.h"
 #include "compiler/expansion.h"
@@ -11,6 +13,7 @@
 #include "modules/Delay.h"
 #include "modules/Rank.h"
 #include "modules/TsZscore.h"
+#include "modules/MetaSource.h"
 #include "signal_vector.h"
 
 // ---------------------------------------------------------------------------
@@ -762,4 +765,216 @@ TEST(XmlCompiler, InputRejectedOnStructuralTags) {
         {"Unknown attribute 'input' for <choice>"});
     // Registry modules still resolve input=.
     EXPECT_EQ(compile_xml(R"(<data expr="close"/><signal id="t"/><rank/><zscore input="t"/>)", &dp).size(), 1u);
+}
+
+// ---------------------------------------------------------------------------
+// <meta expr>/<ew/>: alpha sets compiled through a resolver
+// ---------------------------------------------------------------------------
+using MetaMap = std::map<std::string, std::vector<std::pair<std::string, std::string>>>;
+
+static MetaResolver make_resolver(const MetaMap& map) {
+    return [map](const std::string& name) {
+        auto it = map.find(name);
+        if (it == map.end())
+            throw std::runtime_error("Unknown meta '" + name + "': no folder META_DIR/" + name);
+        return it->second;
+    };
+}
+
+static MetaMap default_metas() {
+    return {
+        {"s", {{"a.xml", R"(<data expr="close" delay="1"/><rank/>)"},
+               {"b.xml", R"(<data expr="open"/><tsmean days="5"/>)"},
+               {"sub/c.xml", R"(<data expr="volume"/><zscore/>)"}}},
+        {"t", {{"x.xml", R"(<data expr="close"/>)"}}},
+    };
+}
+
+static void expect_meta_error(const std::string& xml, const MetaMap& metas,
+                              const std::string& expected, bool exact = true) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(metas);
+    try {
+        (void)compile_xml(xml, &dp, nullptr, &resolver);
+        FAIL() << "Expected CompileError for " << xml;
+    } catch (const CompileError& e) {
+        if (exact) EXPECT_EQ(std::string(e.what()), expected);
+        else EXPECT_NE(std::string(e.what()).find(expected), std::string::npos) << e.what();
+    }
+}
+
+static void expect_single_source_shape(const std::string& xml) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(xml, &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 1u);
+    const auto& a = alphas[0];
+    ASSERT_EQ(a.pipeline.size(), 1u);
+    auto* src = dynamic_cast<MMetaSource*>(a.pipeline[0]);
+    ASSERT_NE(src, nullptr);
+    EXPECT_EQ(a.output, a.pipeline[0]);
+    ASSERT_EQ(a.meta_sets.size(), 1u);
+    const auto& set = a.meta_sets[0];
+    EXPECT_EQ(set.name, "s");
+    ASSERT_EQ(set.members.size(), 3u);
+    EXPECT_EQ(set.member_paths, (std::vector<std::string>{"a.xml", "b.xml", "sub/c.xml"}));
+    EXPECT_EQ(set.source, src);
+    for (const auto& m : set.members) EXPECT_TRUE(m.meta_sets.empty());
+}
+
+TEST(XmlCompiler, MetaCompilesToSourceModule) {
+    expect_single_source_shape(R"(<meta expr="s"/>)");
+}
+
+TEST(XmlCompiler, ExplicitEwIsTheSameShape) {
+    expect_single_source_shape(R"(<meta expr="s"/><ew/>)");
+}
+
+TEST(XmlCompiler, ImplicitEwBeforeSignalModule) {
+    auto dp = make_panel();
+    dp.arrays["sector"].assign(dp.T * dp.N, 1.0f);
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(R"(<meta expr="s"/><neutralize group="sector"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 1u);
+    const auto& a = alphas[0];
+    ASSERT_EQ(a.pipeline.size(), 2u);
+    EXPECT_NE(dynamic_cast<MMetaSource*>(a.pipeline[0]), nullptr);
+    EXPECT_NE(dynamic_cast<MNeutralize*>(a.pipeline[1]), nullptr);
+    ASSERT_EQ(a.meta_sets.size(), 1u);
+    EXPECT_EQ(a.meta_sets[0].source, a.pipeline[0]);
+}
+
+TEST(XmlCompiler, SignalIdAfterMeta) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(R"(<meta expr="s"/><signal id="x"/><meta expr="t"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 1u);
+    const auto& a = alphas[0];
+    ASSERT_EQ(a.meta_sets.size(), 2u);
+    EXPECT_EQ(a.meta_sets[0].name, "s");
+    EXPECT_EQ(a.meta_sets[1].name, "t");
+    int sources = 0;
+    for (auto* m : a.pipeline) sources += dynamic_cast<MMetaSource*>(m) != nullptr;
+    EXPECT_EQ(sources, 2);
+    EXPECT_EQ(a.meta_sets[0].source, a.pipeline[0]);
+    EXPECT_EQ(a.meta_sets[1].source, a.pipeline.back());
+    EXPECT_EQ(a.output, a.pipeline.back());
+
+    EXPECT_EQ(compile_xml(R"(<meta expr="s"/><signal id="x"/><rank input="x"/>)", &dp, nullptr, &resolver).size(), 1u);
+    // A pipeline that starts with <data> may restart with <meta>.
+    auto mixed = compile_xml(R"(<data expr="close"/><signal id="d"/><meta expr="t"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(mixed.size(), 1u);
+    ASSERT_EQ(mixed[0].meta_sets.size(), 1u);
+    EXPECT_EQ(mixed[0].meta_sets[0].source, mixed[0].output);
+}
+
+TEST(XmlCompiler, MetaExprPipeExpands) {
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    auto alphas = compile_xml(R"(<meta expr="s|t"/>)", &dp, nullptr, &resolver);
+    ASSERT_EQ(alphas.size(), 2u);
+    ASSERT_EQ(alphas[0].meta_sets.size(), 1u);
+    ASSERT_EQ(alphas[1].meta_sets.size(), 1u);
+    EXPECT_EQ(alphas[0].meta_sets[0].name, "s");
+    EXPECT_EQ(alphas[1].meta_sets[0].name, "t");
+    EXPECT_EQ(alphas[0].meta_sets[0].members.size(), 3u);
+    EXPECT_EQ(alphas[1].meta_sets[0].members.size(), 1u);
+}
+
+TEST(XmlCompiler, EwWithoutMeta) {
+    expect_meta_error(R"(<data expr="close"/><ew/>)", default_metas(),
+                      "<ew> requires an alpha set from <meta>");
+}
+
+TEST(XmlCompiler, MetaUnknownAttribute) {
+    expect_meta_error(R"(<meta expr="s" delay="1"/>)", default_metas(),
+                      "Unknown attribute 'delay' for <meta>", false);
+}
+
+TEST(XmlCompiler, MetaMissingExpr) {
+    expect_meta_error(R"(<meta/>)", default_metas(), "<meta> requires attribute 'expr'");
+}
+
+TEST(XmlCompiler, MetaWithoutResolver) {
+    auto dp = make_panel();
+    try {
+        (void)compile_xml(R"(<meta expr="s"/>)", &dp);
+        FAIL() << "Expected CompileError";
+    } catch (const CompileError& e) {
+        EXPECT_EQ(std::string(e.what()), "meta_dir is not configured");
+    }
+}
+
+TEST(XmlCompiler, UnknownMetaName) {
+    expect_meta_error(R"(<meta expr="nope"/>)", default_metas(),
+                      "Unknown meta 'nope': no folder META_DIR/nope");
+}
+
+TEST(XmlCompiler, MemberMultiAlpha) {
+    MetaMap metas{{"s", {{"a.xml", R"(<data expr="close"/>)"},
+                         {"m.xml", R"(<data expr="close"/><tsmean days="5|10"/>)"}}}};
+    expect_meta_error(R"(<meta expr="s"/>)", metas,
+                      "meta 's' member m.xml must compile to exactly one alpha (got 2)");
+}
+
+TEST(XmlCompiler, MemberCompileErrorNamesFile) {
+    MetaMap metas{{"s", {{"a.xml", R"(<data expr="close"/>)"},
+                         {"b.xml", R"(<data expr="close"/><tsmean dayz="5"/>)"}}}};
+    expect_meta_error(R"(<meta expr="s"/>)", metas, "meta 's' member b.xml: ", false);
+    expect_meta_error(R"(<meta expr="s"/>)", metas, "Unknown attribute 'dayz'", false);
+}
+
+TEST(XmlCompiler, NestedMeta) {
+    MetaMap metas{{"s", {{"a.xml", R"(<meta expr="t"/>)"}}},
+                  {"t", {{"x.xml", R"(<data expr="close"/>)"}}}};
+    expect_meta_error(R"(<meta expr="s"/>)", metas,
+                      "meta 's' member a.xml: nested <meta> is not allowed");
+}
+
+TEST(XmlCompiler, DataAfterMeta) {
+    expect_meta_error(R"(<meta expr="s"/><signal id="x"/><data expr="close"/>)", default_metas(),
+                      "<data> cannot restart a pipeline that began with <meta>");
+}
+
+TEST(XmlCompiler, EwWithAttribute) {
+    expect_meta_error(R"(<meta expr="s"/><ew days="2"/>)", default_metas(),
+                      "Unknown attribute 'days' for <ew>", false);
+}
+
+TEST(XmlCompiler, EwTwice) {
+    expect_meta_error(R"(<meta expr="s"/><ew/><ew/>)", default_metas(),
+                      "<ew> requires an alpha set from <meta>");
+}
+
+TEST(XmlCompiler, MetaSourceWithoutMatrixThrows) {
+    MMetaSource src;
+    src.name = "s";
+    src.numAssets = 3;
+    src.init();
+    std::vector<float> buf(3, 0.0f);
+    SignalVector sv{buf.data(), 3};
+    EXPECT_THROW(src.calculate(0, sv), std::logic_error);
+
+    std::vector<std::vector<float>> matrix{{1.0f, 2.0f, 3.0f}, {4.0f, -5.0f, 6.5f}};
+    src.matrix = &matrix;
+    src.calculate(1, sv);
+    EXPECT_EQ(buf, matrix[1]);
+
+    std::vector<std::vector<float>> one_row{{1.0f, 2.0f, 3.0f}};
+    src.matrix = &one_row;
+    EXPECT_THROW(src.calculate(1, sv), std::logic_error);
+    std::vector<std::vector<float>> short_row{{1.0f, 2.0f, 3.0f}, {1.0f, 2.0f}};
+    src.matrix = &short_row;
+    EXPECT_THROW(src.calculate(1, sv), std::logic_error);
+}
+
+TEST(XmlCompiler, UnnamedMetaChainRestartRejected) {
+    const std::string msg = "a <meta> chain must be named with <signal id> before another chain starts";
+    expect_meta_error(R"(<meta expr="s"/><meta expr="t"/>)", default_metas(), msg);
+    expect_meta_error(R"(<meta expr="s"/><ew/><meta expr="t"/>)", default_metas(), msg);
+    expect_meta_error(R"(<meta expr="s"/><rank/><data expr="close"/>)", default_metas(), msg);
+    // Unnamed data chains may still be discarded.
+    auto dp = make_panel();
+    MetaResolver resolver = make_resolver(default_metas());
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><meta expr="t"/>)", &dp, nullptr, &resolver).size(), 1u);
 }

@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <functional>
 #include <stdexcept>
+#include <utility>
+#include <cstdint>
 
 struct DataPanel;
 
@@ -34,17 +36,34 @@ public:
 // Generated from the configured modules directory during the build.
 void register_discovered_modules(ModuleRegistry& registry);
 
+struct MMetaSource;  // src/modules/MetaSource.h
+struct MetaSet;
+
 struct CompiledAlpha {
     std::vector<std::unique_ptr<Module>> modules;  // owns all modules
     std::vector<Module*> pipeline;                  // top-level execution order
     Module* output;                                 // last module (non-owning)
     std::string source_xml;                         // expanded per-alpha XML
+    std::vector<MetaSet> meta_sets;                 // <meta> alpha sets, in pipeline order
 };
 
+struct MetaSet {
+    std::string name;                               // the expr value
+    std::vector<std::string> member_paths;          // as given by the resolver, in order
+    std::vector<CompiledAlpha> members;             // one compiled alpha per member, same order
+    MMetaSource* source = nullptr;                  // module in `pipeline` yielding the combined row
+};
+
+// (path, xml) pairs for a meta name; throws std::runtime_error for unknown name / empty folder.
+using MetaResolver = std::function<std::vector<std::pair<std::string, std::string>>(const std::string& name)>;
+
 // Compile a single pipeline into a CompiledAlpha.
-CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel);
+CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
+                               const std::vector<uint8_t>* universe = nullptr,
+                               const MetaResolver* resolver = nullptr);
 
 // Compile XML string → list of compiled alphas (one per expanded variant).
 // `universe` overrides the panel's default signal-date mask for rank/zscore/neutralize.
 std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* panel,
-                                       const std::vector<uint8_t>* universe = nullptr);
+                                       const std::vector<uint8_t>* universe = nullptr,
+                                       const MetaResolver* resolver = nullptr);

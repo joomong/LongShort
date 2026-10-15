@@ -140,6 +140,17 @@ TEST(ConfigLoader, AlphasDirDefaultsBesideTheConfigAndResolvesRelativePaths) {
                  std::exception);
 }
 
+TEST(ConfigLoader, MetaDirDefaultsBesideTheConfigAndResolvesRelativePaths) {
+    ConfigFiles files;
+    const auto dir = std::filesystem::path(files.dir).lexically_normal();
+    EXPECT_EQ(BacktestConfig::from_yaml(files.file("default.yaml", legacy)).meta_dir, (dir / "meta").string());
+    EXPECT_EQ(BacktestConfig::from_yaml(files.file("relative.yaml", "meta_dir: sets/../my_meta/\n" + legacy)).meta_dir,
+              (dir / "my_meta").string());
+    EXPECT_EQ(BacktestConfig::from_yaml(files.file("absolute.yaml", "meta_dir: /var/tmp/longshort_meta\n" + legacy)).meta_dir,
+              "/var/tmp/longshort_meta");
+    EXPECT_THROW(BacktestConfig::from_yaml(files.file("empty.yaml", "meta_dir: ''\n" + legacy)), std::exception);
+}
+
 TEST(ConfigLoader, RemovedSettlementAndCorporateActionSettingsAreRejected) {
     ConfigFiles files;
     const std::string base = "datasets: [{path: p, use_col: [close]}]\n";
@@ -164,6 +175,7 @@ TEST(ConfigLoader, RejectsUnknownKeys) {
     const std::vector<std::pair<std::string, std::string>> cases = {
         {dataset + "backtest: {missing_close_polcy: error}", "backtest.missing_close_polcy"},
         {dataset + "backtest: {}\nalpha_dir: alphas", "alpha_dir"},
+        {dataset + "backtest: {meta_dir: meta}", "backtest.meta_dir"},
         {"datasets: [{path: p, use_col: [close], use_cols: [open]}]\nbacktest: {}", "datasets[0].use_cols"},
         {dataset + "universe: {path: u.parquet, nmae: TOP500}\nbacktest: {}", "universe.nmae"},
     };
