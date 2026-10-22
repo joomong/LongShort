@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dag_builder.h"
+#include <charconv>
 #include <cmath>
 #include <initializer_list>
 #include <map>
@@ -28,34 +29,43 @@ inline CompileError invalid_value(const std::string& raw,
 }
 }  // namespace detail
 
+// Plain decimal only: -?digits[.digits] (".5" and "5." included). from_chars with
+// chars_format::fixed rejects exponents, hex floats and a leading '+'; the text
+// must be consumed fully. The finite check is the single place inf/nan are rejected.
+// The text is rounded once, directly to float (no decimal->double->float double
+// rounding); a decimal outside float range is out_of_range and rejected.
+inline bool parse_decimal(const std::string& raw, float& out) {
+    const std::string value = detail::trim(raw);
+    const char* first = value.data();
+    const char* last = first + value.size();
+    float parsed = 0;
+    const auto result = std::from_chars(first, last, parsed, std::chars_format::fixed);
+    if (result.ec != std::errc() || result.ptr != last || !std::isfinite(parsed))
+        return false;
+    out = parsed;
+    return true;
+}
+
 inline int parse_int(const std::string& raw,
                      const std::string& tag,
                      const std::string& key) {
     const std::string value = detail::trim(raw);
-    try {
-        std::size_t consumed = 0;
-        const int parsed = std::stoi(value, &consumed, 10);
-        if (consumed == value.size())
-            return parsed;
-    } catch (const std::invalid_argument&) {
-    } catch (const std::out_of_range&) {
-    }
+    const char* last = value.data() + value.size();
+    int parsed = 0;
+    const auto result = std::from_chars(value.data(), last, parsed, 10);
+    if (result.ec == std::errc() && result.ptr == last && !value.empty())
+        return parsed;
     throw detail::invalid_value(raw, tag, key, "integer within int range");
 }
 
-inline double parse_float(const std::string& raw,
-                          const std::string& tag,
-                          const std::string& key) {
-    const std::string value = detail::trim(raw);
-    try {
-        std::size_t consumed = 0;
-        const double parsed = std::stod(value, &consumed);
-        if (consumed == value.size() && std::isfinite(parsed))
-            return parsed;
-    } catch (const std::invalid_argument&) {
-    } catch (const std::out_of_range&) {
-    }
-    throw detail::invalid_value(raw, tag, key, "finite number");
+// Every numeric XML attribute (FloatParameter, combination shrink/alpha).
+inline float parse_float(const std::string& raw,
+                         const std::string& tag,
+                         const std::string& key) {
+    float parsed = 0;
+    if (parse_decimal(raw, parsed))
+        return parsed;
+    throw detail::invalid_value(raw, tag, key, "decimal number");
 }
 
 inline bool parse_bool(const std::string& raw,

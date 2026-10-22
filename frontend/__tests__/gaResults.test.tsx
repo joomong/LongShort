@@ -142,10 +142,10 @@ it('opens signal analysis when a finished or stopped GA has one alpha and keeps 
 
 it('exposes the four search controls without a fraction counter', () => {
   render(<SettingsBar />);
-  expect(screen.getByLabelText('Number of threads')).toHaveValue(20);
-  expect(screen.getByLabelText('First search')).toHaveValue(200);
-  expect(screen.getByLabelText('Stop round')).toHaveValue(40);
-  expect(screen.getByLabelText('Stop alphas')).toHaveValue(400);
+  expect(screen.getByLabelText('Number of threads')).toHaveValue('20');
+  expect(screen.getByLabelText('First search')).toHaveValue('200');
+  expect(screen.getByLabelText('Stop round')).toHaveValue('40');
+  expect(screen.getByLabelText('Stop alphas')).toHaveValue('400');
   act(() => useAlphaStore.getState().setGAProgress({ generation: 1, totalGenerations: 40, populationSize: 200, evaluated: 0 }));
   expect(screen.getByRole('status')).toHaveTextContent('Round 1');
   expect(screen.getByRole('status')).not.toHaveTextContent('0/200');

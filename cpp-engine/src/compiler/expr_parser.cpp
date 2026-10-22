@@ -1,10 +1,12 @@
 #include "expr_parser.h"
+#include "module_attributes.h"
 #include "../data/data_panel.h"
 #include "../modules/Data.h"
 #include "../modules/Delay.h"
 #include "../modules/Ops.h"
 #include "../modules/Constant.h"
 #include "../modules/Chain.h"
+#include "../modules/Unary.h"
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -16,7 +18,7 @@
 // Tokeniser
 // ---------------------------------------------------------------------------
 
-enum class TokKind { Ident, Number, Plus, Minus, Star, Slash, LParen, RParen, Eof };
+enum class TokKind { Ident, Number, Plus, Minus, Star, Slash, LParen, RParen, Comma, Eof };
 
 struct Token {
     TokKind kind;
@@ -35,10 +37,20 @@ static std::vector<Token> tokenise(const std::string& src) {
         if (c == '/') { toks.push_back({TokKind::Slash,  "/"}); ++i; continue; }
         if (c == '(') { toks.push_back({TokKind::LParen, "("}); ++i; continue; }
         if (c == ')') { toks.push_back({TokKind::RParen, ")"}); ++i; continue; }
+        if (c == ',') { toks.push_back({TokKind::Comma,  ","}); ++i; continue; }
         if (std::isdigit((unsigned char)c) || c == '.') {
             size_t start = i;
             while (i < src.size() && (std::isdigit((unsigned char)src[i]) || src[i] == '.'))
                 ++i;
+            if (i < src.size() && (src[i] == 'e' || src[i] == 'E')) {
+                size_t j = i + 1;
+                if (j < src.size() && (src[j] == '+' || src[j] == '-')) ++j;
+                if (j < src.size() && std::isdigit((unsigned char)src[j])) {
+                    while (j < src.size() && std::isdigit((unsigned char)src[j])) ++j;
+                    throw std::runtime_error("expr_parser: scientific notation is not allowed ('" +
+                                             src.substr(start, j - start) + "'); write it as a plain decimal");
+                }
+            }
             toks.push_back({TokKind::Number, src.substr(start, i - start)});
             continue;
         }
@@ -89,7 +101,7 @@ struct Parser {
         return take(std::move(m));
     }
 
-    Module* make_constant(double val) {
+    Module* make_constant(float val) {
         auto m = std::make_unique<MConstant>();
         m->value = FloatParameter(val);
         return take(std::move(m));
@@ -135,7 +147,7 @@ struct Parser {
         if (cur().kind == TokKind::Minus) {
             consume();
             Module* inner = parse_primary();
-            Module* neg_one = make_constant(-1.0);
+            Module* neg_one = make_constant(-1.0f);
             return make_binop(neg_one, inner, TokKind::Star);
         }
         return parse_primary();
@@ -156,30 +168,74 @@ struct Parser {
         Module* r_chain = take(std::move(chain));
 
         Module* div_result = make_binop(close_num, r_chain, TokKind::Slash);
-        Module* one_val = make_constant(1.0);
+        Module* one_val = make_constant(1.0f);
         return make_binop(div_result, one_val, TokKind::Minus);
     }
 
-    Module* parse_primary() {
-        if (cur().kind == TokKind::Number) {
-            size_t consumed = 0;
-            double v = 0.0;
-            try {
-                v = std::stod(cur().text, &consumed);
-            } catch (const std::invalid_argument&) {
-                throw std::runtime_error("expr_parser: invalid numeric literal '" + cur().text + "'");
-            } catch (const std::out_of_range&) {
-                throw std::runtime_error("expr_parser: numeric literal out of range '" + cur().text + "'");
-            }
-            if (consumed != cur().text.size() || !std::isfinite(v) ||
-                std::fabs(v) > std::numeric_limits<float>::max())
-                throw std::runtime_error("expr_parser: invalid numeric literal '" + cur().text + "'");
+    // Read directly as float (same reader as XML FloatParameter attributes); a decimal
+    // outside float range is rejected by the reader itself.
+    float parse_literal() {
+        float v = 0.0f;
+        if (!module_attributes::parse_decimal(cur().text, v))
+            throw std::runtime_error("expr_parser: invalid numeric literal '" + cur().text + "'");
+        consume();
+        return v;
+    }
+
+    template <class Op>
+    Module* make_unary(Module* arg, float param) {
+        auto u = std::make_unique<MUnary<Op>>();
+        u->param = FloatParameter(param);
+        auto chain = std::make_unique<MChain>();
+        chain->first = arg;
+        chain->second = take(std::move(u));
+        return take(std::move(chain));
+    }
+
+    // name '(' expr [',' ['-'] number] ')'; the '(' is the current token.
+    Module* parse_call(const std::string& name) {
+        const bool one = name == "abs" || name == "log" || name == "sqrt" || name == "sign";
+        const bool two = name == "power" || name == "signedpower";
+        if (!one && !two)
+            throw std::runtime_error("expr_parser: unknown function '" + name + "'");
+        const std::string arity = one ? "' expects 1 argument" : "' expects 2 arguments";
+        consume();  // '('
+        if (cur().kind == TokKind::RParen || cur().kind == TokKind::Comma)
+            throw std::runtime_error("expr_parser: '" + name + arity);
+        Module* arg = parse_expr_node();
+        float p = 0.0f;
+        if (two) {
+            if (cur().kind != TokKind::Comma)
+                throw std::runtime_error("expr_parser: '" + name + arity);
             consume();
-            return make_constant(v);
+            const bool neg = cur().kind == TokKind::Minus;
+            if (neg) consume();
+            if (cur().kind != TokKind::Number)
+                throw std::runtime_error("expr_parser: '" + name + "' exponent must be a number");
+            p = parse_literal();
+            if (neg) p = -p;
+            if (cur().kind != TokKind::RParen && cur().kind != TokKind::Comma && cur().kind != TokKind::Eof)
+                throw std::runtime_error("expr_parser: '" + name + "' exponent must be a number");
         }
+        if (cur().kind == TokKind::Comma)
+            throw std::runtime_error("expr_parser: '" + name + arity);
+        expect(TokKind::RParen, "')'");
+        if (name == "abs")   return make_unary<unary_ops::Abs>(arg, p);
+        if (name == "log")   return make_unary<unary_ops::Log>(arg, p);
+        if (name == "sqrt")  return make_unary<unary_ops::Sqrt>(arg, p);
+        if (name == "sign")  return make_unary<unary_ops::Sign>(arg, p);
+        if (name == "power") return make_unary<unary_ops::Power>(arg, p);
+        return make_unary<unary_ops::SignedPower>(arg, p);
+    }
+
+    Module* parse_primary() {
+        if (cur().kind == TokKind::Number)
+            return make_constant(parse_literal());
         if (cur().kind == TokKind::Ident) {
             std::string name = cur().text;
             consume();
+            if (cur().kind == TokKind::LParen)
+                return parse_call(name);
             // A thin-v1 panel carries `returns` (total return) as a cache field; other layouts derive it from close.
             if (name == "returns")
                 return panel && (panel->thin_layout || panel->has_column("returns")) ? make_data("returns") : make_returns();

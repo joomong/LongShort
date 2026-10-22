@@ -10,7 +10,8 @@ This document is the single source of truth for C++ engine test math.
 ## Global Constants
 
 - `bars_per_year = 365`
-- `eps = 1e-12` (where used in denominator guards)
+- `eps = 1e-12` (where used in denominator guards); the `MZscore`/`MTsZscore` `eps` is a float `FloatParameter`,
+  default `1e-12f` (= 9.99999996e-13)
 
 ## Simulation Conventions
 
@@ -39,8 +40,8 @@ This document is the single source of truth for C++ engine test math.
     reproduced by close holding PnL plus this VWAP trading leg.
   - VWAP requires exact `vwap/high/low/close`; missing cells, `high < low`, or
     close/vwap outside `[low, high]` are unavailable fills under the same
-    carry/error policy as OHLC4; nonpositive/infinite values are refused for
-    relevant positions. Close is never substituted.
+    carry/error policy as OHLC4; nonpositive values are refused for
+    relevant positions (a ±inf cell already loaded as NaN, i.e. missing). Close is never substituted.
   - `market_trade[t,i] = target_weight[t,i] - carried_weight[t,i]` on executable names.
   - `execution_pnl[t] = sum_i(market_trade[t,i] * (close[t,i] / fill[t,i] - 1))`.
   - `gross_ret[t] = holding_pnl[t] + execution_pnl[t]`; the execution term is zero under close execution.
@@ -56,7 +57,8 @@ This document is the single source of truth for C++ engine test math.
   never substitutes a close or forward-filled price. Error policy rejects a
   required trade without a fill. Inconsistent finite quotes (open, vwap or close outside
   low/high, or high < low) is an unavailable fill under the same carry/error policy. Nonpositive
-  or nonfinite-non-NaN prices are refused for relevant positions. A missing OHL/VWAP field or as-of source
+  prices are refused for relevant positions. A ±inf price cell in a data file loads as NaN and follows the
+  missing-quote carry/error policy (only in-memory panels can still present an infinite price, which is refused). A missing OHL/VWAP field or as-of source
   cannot enable OHLC4/VWAP execution.
 - Fee impact:
   - `ret[t] -= turnover[t] * fee_rate`
@@ -150,7 +152,7 @@ This document is the single source of truth for C++ engine test math.
   - if `std < eps`: `0`
 - `MTsRank(days, pct, min_count)`:
   - ascending percentile rank of current value in rolling window finite values (higher value → higher rank)
-  - if current is `NaN` or valid count `< min_count`: `NaN`
+  - if current is non-finite or valid count `< min_count`: `NaN`
   - tie handling: average rank
 - `MDecay(days)`:
   - linear weighted average with newest weight `days`, oldest weight `1`
@@ -160,6 +162,26 @@ This document is the single source of truth for C++ engine test math.
 - `MZscore(ddof, min_count, eps)`:
   - cross-sectional z-score on finite values
   - if finite count `< min_count` or `scale < eps`: all `NaN`
+- inf is never a value: a ±inf cell read from a data file is NaN (missing); after every module call (each pipeline
+  step and each `MChain` step, user modules included) ±inf in the output is replaced by `NaN`, so downstream modules
+  and the gross-1 target normalization treat it exactly like `NaN` (the `(t, i)` cell gets no position).
+- Number syntax in alpha XML (attributes and `<data expr>` literals): plain decimals only (`5`, `-0.5`, `.5`, `5.`),
+  parsed locale-independently (`std::from_chars`); exponents (`1e-3`), hexadecimal, a leading `+`, `inf` and `nan` are
+  errors. Integer attributes take `-?digits`; ranges `start...end` / `start...step...end` take integers only
+  (`Invalid range '...'`), at most 10000 values per range. `FloatParameter` attributes and expr literals are
+  parsed directly to float (rounded once; e.g. `exp="0.1"` is 0.100000001490116); a decimal that rounds to ±inf, or a
+  non-zero decimal that rounds to 0, is an error (subnormal-range decimals are accepted). The combination
+  finalizer attributes `shrink`/`alpha` are read the same way (float, one rounding); the weight computation is double. Values shown in the web never use scientific notation.
+- Element-wise arithmetic `MUnary<Op>` (`src/modules/Unary.h`, stateless, in place):
+  - chain tags `<abs/>` `<log/>` `<sqrt/>` `<sign/>` `<inverse/>` `<reverse/>` `<power exp>` `<signedpower exp>`
+    `<max value>` `<min value>`; the `<data expr>` functions `abs log sqrt sign power(x, p) signedpower(x, p)`
+    use the same Op, so `<data expr="f(x)"/>` equals `<data expr="x"/><f/>` bit for bit
+    (the exponent must be a numeric literal; `-x`, `1/x` are ordinary expr arithmetic; no comparisons)
+  - computed in double, stored as float; a non-finite input or result (including float overflow) is `NaN`
+  - `log`: `x <= 0` -> `NaN`; `sqrt`: `x < 0` -> `NaN`; `inverse`: `±0` -> `NaN`; `sign(±0) = 0`
+  - `power`: negative base with a non-integer exponent or `0^negative` -> `NaN`;
+    `signedpower = sign(x)·|x|^exp` (`0^negative` -> `NaN`, `±0^p` -> `+0` for `p >= 0`)
+  - `max`/`min` against the scalar `value` (ties return `value`, so `max(-0, 0) = +0`); a `NaN` input stays `NaN`
 
 ## Regression Test Mapping
 

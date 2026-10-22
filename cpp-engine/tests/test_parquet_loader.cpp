@@ -298,12 +298,17 @@ TEST(ParquetLoader, LatestUsesSelectedSymbolsAndRejectsACompletelyMissingTrading
 
 TEST(ParquetLoader, LatestDoesNotHideInvalidNonmissingPrices) {
     DataFiles files;
-    for (double bad : {0.0,-1.0,std::numeric_limits<double>::infinity()}) {
+    for (double bad : {0.0,-1.0}) {
         files.write("close.parquet", {"A","__index_level_0__"},
             {numeric({10,bad}),dates({0,day})});
         auto config = base(files); config.end_date = "latest";
         EXPECT_EQ(DataPanel::load(config).T,2u);
     }
+    // inf is never a value: it loads as missing, so latest trims it like a missing tail.
+    files.write("close.parquet", {"A","__index_level_0__"},
+        {numeric({10,std::numeric_limits<double>::infinity()}),dates({0,day})});
+    auto config = base(files); config.end_date = "latest";
+    EXPECT_EQ(DataPanel::load(config).T,1u);
 }
 
 // base: expands one cache directory plus one group directory into the nine standard fields
@@ -461,4 +466,27 @@ TEST(ParquetLoader, GroupPanelBuiltForAnotherSymbolSetFailsTheLoad) {
         EXPECT_NE(message.find("Group panel 'industry' has no codes on 1970-01-01"), std::string::npos) << message;
         EXPECT_NE(message.find("was built for another cache"), std::string::npos) << message;
     }
+}
+
+TEST(ParquetLoader, InfinityLoadsAsMissingLikeANullCell) {
+    DataFiles files;
+    const double inf = std::numeric_limits<double>::infinity();
+    arrow::DoubleBuilder doubles;
+    ASSERT_TRUE(doubles.Append(inf).ok()); ASSERT_TRUE(doubles.Append(-inf).ok());
+    ASSERT_TRUE(doubles.AppendNull().ok()); ASSERT_TRUE(doubles.Append(1.5).ok());
+    arrow::FloatBuilder floats;
+    ASSERT_TRUE(floats.Append(-std::numeric_limits<float>::infinity()).ok()); ASSERT_TRUE(floats.Append(2.0f).ok());
+    ASSERT_TRUE(floats.Append(std::numeric_limits<float>::infinity()).ok()); ASSERT_TRUE(floats.AppendNull().ok());
+    files.write("long.parquet", {"close", "y", "symbol", "time"},
+        {doubles.Finish().ValueOrDie(), floats.Finish().ValueOrDie(),
+         values<arrow::StringBuilder>(std::vector<std::string>{"A","A","A","A"}), dates({0,day,2*day,3*day})});
+    auto panel = DataPanel::load((files.dir / "long.parquet").string(), {"close","y"}, "time", "symbol");
+    EXPECT_TRUE(std::isnan(panel.at("close", 0, 0)));
+    EXPECT_TRUE(std::isnan(panel.at("close", 1, 0)));
+    EXPECT_TRUE(std::isnan(panel.at("close", 2, 0)));
+    EXPECT_FLOAT_EQ(panel.at("close", 3, 0), 1.5f);
+    EXPECT_TRUE(std::isnan(panel.at("y", 0, 0)));
+    EXPECT_FLOAT_EQ(panel.at("y", 1, 0), 2.0f);
+    EXPECT_TRUE(std::isnan(panel.at("y", 2, 0)));
+    EXPECT_TRUE(std::isnan(panel.at("y", 3, 0)));
 }

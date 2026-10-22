@@ -21,10 +21,10 @@ struct IntParameter {
 };
 
 struct FloatParameter {
-    double value = 0.0;
+    float value = 0.0f;
     FloatParameter() = default;
-    explicit FloatParameter(double v) : value(v) {}
-    operator double() const { return value; }
+    explicit FloatParameter(float v) : value(v) {}
+    operator float() const { return value; }
 };
 
 // ---------------------------------------------------------------------------

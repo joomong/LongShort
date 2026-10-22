@@ -77,5 +77,5 @@ struct MTsZscore : public Module {
     IntParameter days;
     IntParameter ddof{1};
     IntParameter min_count{-1};
-    FloatParameter eps{1e-12};
+    FloatParameter eps{1e-12f};
 };

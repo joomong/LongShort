@@ -18,4 +18,10 @@ struct SignalVector {
         for (unsigned i = 0; i < size; ++i)
             data[i] = std::numeric_limits<float>::quiet_NaN();
     }
+
+    // Replace +-inf with NaN; NaN and finite values are left untouched
+    void inf_to_nan() {
+        for (unsigned i = 0; i < size; ++i)
+            if (std::isinf(data[i])) data[i] = std::numeric_limits<float>::quiet_NaN();
+    }
 };

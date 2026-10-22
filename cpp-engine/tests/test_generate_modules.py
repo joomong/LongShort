@@ -210,6 +210,10 @@ class ReservedTagsMatchEngineRegistry(unittest.TestCase):
     def test_reserved_tags_equal_builtin_modules_plus_structural_tags(self):
         source = (Path(__file__).resolve().parents[1] / 'src/compiler/dag_builder.cpp').read_text()
         modules = set(re.findall(r'register_module\("(\w+)"', source))
+        # Element-wise arithmetic tags are registered through the local `unary("<tag>", ...)` helper.
+        unary = set(re.findall(r'unary\("(\w+)"', source))
+        self.assertEqual(len(unary), 10)
+        modules |= unary
         self.assertTrue(modules)
         # Structural tags handled in compile_pipeline (data, signal, event, meta, ew), expansion (choice)
         # and the alpha wrapper (alpha); kept by hand because they are not registry entries.

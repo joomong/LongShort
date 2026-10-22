@@ -9,7 +9,7 @@ struct MConstant : public Module {
     }
 
     void calculate(unsigned di, SignalVector& output) override {
-        float v = static_cast<float>(value.value);
+        float v = value;
         for (unsigned ii = 0; ii < numAssets; ++ii)
             output[ii] = v;
     }

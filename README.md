@@ -75,6 +75,8 @@ NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:50007" npm run dev -- --port 50006
 
 `neutralize`는 신호를 그룹(`sector` 또는 `industry`) 평균으로 뺀다. 그룹 코드는 `base:` 블록으로 등록되는 기본 필드 `sector`/`industry`에서 읽으며, 파일은 [그룹 패널 생성 도구](cpp-engine/tools/data/README_group_panels.md)로 만든다. `group="sector|industry"`처럼 파이프로 여러 그룹을 한 번에 돌릴 수 있다.
 
+산술 체인 태그 `<abs/> <log/> <sqrt/> <sign/> <inverse/> <reverse/> <power exp="2"/> <signedpower exp="0.5"/> <max value="0"/> <min value="3"/>`는 앞 단계 출력에 원소별로 적용된다. `<data expr>` 안에서는 `abs(close - open) / close`, `log(volume)`, `signedpower(returns, 0.5)`처럼 `abs log sqrt sign power signedpower`를 함수로 쓴다(지수는 숫자만). 입력이나 결과가 NaN·무한대면 NaN이다.
+
 [사용자 모듈 규약](modules/README.md) · [자동 빌드 설계](docs/build_and_validation.md) · [연구와 계약 문서](docs/README.md)
 
 ## 검증

@@ -186,8 +186,8 @@ def reference(r, days, rebalance, **kw):
 def run_probe(r, days, rebalance, method, shrink="diag", delta=0.5, k=3, alpha=0.1):
     lines = [",".join(f"m{i}" for i in range(r.shape[1]))]
     lines += [",".join("nan" if not np.isfinite(v) else repr(float(v)) for v in row) for row in r]
-    args = [PROBE, "--method", method, "--days", str(days), "--shrink", shrink, "--delta", repr(delta),
-            "--k", str(k), "--alpha", repr(alpha), "--rebalance", str(rebalance), "--sim-start", str(SIM_START)]
+    args = [PROBE, "--method", method, "--days", str(days), "--shrink", shrink, "--delta", f"{delta:.10f}",
+            "--k", str(k), "--alpha", f"{alpha:.10f}", "--rebalance", str(rebalance), "--sim-start", str(SIM_START)]
     out = subprocess.run(args, input="\n".join(lines) + "\n", capture_output=True, text=True, check=True).stdout
     body = out.strip().splitlines()
     tail = dict(item.split("=") for item in body[-1].split())
@@ -208,12 +208,14 @@ class MetaWeightsOracle(unittest.TestCase):
             for rebalance in (1, 7):
                 with self.subTest(method=method, rebalance=rebalance, **kw):
                     got, got_fallback, got_t0 = run_probe(r, DAYS, rebalance, method, **kw)
-                    want, want_fallback, want_t0 = reference(r, DAYS, rebalance, method=method, **kw)
+                    # The engine reads shrink/alpha as float; give the reference the same float32 value.
+                    ref_kw = {key: float(np.float32(v)) if key in ("delta", "alpha") else v for key, v in kw.items()}
+                    want, want_fallback, want_t0 = reference(r, DAYS, rebalance, method=method, **ref_kw)
                     self.assertEqual(got.shape, want.shape)
                     self.assertEqual(got_t0, want_t0)
                     self.assertEqual(got_fallback, want_fallback)
                     self.assertGreater(got_fallback, 0)   # the NaN bar falls back in every method
-                    tol = 1e-6 if method in ("glasso", "erc") else 1e-8
+                    tol = 1e-6 if method == "erc" else 1e-8
                     np.testing.assert_allclose(got, want, rtol=0, atol=tol)
                     self.assertFalse(np.allclose(got[want_t0:], 1.0 / K) and method != "ivol")
 

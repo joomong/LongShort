@@ -793,6 +793,22 @@ TEST_F(HttpContractTest, InvalidExprReturns400)
 }
 
 
+TEST_F(HttpContractTest, MalformedRangeReturns400)
+{
+    if (!available_)
+        GTEST_SKIP() << skip_reason_;
+
+    Json::Value req;
+    req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"5.5...20\"/>";
+    req["isStart"] = "2000-01-01";
+    req["osStart"] = "2100-01-01";
+
+    const HttpResult res = simulate(req);
+    ASSERT_EQ(res.status, 400) << res.body;
+    EXPECT_NE(res.body.find("Invalid range '5.5...20' (expected integers start...end or start...step...end)"),
+              std::string::npos) << res.body;
+}
+
 TEST_F(HttpContractTest, SimStartBeginsWithAnUnfundedBookAndFirstEntryFee) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;

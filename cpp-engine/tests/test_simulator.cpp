@@ -13,6 +13,7 @@
 #include "modules/Data.h"
 #include "modules/Rank.h"
 #include "modules/Delay.h"
+#include "modules/Chain.h"
 
 // Simple test: run simulator with close -> rank pipeline
 TEST(Simulator, CurrentSignalExecutesWithoutImplicitDelay) {
@@ -898,4 +899,98 @@ TEST(MissingDataAccounting, CarryFreezesOnlyNaNAndRejectsEveryOtherUnusablePrice
         EXPECT_EQ(std::string(error.what()),
                   "Invalid close price (not NaN) at bar 2, asset 0");
     }
+}
+
+namespace {
+constexpr float kInf = std::numeric_limits<float>::infinity();
+// Emits {+inf, 3, -1, -inf} on every bar.
+struct EmitInf : public Module {
+    void init() {}
+    void calculate(unsigned, SignalVector& output) {
+        output[0] = kInf; output[1] = 3.0f; output[2] = -1.0f; output[3] = -kInf;
+    }
+};
+// Records the rows it receives and passes them through.
+struct RecordInput : public Module {
+    std::vector<std::vector<float>> seen;
+    void init() {}
+    void calculate(unsigned, SignalVector& output) { seen.emplace_back(output.data, output.data + output.size); }
+};
+DataPanel flat_panel4() {
+    DataPanel p;
+    p.T = 3; p.N = 4; p.symbols = {"A", "B", "C", "D"};
+    p.timestamps = {0, 86400000, 172800000};
+    p.arrays["close"].assign(p.T * p.N, 100.0f);
+    return p;
+}
+void expect_inf_cells_are_nan(const std::vector<float>& row) {
+    ASSERT_EQ(row.size(), 4u);
+    EXPECT_TRUE(std::isnan(row[0]));
+    EXPECT_FLOAT_EQ(row[1], 3.0f);
+    EXPECT_FLOAT_EQ(row[2], -1.0f);
+    EXPECT_TRUE(std::isnan(row[3]));
+}
+}
+
+TEST(InfIsNeverAValue, ModuleInfOutputReachesNextModuleCollectionAndTargetsAsNaN) {
+    auto panel = flat_panel4();
+    SimulatorConfig cfg{panel.T, panel.N, 0.0, true, {}};
+    std::vector<std::vector<float>> observed;
+    cfg.signal_row_callback = [&](unsigned, const float* row, unsigned n) { observed.emplace_back(row, row + n); };
+    EmitInf emit;
+    RecordInput record;
+    auto out = Simulator(panel, cfg).run({&emit, &record});
+    ASSERT_EQ(record.seen.size(), panel.T);
+    ASSERT_EQ(observed.size(), panel.T);
+    for (unsigned di = 0; di < panel.T; ++di) {
+        expect_inf_cells_are_nan(record.seen[di]);
+        expect_inf_cells_are_nan(out.signals[di]);
+        expect_inf_cells_are_nan(observed[di]);
+        // Only B and C are held, normalized to gross 1 among themselves: 3/4 long, 1/4 short.
+        EXPECT_EQ(out.position_count[di], 2);
+        EXPECT_NEAR(out.long_weight[di], 0.75, 1e-12);
+        EXPECT_NEAR(out.short_weight[di], 0.25, 1e-12);
+    }
+}
+
+TEST(InfIsNeverAValue, RunSignalRowsCallbackNeverSeesInf) {
+    auto panel = flat_panel4();
+    SimulatorConfig cfg{panel.T, panel.N, 0.0, false, {}};
+    EmitInf emit;
+    unsigned rows = 0;
+    Simulator(panel, cfg).run_signal_rows({&emit}, [&](unsigned, const float* row, unsigned n) {
+        expect_inf_cells_are_nan(std::vector<float>(row, row + n));
+        ++rows;
+    });
+    EXPECT_EQ(rows, panel.T);
+}
+
+TEST(InfIsNeverAValue, ChainSecondModuleReceivesNaNForFirstModuleInf) {
+    EmitInf emit;
+    RecordInput record;
+    MChain chain;
+    chain.first = &emit;
+    chain.second = &record;
+    chain.numAssets = 4;
+    chain.init();
+    std::vector<float> buffer(4, 0.0f);
+    SignalVector signal{buffer.data(), 4};
+    chain.calculate(0, signal);
+    ASSERT_EQ(record.seen.size(), 1u);
+    expect_inf_cells_are_nan(record.seen[0]);
+    expect_inf_cells_are_nan(buffer);
+}
+
+TEST(InfIsNeverAValue, ChainOutputIsNaNWhereSecondModuleEmitsInf) {
+    RecordInput record;
+    EmitInf emit;
+    MChain chain;
+    chain.first = &record;
+    chain.second = &emit;
+    chain.numAssets = 4;
+    chain.init();
+    std::vector<float> buffer(4, 0.0f);
+    SignalVector signal{buffer.data(), 4};
+    chain.calculate(0, signal);
+    expect_inf_cells_are_nan(buffer);
 }

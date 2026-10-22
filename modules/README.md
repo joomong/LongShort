@@ -11,7 +11,8 @@ python3 /home/jgo/longshort_platform/cpp-engine/tools/run_engine.py --config con
 
 - 파일당 기본 생성 가능하고 `Module`을 직접 public 상속하는 클래스 하나를 작성합니다.
 - 파일명이 `MySignal.h`이면 XML 태그는 `<mysignal/>`입니다.
-- XML 숫자 속성은 public `IntParameter`/`FloatParameter` 멤버로 선언합니다. 생략된 속성은 C++ 초기값을 유지합니다.
+- XML 숫자 속성은 public `IntParameter`/`FloatParameter` 멤버로 선언합니다. 생략된 속성은 C++ 초기값을 유지합니다. `FloatParameter`는 float로 저장하며 속성 글자를 float로 바로 읽습니다(평문 소수만, float 범위 밖은 오류). 기본값은 `1e-12f`처럼 float 리터럴로 씁니다. `double x = param;`, `param * 2.0`은 그대로 동작하지만 `param == 0.1`처럼 double과 직접 비교하면 float 값으로 비교됩니다.
+- 모듈 출력의 ±inf는 다음 모듈로 넘어가기 전에 NaN으로 바뀝니다.
 - `init()` 및 `calculate(unsigned, SignalVector&)`를 구현합니다. 상태가 있다면 `init()`에서 초기화합니다.
 - 일반 내부 상태는 `int`, `double`, vector 등으로 두고 XML parameter wrapper와 구분합니다.
 - 필요하면 public `const DataPanel* panel = nullptr;`을 선언하여 현재 데이터를 참조합니다.

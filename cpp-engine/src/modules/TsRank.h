@@ -24,7 +24,7 @@ struct MTsRank : public Module {
             unsigned cur_slot = (pos + w - 1) % w;
             float cur = buf[ii][cur_slot];
 
-            if (std::isnan(cur)) {
+            if (!std::isfinite(cur)) {
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
                 continue;
             }
@@ -32,7 +32,7 @@ struct MTsRank : public Module {
             int n_valid = 0, n_less = 0, n_equal = 0;
             for (unsigned j = 0; j < w; ++j) {
                 float v = buf[ii][j];
-                if (std::isnan(v)) continue;
+                if (!std::isfinite(v)) continue;
                 ++n_valid;
                 if (v < cur) ++n_less;
                 else if (v == cur) ++n_equal;

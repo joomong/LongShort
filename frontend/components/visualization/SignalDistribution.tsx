@@ -6,12 +6,19 @@ import { selectSignalSource } from '@/lib/signalSelection';
 import { symbolLabel } from '@/lib/symbolLabels';
 import { SIGNAL_DISTRIBUTION_HEIGHT } from '@/lib/signalPanelLayout';
 
-function formatSignalValue(v: number): string {
+// Never scientific notation: tiny values print as plain decimals with 3 significant digits.
+export function formatSignalValue(v: number): string {
+  if (!Number.isFinite(v)) return String(v);
   const abs = Math.abs(v);
+  if (abs === 0) return '0';
+  if (abs >= 1e21) return BigInt(Math.round(v)).toString(); // toFixed switches to exponent at 1e21
   if (abs >= 1000) return v.toFixed(0);
   if (abs >= 1) return v.toFixed(2);
-  if (abs >= 0.001) return v.toFixed(4);
-  return v.toExponential(2);
+  // Choose the tier on the 3-significant-digit magnitude so 0.00099995 prints like 0.001.
+  const rounded = Number(abs.toPrecision(3));
+  if (rounded >= 0.001) return v.toFixed(4);
+  const text = v.toFixed(Math.min(20, 2 - Math.floor(Math.log10(rounded))));
+  return Number(text) === 0 ? '0' : text;
 }
 
 export default function SignalDistribution() {

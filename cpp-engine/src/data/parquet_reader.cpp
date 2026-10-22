@@ -71,6 +71,7 @@ template<class Array> void append_numbers(const std::shared_ptr<arrow::Array>& c
     for (int64_t i = 0; i < array->length(); ++i) {
         if (array->IsNull(i)) { output.push_back(missing_value); continue; }
         const double value = static_cast<double>(array->Value(i));
+        if (std::isinf(value)) { output.push_back(missing_value); continue; }  // inf is never a value
         if (std::isfinite(value) && std::fabs(value) > std::numeric_limits<float>::max())
             throw std::runtime_error("Numeric value cannot be represented as float32");
         output.push_back(static_cast<float>(value));

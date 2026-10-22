@@ -1,4 +1,5 @@
 #include "dag_builder.h"
+#include <charconv>
 #include "xml_parser.h"
 #include "expansion.h"
 #include "expr_parser.h"
@@ -18,6 +19,7 @@
 #include "../modules/Ops.h"
 #include "../modules/Constant.h"
 #include "../modules/SignalCache.h"
+#include "../modules/Unary.h"
 #include <stdexcept>
 #include <sstream>
 #include <limits>
@@ -33,8 +35,8 @@ static int opt_int(const std::map<std::string, std::string>& a, const std::strin
     return it == a.end() ? def : module_attributes::parse_int(it->second, tag, key);
 }
 
-static double opt_float(const std::map<std::string, std::string>& a, const std::string& tag,
-                        const std::string& key, double def) {
+static float opt_float(const std::map<std::string, std::string>& a, const std::string& tag,
+                       const std::string& key, float def) {
     auto it = a.find(key);
     return it == a.end() ? def : module_attributes::parse_float(it->second, tag, key);
 }
@@ -80,15 +82,9 @@ static int parse_bounded_int(const std::string& tag,
                              int max_value) {
     int parsed = 0;
     const std::string trimmed = trim_ascii_whitespace(raw_value);
-    try {
-        size_t consumed = 0;
-        parsed = std::stoi(trimmed, &consumed);
-        if (consumed != trimmed.size()) {
-            throw CompileError(
-                "Invalid value for <" + tag + "> attribute '" + attribute + "': '" + raw_value +
-                "' (expected integer in range " + make_range(min_value, max_value) + ")");
-        }
-    } catch (const std::exception&) {
+    const char* last = trimmed.data() + trimmed.size();
+    const auto result = std::from_chars(trimmed.data(), last, parsed, 10);
+    if (trimmed.empty() || result.ec != std::errc() || result.ptr != last) {
         throw CompileError(
             "Invalid value for <" + tag + "> attribute '" + attribute + "': '" + raw_value +
             "' (expected integer in range " + make_range(min_value, max_value) + ")");
@@ -184,7 +180,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             m->days = IntParameter(get_bounded_int(a, "tszscore", "days", 20, 1, max_days));
             m->ddof = IntParameter(opt_int(a, "tszscore", "ddof", 1));
             m->min_count = IntParameter(opt_int(a, "tszscore", "min_count", -1));
-            m->eps = FloatParameter(opt_float(a, "tszscore", "eps", 1e-12));
+            m->eps = FloatParameter(opt_float(a, "tszscore", "eps", 1e-12f));
             return m;
         });
 
@@ -229,9 +225,36 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             m->panel = panel;
             m->ddof = IntParameter(opt_int(a, "zscore", "ddof", 1));
             m->min_count = IntParameter(opt_int(a, "zscore", "min_count", 2));
-            m->eps = FloatParameter(opt_float(a, "zscore", "eps", 1e-12));
+            m->eps = FloatParameter(opt_float(a, "zscore", "eps", 1e-12f));
             return m;
         });
+
+        // Element-wise arithmetic (MUnary<Op>); `key` names the required numeric attribute, if any.
+        auto unary = [&r](const std::string& tag, auto op, const char* key) {
+            r.register_module(tag, [tag, key](const auto& a, const auto*) {
+                auto m = std::make_unique<MUnary<decltype(op)>>();
+                if (key == nullptr) {
+                    module_attributes::validate_keys(a, {}, tag);
+                    return m;
+                }
+                module_attributes::validate_keys(a, {key}, tag);
+                auto it = a.find(key);
+                if (it == a.end())
+                    throw CompileError("<" + tag + "> requires attribute '" + key + "'");
+                m->param = FloatParameter(module_attributes::parse_float(it->second, tag, key));
+                return m;
+            });
+        };
+        unary("abs", unary_ops::Abs{}, nullptr);
+        unary("log", unary_ops::Log{}, nullptr);
+        unary("sqrt", unary_ops::Sqrt{}, nullptr);
+        unary("sign", unary_ops::Sign{}, nullptr);
+        unary("inverse", unary_ops::Inverse{}, nullptr);
+        unary("reverse", unary_ops::Reverse{}, nullptr);
+        unary("power", unary_ops::Power{}, "exp");
+        unary("signedpower", unary_ops::SignedPower{}, "exp");
+        unary("max", unary_ops::Max{}, "value");
+        unary("min", unary_ops::Min{}, "value");
 
         r.register_module("neutralize", [](const auto& a, const auto* panel) {
             module_attributes::validate_keys(a, {"group"}, "neutralize");
@@ -323,13 +346,13 @@ static CombineSpec parse_combine_spec(const std::string& tag, const std::map<std
             else if (value == "oas") spec.shrink = ShrinkMode::Oas;
             else {
                 const char* expected = "a number in [0,1] or lw|cc|oas";
-                double delta = 0.0;
+                float delta = 0.0f;
                 try {
                     delta = module_attributes::parse_float(it->second, tag, "shrink");
                 } catch (const CompileError&) {
                     throw module_attributes::detail::invalid_value(it->second, tag, "shrink", expected);
                 }
-                if (!(delta >= 0.0 && delta <= 1.0))
+                if (!(delta >= 0.0f && delta <= 1.0f))
                     throw module_attributes::detail::invalid_value(it->second, tag, "shrink", expected);
                 spec.delta = delta;
             }
@@ -347,13 +370,13 @@ static CombineSpec parse_combine_spec(const std::string& tag, const std::map<std
         auto it = attribs.find("alpha");
         if (it == attribs.end()) throw CompileError("<glasso> requires attribute 'alpha'");
         const char* expected = "number > 0";
-        double alpha = 0.0;
+        float alpha = 0.0f;
         try {
             alpha = module_attributes::parse_float(it->second, tag, "alpha");
         } catch (const CompileError&) {
             throw module_attributes::detail::invalid_value(it->second, tag, "alpha", expected);
         }
-        if (!(alpha > 0.0)) throw module_attributes::detail::invalid_value(it->second, tag, "alpha", expected);
+        if (!(alpha > 0.0f)) throw module_attributes::detail::invalid_value(it->second, tag, "alpha", expected);
         spec.alpha = alpha;
     }
     spec.days = parse_combine_uint(attribs, tag, "days", 2, true, 0);
@@ -554,7 +577,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
             mod->signal_cache   = sig_cache;
             mod->trigger_cache  = trig_cache;
             mod->useCurrentSignal = IntParameter(use_current_signal ? 1 : 0);
-            mod->threshold      = FloatParameter(opt_float(attribs, "event", "threshold", 0.0));
+            mod->threshold      = FloatParameter(opt_float(attribs, "event", "threshold", 0.0f));
             mod->maxHolddays    = IntParameter(opt_int(attribs, "event", "maxholddays", 5));
             mod->betAll         = IntParameter(opt_bool(attribs, "event", "betall", true) ? 1 : 0);
             current = mod.get();

@@ -535,8 +535,10 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
     for (unsigned di = 0; di < simulation.output.ret.size(); ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init())
             signal.fill_nan();
-        for (Module* module : pipeline)
+        for (Module* module : pipeline) {
             module->calculate(di, signal);
+            signal.inf_to_nan();
+        }
 
         if (config_.collect_signals)
             simulation.output.signals[di].assign(signal_buffer.begin(), signal_buffer.end());
@@ -557,7 +559,10 @@ void Simulator::run_signal_rows(const std::vector<Module*>& pipeline,
     }
     for (unsigned di = 0; di < std::min(data_.T, config_.sim_end_index); ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init()) signal.fill_nan();
-        for (Module* module : pipeline) module->calculate(di, signal);
+        for (Module* module : pipeline) {
+            module->calculate(di, signal);
+            signal.inf_to_nan();
+        }
         if (callback) callback(di, buffer.data(), data_.N);
     }
 }

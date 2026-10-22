@@ -226,6 +226,8 @@ add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
 add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
 add_engine_test(test_meta_sets        tests/test_meta_sets.cpp)
 add_engine_test(test_meta_weights     tests/test_meta_weights.cpp)
+add_engine_test(test_unary_modules    tests/test_unary_modules.cpp)
+add_engine_test(test_expr_functions   tests/test_expr_functions.cpp)
 
 # Test-only CLI for the Python oracle of the combination weights.
 add_executable(meta_weights_probe tools/meta_weights_probe.cpp)

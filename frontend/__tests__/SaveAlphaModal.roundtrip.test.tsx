@@ -55,9 +55,9 @@ function finishedResult(sourceXml = editorXml) {
   useAlphaStore.getState().finishGA();
 }
 function openSave() {
+  useAlphaStore.getState().setAlphaName('  desk ');
   useAlphaStore.getState().setIsSaveModalOpen(true);
   render(<SaveAlphaModal />);
-  fireEvent.change(screen.getByLabelText('Alpha Name'), { target: { value: 'desk' } });
 }
 
 describe('save alpha', () => {
@@ -122,7 +122,29 @@ describe('save alpha', () => {
     openSave();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
+    expect(screen.getByRole('alert')).toHaveTextContent('Alpha name field');
     expect(useAlphaStore.getState().isSaveModalOpen).toBe(true);
+  });
+
+  it('uses the toolbar name: no name input in the dialog, trimmed name sent, store name kept after success', async () => {
+    openSave();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByTestId('save-alpha-name')).toHaveTextContent('Name: desk');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(useAlphaStore.getState().isSaveModalOpen).toBe(false));
+    expect(posted().name).toBe('desk');
+    expect(useAlphaStore.getState().alphaName).toBe('  desk ');
+  });
+
+  it('blocks saving with an empty toolbar name and says where to enter it', () => {
+    useAlphaStore.getState().setAlphaName('   ');
+    useAlphaStore.getState().setIsSaveModalOpen(true);
+    render(<SaveAlphaModal />);
+    expect(screen.getByTestId('save-alpha-name')).toHaveTextContent('Alpha name field');
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(calls).toHaveLength(0);
   });
 });
 

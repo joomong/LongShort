@@ -12,7 +12,9 @@ struct MChain : public Module {
     void calculate(unsigned di, SignalVector &output)
     {
         first->calculate(di, output);
+        output.inf_to_nan();
         second->calculate(di, output);
+        output.inf_to_nan();
     }
     void checkpoint(boost::archive::binary_iarchive &ar)
     {

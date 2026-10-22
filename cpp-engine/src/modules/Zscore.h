@@ -57,5 +57,5 @@ struct MZscore : public Module {
     const std::vector<uint8_t>* universe = nullptr; // run-selected mask (universe.names); null = panel default
     IntParameter ddof{1};
     IntParameter min_count{2};
-    FloatParameter eps{1e-12};
+    FloatParameter eps{1e-12f};
 };

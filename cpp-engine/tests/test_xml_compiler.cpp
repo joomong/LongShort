@@ -5,16 +5,20 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <cstring>
+#include <limits>
 #include "module.h"
 #include "compiler/xml_parser.h"
 #include "compiler/expansion.h"
 #include "compiler/dag_builder.h"
+#include "compiler/range_parser.h"
 #include "data/data_panel.h"
 #include "modules/Neutralize.h"
 #include "modules/Delay.h"
 #include "modules/Rank.h"
 #include "modules/TsZscore.h"
 #include "modules/MetaSource.h"
+#include "modules/Unary.h"
 #include "signal_vector.h"
 
 // ---------------------------------------------------------------------------
@@ -120,6 +124,70 @@ TEST(XmlCompiler, RangeExpansion) {
 // TEST: ChoiceExpansion
 // <data expr="close"/><choice><rank/><zscore/></choice> → 2 variants
 // ---------------------------------------------------------------------------
+static void expect_invalid_range(const std::string& xml, const std::string& value) {
+    auto dp = make_panel();
+    try {
+        (void)compile_xml(xml, &dp);
+        FAIL() << "Expected invalid range error for " << xml;
+    } catch (const std::exception& e) {
+        EXPECT_EQ(std::string(e.what()), "Invalid range '" + value +
+                                         "' (expected integers start...end or start...step...end)");
+    }
+}
+
+TEST(XmlCompiler, RangeRejectsNonIntegerParts) {
+    expect_invalid_range(R"(<data expr="close"/><tsmean days="5.5...20"/>)", "5.5...20");
+    expect_invalid_range(R"(<data expr="close"/><tsmean days="1e3...20"/>)", "1e3...20");
+    expect_invalid_range(R"(<data expr="close"/><tsmean days="5abc...20"/>)", "5abc...20");
+    expect_invalid_range(R"(<data expr="close"/><power exp="0.5...2"/>)", "0.5...2");
+    expect_invalid_range(R"(<data expr="close"/><tsmean days="5...+20"/>)", "5...+20");
+    auto dp = make_panel();
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><tsmean days="5...7"/>)", &dp).size(), 3u);
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><tsmean days="20...-5...10"/>)", &dp).size(), 3u);
+}
+
+TEST(XmlCompiler, RangeBoundsAndSizeLimit) {
+    const auto top = range_parser::parse_range_notation("2147483646...2147483647");
+    EXPECT_EQ(top, (std::vector<std::string>{"2147483646", "2147483647"}));
+    const auto bottom = range_parser::parse_range_notation("-2147483647...-1...-2147483648");
+    EXPECT_EQ(bottom, (std::vector<std::string>{"-2147483647", "-2147483648"}));
+    // Next value (-2^32 + 2) would overflow int; the 64-bit count stops at one value.
+    const auto single = range_parser::parse_range_notation("-2147483647...-2147483647...-2147483648");
+    EXPECT_EQ(single, (std::vector<std::string>{"-2147483647"}));
+    EXPECT_EQ(range_parser::parse_range_notation("1...10000").size(), 10000u);
+    try {
+        (void)range_parser::parse_range_notation("1...20000");
+        FAIL() << "Expected range size error";
+    } catch (const std::runtime_error& e) {
+        EXPECT_EQ(std::string(e.what()), "Range '1...20000' has 20000 values (max 10000)");
+    }
+    try {
+        (void)range_parser::parse_range_notation("1...2000000000");
+        FAIL() << "Expected range size error";
+    } catch (const std::runtime_error& e) {
+        EXPECT_EQ(std::string(e.what()), "Range '1...2000000000' has 2000000000 values (max 10000)");
+    }
+}
+
+TEST(XmlCompiler, BoundedIntAttributesAreStrict) {
+    auto dp = make_panel();
+    expect_compile_error_contains(R"(<data expr="close"/><tsmean days="+5"/>)", dp, {"<tsmean>", "'days'", "'+5'"});
+    expect_compile_error_contains(R"(<data expr="close" delay="+1"/>)", dp, {"'delay'", "'+1'"});
+    expect_compile_error_contains(R"(<data expr="close"/><tsmean days="5.0"/>)", dp, {"<tsmean>", "'days'", "'5.0'"});
+    expect_compile_error_contains(R"(<data expr="close"/><tsmean days="1e1"/>)", dp, {"<tsmean>", "'days'", "'1e1'"});
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><tsmean days=" 5 "/>)", &dp).size(), 1u);
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><tsmean days="007"/>)", &dp).size(), 1u);
+}
+
+TEST(XmlCompiler, ScientificNotationAttributesRejected) {
+    auto dp = make_panel();
+    expect_compile_error_contains(R"(<data expr="close"/><power exp="1e-3"/>)", dp,
+                                  {"Invalid value for <power> attribute 'exp': '1e-3' (expected decimal number)"});
+    expect_compile_error_contains(R"(<data expr="close"/><zscore eps="1e-12"/>)", dp,
+                                  {"Invalid value for <zscore> attribute 'eps': '1e-12' (expected decimal number)"});
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><zscore eps="0.000000000001"/>)", &dp).size(), 1u);
+}
+
 TEST(XmlCompiler, ChoiceExpansion) {
     auto dp = make_panel();
     std::string xml = R"(<data expr="close"/><choice><rank/><zscore/></choice>)";
@@ -1004,13 +1072,19 @@ TEST(XmlCompiler, CombineMvoShape) {
     EXPECT_EQ(lw.key(), "mvo days=252 shrink=lw rebalance=21");
     auto diag = compile_combine(R"(<meta expr="s"/><mvo days="252" shrink="0.7"/>)");
     EXPECT_EQ(diag.shrink, ShrinkMode::Diag);
-    EXPECT_DOUBLE_EQ(diag.delta, 0.7);
+    EXPECT_EQ(diag.delta, 0.7f);  // read directly as float, bitwise
     EXPECT_EQ(diag.rebalance, 1u);
     EXPECT_EQ(diag.key(), "mvo days=252 shrink=diag delta=0.7 rebalance=1");
     auto def = compile_combine(R"(<meta expr="s"/><mvo days="252"/>)");
     EXPECT_EQ(def.shrink, ShrinkMode::Diag);
-    EXPECT_DOUBLE_EQ(def.delta, 0.5);
+    EXPECT_EQ(def.delta, 0.5f);
     EXPECT_EQ(def.key(), "mvo days=252 shrink=diag delta=0.5 rebalance=1");
+    // Float shortest form: 0.3f printed via double would be 0.30000001192092896.
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><minvar days="20" shrink="0.3"/>)").key(),
+              "minvar days=20 shrink=diag delta=0.3 rebalance=1");
+    // Float edge of [0,1]: 1.00000001 rounds to 1.0f (accepted); 1.0000001 rounds above 1 (rejected).
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><mvo days="252" shrink="1.00000001"/>)").key(),
+              "mvo days=252 shrink=diag delta=1 rebalance=1");
 }
 
 TEST(XmlCompiler, CombineOtherShapes) {
@@ -1031,8 +1105,10 @@ TEST(XmlCompiler, CombineOtherShapes) {
     EXPECT_EQ(spca.key(), "spca days=252 k=4 rebalance=1");
     auto gl = compile_combine(R"(<meta expr="s"/><glasso days="252" alpha="0.1"/>)");
     EXPECT_EQ(gl.method, CombineMethod::Glasso);
-    EXPECT_DOUBLE_EQ(gl.alpha, 0.1);
+    EXPECT_EQ(gl.alpha, 0.1f);  // read directly as float, bitwise
     EXPECT_EQ(gl.key(), "glasso days=252 alpha=0.1 rebalance=1");
+    EXPECT_EQ(compile_combine(R"(<meta expr="s"/><glasso days="252" alpha="0.0000001"/>)").key(),
+              "glasso days=252 alpha=0.0000001 rebalance=1");
     auto sign = compile_combine(R"(<meta expr="s"/><ew sign="252"/>)");
     EXPECT_EQ(sign.method, CombineMethod::EwSign);
     EXPECT_EQ(sign.days, 252u);
@@ -1087,6 +1163,8 @@ TEST(XmlCompiler, CombineRejections) {
                       "Invalid value for <mvo> attribute 'shrink': 'x' (expected a number in [0,1] or lw|cc|oas)");
     expect_meta_error(R"(<meta expr="s"/><mvo days="252" shrink="1.5"/>)", m,
                       "Invalid value for <mvo> attribute 'shrink': '1.5' (expected a number in [0,1] or lw|cc|oas)");
+    expect_meta_error(R"(<meta expr="s"/><mvo days="252" shrink="1.0000001"/>)", m,
+                      "Invalid value for <mvo> attribute 'shrink': '1.0000001' (expected a number in [0,1] or lw|cc|oas)");
     expect_meta_error(R"(<meta expr="s"/><spca days="252" k="0"/>)", m,
                       "Invalid value for <spca> attribute 'k': '0' (expected integer >= 1)");
     expect_meta_error(R"(<meta expr="s"/><glasso days="252" alpha="0"/>)", m,
@@ -1099,4 +1177,129 @@ TEST(XmlCompiler, CombineRejections) {
     expect_meta_error(R"(<meta expr="s"/><signal id="x"/><meta expr="t"/><mvo days="252" input="x"/>)", m,
                       "Unknown attribute 'input' for <mvo>");
     expect_meta_error(R"(<meta expr="s"/><ew foo="1"/>)", m, "Unknown attribute 'foo' for <ew>");
+}
+
+// ---------------------------------------------------------------------------
+// Element-wise arithmetic chain tags (MUnary<Op>)
+// ---------------------------------------------------------------------------
+template <class Op>
+static const MUnary<Op>* find_unary(const CompiledAlpha& alpha) {
+    for (Module* m : alpha.pipeline)
+        if (auto* u = dynamic_cast<const MUnary<Op>*>(m)) return u;
+    return nullptr;
+}
+
+TEST(XmlCompiler, UnaryTagsCompile) {
+    auto dp = make_panel();
+    auto one = [&](const std::string& tag) {
+        auto alphas = compile_xml("<data expr=\"close\"/>" + tag, &dp);
+        EXPECT_EQ(alphas.size(), 1u) << tag;
+        return alphas;
+    };
+    EXPECT_NE(find_unary<unary_ops::Abs>(one("<abs/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Log>(one("<log/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Sqrt>(one("<sqrt/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Sign>(one("<sign/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Inverse>(one("<inverse/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Reverse>(one("<reverse/>")[0]), nullptr);
+
+    auto power = one(R"(<power exp="2"/>)");
+    auto spow = one(R"(<signedpower exp="0.5"/>)");
+    auto mx = one(R"(<max value="0"/>)");
+    auto mn = one(R"(<min value="-3"/>)");
+    auto* p = find_unary<unary_ops::Power>(power[0]);
+    auto* sp = find_unary<unary_ops::SignedPower>(spow[0]);
+    auto* x = find_unary<unary_ops::Max>(mx[0]);
+    auto* n = find_unary<unary_ops::Min>(mn[0]);
+    ASSERT_NE(p, nullptr);
+    ASSERT_NE(sp, nullptr);
+    ASSERT_NE(x, nullptr);
+    ASSERT_NE(n, nullptr);
+    EXPECT_EQ((double)p->param, 2.0);
+    EXPECT_EQ((double)sp->param, 0.5);
+    EXPECT_EQ((double)x->param, 0.0);
+    EXPECT_EQ((double)n->param, -3.0);
+}
+
+TEST(XmlCompiler, UnaryTagErrors) {
+    auto dp = make_panel();
+    expect_compile_error_contains(R"(<data expr="close"/><power/>)", dp, {"<power> requires attribute 'exp'"});
+    expect_compile_error_contains(R"(<data expr="close"/><signedpower/>)", dp,
+                                  {"<signedpower> requires attribute 'exp'"});
+    expect_compile_error_contains(R"(<data expr="close"/><max/>)", dp, {"<max> requires attribute 'value'"});
+    expect_compile_error_contains(R"(<data expr="close"/><min/>)", dp, {"<min> requires attribute 'value'"});
+    expect_compile_error_contains(R"(<data expr="close"/><power exp="x"/>)", dp, {"power", "exp"});
+    expect_compile_error_contains(R"(<data expr="close"/><max value="inf"/>)", dp, {"max", "value"});
+    expect_compile_error_contains(R"(<data expr="close"/><abs foo="1"/>)", dp, {"Unknown attribute 'foo' for <abs>"});
+    expect_compile_error_contains(R"(<data expr="close"/><power exp="2" value="1"/>)", dp,
+                                  {"Unknown attribute 'value' for <power>"});
+}
+
+TEST(XmlCompiler, UnaryPipeExpansion) {
+    auto dp = make_panel();
+    auto alphas = compile_xml(R"(<data expr="close"/><power exp="0.5|2"/>)", &dp);
+    ASSERT_EQ(alphas.size(), 2u);
+    auto* a = find_unary<unary_ops::Power>(alphas[0]);
+    auto* b = find_unary<unary_ops::Power>(alphas[1]);
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    EXPECT_EQ((double)a->param, 0.5);
+    EXPECT_EQ((double)b->param, 2.0);
+}
+
+// Runs two compiled single-alpha pipelines side by side and requires bit-identical rows (NaN positions equal).
+static void expect_same_rows(const std::string& xml_a, const std::string& xml_b, const DataPanel& dp) {
+    auto a = compile_xml(xml_a, &dp);
+    auto b = compile_xml(xml_b, &dp);
+    ASSERT_EQ(a.size(), 1u) << xml_a;
+    ASSERT_EQ(b.size(), 1u) << xml_b;
+    for (Module* m : a[0].pipeline) { m->numAssets = dp.N; m->init(); }
+    for (Module* m : b[0].pipeline) { m->numAssets = dp.N; m->init(); }
+    std::vector<float> ba(dp.N), bb(dp.N);
+    SignalVector sa{ba.data(), dp.N}, sb{bb.data(), dp.N};
+    for (unsigned t = 0; t < dp.T; ++t) {
+        sa.fill_nan(); sb.fill_nan();
+        for (Module* m : a[0].pipeline) m->calculate(t, sa);
+        for (Module* m : b[0].pipeline) m->calculate(t, sb);
+        for (unsigned i = 0; i < dp.N; ++i) {
+            if (std::isnan(ba[i])) EXPECT_TRUE(std::isnan(bb[i])) << xml_b << " t=" << t << " i=" << i;
+            else EXPECT_EQ(std::memcmp(&ba[i], &bb[i], sizeof(float)), 0)
+                << xml_b << " t=" << t << " i=" << i << " " << ba[i] << " vs " << bb[i];
+        }
+    }
+}
+
+// End-to-end through the compiled pipeline: <reverse/><reverse/> leaves every raw row bit-identical.
+TEST(XmlCompiler, UnaryReverseTwiceMatchesPlainChain) {
+    auto dp = make_panel(40, 3);
+    dp.arrays["close"][5 * 3 + 1] = std::numeric_limits<float>::quiet_NaN();
+    dp.arrays["close"][6 * 3 + 2] = -3.5f;
+    expect_same_rows(R"(<data expr="close" delay="1"/>)",
+                     R"(<data expr="close" delay="1"/><reverse/><reverse/>)", dp);
+}
+
+// The expr function f(close) and the chain tag <f/> share one Op, so their rows are bit-identical.
+TEST(XmlCompiler, ExprFunctionEqualsChainTag) {
+    auto dp = make_panel(40, 3);
+    auto& close = dp.arrays["close"];
+    close[5 * 3 + 1] = std::numeric_limits<float>::quiet_NaN();
+    close[6 * 3 + 0] = 0.0f;
+    close[7 * 3 + 2] = -0.0f;
+    close[8 * 3 + 1] = -2.5f;
+    close[9 * 3 + 0] = 0.25f;
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"abs(close)", "<abs/>"},
+        {"log(close)", "<log/>"},
+        {"sqrt(close)", "<sqrt/>"},
+        {"sign(close)", "<sign/>"},
+        {"power(close, 2)", R"(<power exp="2"/>)"},
+        {"power(close, 0.5)", R"(<power exp="0.5"/>)"},
+        {"power(close, 0.1)", R"(<power exp="0.1"/>)"},
+        {"power(close, -1)", R"(<power exp="-1"/>)"},
+        {"signedpower(close, 0.5)", R"(<signedpower exp="0.5"/>)"},
+        {"signedpower(close, -1)", R"(<signedpower exp="-1"/>)"},
+    };
+    for (const auto& c : cases)
+        expect_same_rows("<data expr=\"" + c.first + "\" delay=\"1\"/>",
+                         "<data expr=\"close\" delay=\"1\"/>" + c.second, dp);
 }

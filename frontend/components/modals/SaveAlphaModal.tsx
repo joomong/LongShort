@@ -19,7 +19,7 @@ export default function SaveAlphaModal() {
   const settings = useAlphaStore(s => s.settings);
   const config = useAlphaStore(s => s.config);
   const isRunning = useAlphaStore(s => s.isRunning);
-  const [name, setName] = useState('');
+  const name = useAlphaStore(s => s.alphaName).trim();
   const [level, setLevel] = useState<SavedAlphaLevel>('xml');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,26 +58,22 @@ export default function SaveAlphaModal() {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      setError('Please enter a name');
-      return;
-    }
+    if (!name) return;
     if (!xmlCode.trim()) {
       setError('Editor XML is empty.');
       return;
     }
-    const request: SaveAlphaRequest = { name: name.trim(), xml: xmlCode, level: effectiveLevel, metadata: metadataFor(effectiveLevel) };
+    const request: SaveAlphaRequest = { name, xml: xmlCode, level: effectiveLevel, metadata: metadataFor(effectiveLevel) };
     if (effectiveLevel !== 'xml') request.rows = rows;
 
     setIsLoading(true);
     setError('');
     try {
       await saveAlpha(request);
-      setName('');
       setLevel('xml');
       setIsSaveModalOpen(false);
     } catch (err) {
-      setError(err instanceof AlphaExistsError ? `"${request.name}" already exists. Choose another name.`
+      setError(err instanceof AlphaExistsError ? `"${request.name}" already exists. Change the Alpha name field.`
         : err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setIsLoading(false);
@@ -86,7 +82,6 @@ export default function SaveAlphaModal() {
 
   const handleClose = () => {
     if (isLoading) return;
-    setName('');
     setError('');
     setLevel('xml');
     setIsSaveModalOpen(false);
@@ -111,19 +106,12 @@ export default function SaveAlphaModal() {
 
         {/* Body */}
         <div className="px-6 py-4 space-y-4">
-          {/* Name Input */}
-          <div>
-            <label htmlFor="save-alpha-name" className="block text-sm text-foreground-secondary mb-2">Alpha Name</label>
-            <input
-              id="save-alpha-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., momentum_v1"
-              autoComplete="off"
-              className="w-full px-3 py-2 bg-background-elevated border border-border text-foreground placeholder-foreground-muted focus:outline-none focus:border-accent"
-            />
-          </div>
+          {/* Name comes from the toolbar "Alpha name" field */}
+          {name ? (
+            <p className="text-sm text-foreground" data-testid="save-alpha-name">Name: <span className="font-mono">{name}</span></p>
+          ) : (
+            <p className="text-sm text-metric-negative" data-testid="save-alpha-name">Enter a name in the Alpha name field before saving.</p>
+          )}
 
           {/* Save level */}
           <fieldset>
@@ -165,7 +153,7 @@ export default function SaveAlphaModal() {
           </button>
           <button
             onClick={handleSave}
-            disabled={isLoading || !xmlCode.trim()}
+            disabled={isLoading || !name || !xmlCode.trim()}
             className="px-4 py-2 bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-accent"
           >
             {isLoading ? 'Saving\u2026' : 'Save'}

@@ -38,6 +38,16 @@ TEST(GA, SearchSpaceExtractionRange) {
     EXPECT_EQ(gene_values[4], "60");
 }
 
+TEST(GA, SearchSpaceRejectsMalformedRange) {
+    try {
+        (void)extract_search_space(R"(<tsmean days="5.5...20"/>)");
+        FAIL() << "Expected invalid range error";
+    } catch (const std::exception& e) {
+        EXPECT_EQ(std::string(e.what()),
+                  "Invalid range '5.5...20' (expected integers start...end or start...step...end)");
+    }
+}
+
 TEST(GA, SearchSpaceDecodeReconstructsXml) {
     std::string xml = R"(<tsmean days="10|20|30"/>)";
     SearchSpace space = extract_search_space(xml);

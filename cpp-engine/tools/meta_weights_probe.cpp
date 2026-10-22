@@ -2,6 +2,7 @@
 // `nan` allowed) and prints compute_combine_weights as CSV plus
 // "fallback_bars=N first_estimated_bar=M".
 #include "api/meta_weights.h"
+#include "compiler/module_attributes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -40,9 +41,9 @@ int main(int argc, char** argv) {
             if (flag == "--method") spec.method = parse_method(value);
             else if (flag == "--days") spec.days = static_cast<unsigned>(std::stoul(value));
             else if (flag == "--shrink") spec.shrink = parse_shrink(value);
-            else if (flag == "--delta") spec.delta = std::stod(value);
+            else if (flag == "--delta") spec.delta = module_attributes::parse_float(value, "probe", "delta");
             else if (flag == "--k") spec.k = static_cast<unsigned>(std::stoul(value));
-            else if (flag == "--alpha") spec.alpha = std::stod(value);
+            else if (flag == "--alpha") spec.alpha = module_attributes::parse_float(value, "probe", "alpha");
             else if (flag == "--rebalance") spec.rebalance = static_cast<unsigned>(std::stoul(value));
             else if (flag == "--sim-start") returns.sim_start = static_cast<unsigned>(std::stoul(value));
             else throw std::invalid_argument("unknown flag " + flag);

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cstdio>
-#include <cstdlib>
+#include <charconv>
 #include <string>
 
 // How a <meta> alpha SET is turned into one signal row per bar. Every method weights the members'
@@ -15,9 +14,9 @@ struct CombineSpec {
     unsigned days = 0;                     // estimation window in bars (EwSign: the sign window)
     unsigned rebalance = 1;                // recompute the weights every N bars (>= 1)
     ShrinkMode shrink = ShrinkMode::Diag;  // Mvo / MinVar covariance shrinkage
-    double delta = 0.5;                    // Diag shrink intensity in [0, 1]; ignored by the automatic modes
+    float delta = 0.5f;                    // Diag shrink intensity in [0, 1]; ignored by the automatic modes
     unsigned k = 0;                        // Spca: number of principal components (>= 1)
-    double alpha = 0.0;                    // Glasso: L1 penalty (> 0)
+    float alpha = 0.0f;                    // Glasso: L1 penalty (> 0)
 
     bool is_ew() const { return method == CombineMethod::Ew; }
 
@@ -28,10 +27,10 @@ struct CombineSpec {
         out += " days=" + std::to_string(days);
         if (method == CombineMethod::Mvo || method == CombineMethod::MinVar) {
             out += std::string(" shrink=") + shrink_name(shrink);
-            if (shrink == ShrinkMode::Diag) out += " delta=" + fixed6(delta);
+            if (shrink == ShrinkMode::Diag) out += " delta=" + shortest_fixed_decimal(delta);
         }
         if (method == CombineMethod::Spca) out += " k=" + std::to_string(k);
-        if (method == CombineMethod::Glasso) out += " alpha=" + fixed6(alpha);
+        if (method == CombineMethod::Glasso) out += " alpha=" + shortest_fixed_decimal(alpha);
         out += " rebalance=" + std::to_string(rebalance);
         return out;
     }
@@ -60,15 +59,13 @@ struct CombineSpec {
     }
 
 private:
-    // Shortest text that round-trips to the same double ("0.5", "0.1", "1e-07", "0.3333333333");
+    // Shortest float round-trip text in fixed notation, never scientific ("0.5", "0.1",
+    // "0.0000001"); printed as float, not double (0.1f would be 0.10000000149011612).
     // -0 prints as 0 so equal values share one key.
-    static std::string fixed6(double value) {
-        if (value == 0.0) value = 0.0;
-        char buffer[64];
-        for (int precision = 1; precision <= 17; ++precision) {
-            std::snprintf(buffer, sizeof buffer, "%.*g", precision, value);
-            if (std::strtod(buffer, nullptr) == value) break;
-        }
-        return buffer;
+    static std::string shortest_fixed_decimal(float value) {
+        if (value == 0.0f) value = 0.0f;
+        char buffer[512];
+        const auto result = std::to_chars(buffer, buffer + sizeof buffer, value, std::chars_format::fixed);
+        return std::string(buffer, result.ptr);
     }
 };

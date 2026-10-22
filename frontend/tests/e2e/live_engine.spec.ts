@@ -42,8 +42,8 @@ test('live C++ default GA explicit XML delay and expanded XML save/load roundtri
     await expect(page.getByRole('heading', { name: 'Load Alpha', exact: true })).toHaveCount(0);
   }
   async function save(name: string, level = 'XML only') {
+    await page.getByPlaceholder('alpha name', { exact: true }).fill(name);
     await page.getByLabel('Save alpha', { exact: true }).click();
-    await page.getByLabel('Alpha Name', { exact: true }).fill(name);
     await page.getByLabel(level, { exact: true }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Save Alpha', exact: true })).toHaveCount(0);

@@ -22,15 +22,15 @@ test('row and batch circles only select; saving stores the editor XML and run ro
   await expect(page.getByRole('heading', { name: 'Save Alpha', exact: true })).toHaveCount(0);
   await batch.getByRole('button', { name: 'Deselect all alphas', exact: true }).click();
 
+  await page.getByPlaceholder('alpha name', { exact: true }).fill('plain');
   await page.getByLabel('Save alpha', { exact: true }).click();
-  await page.getByLabel('Alpha Name', { exact: true }).fill('plain');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => saved.length).toBe(1);
   expect(saved[0]).toMatchObject({ name: 'plain', level: 'xml' });
   expect(saved[0]).not.toHaveProperty('rows');
 
+  await page.getByPlaceholder('alpha name', { exact: true }).fill('full');
   await page.getByLabel('Save alpha', { exact: true }).click();
-  await page.getByLabel('Alpha Name', { exact: true }).fill('full');
   await page.getByLabel('XML + results', { exact: true }).check();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => saved.length).toBe(2);

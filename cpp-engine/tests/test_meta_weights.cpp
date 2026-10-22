@@ -43,7 +43,7 @@ CombineSpec spec_of(CombineMethod method, unsigned days, unsigned rebalance = 1)
     s.days = days;
     s.rebalance = rebalance;
     s.k = 1;
-    s.alpha = 0.1;
+    s.alpha = 0.1f;
     return s;
 }
 
@@ -157,11 +157,11 @@ TEST(MetaWeights, ClosedForms) {
     ASSERT_TRUE(weights_for_window(win, spec_of(CombineMethod::Erc, 4), w));
     EXPECT_NEAR(w[0] / w[1], sb / sa, 1e-8);
     CombineSpec mvo = spec_of(CombineMethod::Mvo, 4);
-    mvo.delta = 1.0;
+    mvo.delta = 1.0f;
     ASSERT_TRUE(weights_for_window(win, mvo, w));
     EXPECT_NEAR(w[0] / w[1], (ma / (sa * sa)) / (mb / (sb * sb)), 1e-10);
     CombineSpec minvar = spec_of(CombineMethod::MinVar, 4);
-    minvar.delta = 0.0;  // the sample covariance itself is diagonal here
+    minvar.delta = 0.0f;  // the sample covariance itself is diagonal here
     ASSERT_TRUE(weights_for_window(win, minvar, w));
     EXPECT_NEAR(w[0] / w[1], (sb * sb) / (sa * sa), 1e-10);
 

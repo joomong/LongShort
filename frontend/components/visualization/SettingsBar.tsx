@@ -1,11 +1,32 @@
 'use client';
 
 import { useAlphaStore } from '@/store/alphaStore';
+import { useState } from 'react';
 import type { BacktestSettings } from '@/types';
 
 const inputClass = 'h-[19px] min-w-0 px-1 py-0 bg-transparent border border-transparent hover:border-[#777486] text-[11px] font-mono text-[#f0eff5] [color-scheme:dark] focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent';
 const rowClass = 'flex h-[19px] items-center gap-1 whitespace-nowrap';
 const labelClass = 'text-[11px] text-[#c7c5d1]';
+
+// Digits only while typing; commit on blur/Enter (empty -> previous value, out of range -> clamped).
+function IntInput({ value, min, max, onCommit, ...rest }: {
+  value: number; min: number; max: number; onCommit: (v: number) => void;
+  disabled?: boolean; 'aria-label': string; autoComplete?: string; className?: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    if (draft === '') return;
+    const next = Math.min(max, Math.max(min, parseInt(draft, 10)));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input type="text" inputMode="numeric" value={draft ?? String(value)} {...rest}
+      onChange={e => { if (/^\d*$/.test(e.target.value)) setDraft(e.target.value); }}
+      onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); }} />
+  );
+}
 
 export default function SettingsBar() {
   const settings = useAlphaStore(s => s.settings);
@@ -51,14 +72,14 @@ export default function SettingsBar() {
       <div className="grid grid-rows-3">
         <label className={rowClass}>
           <span className={`${labelClass} w-[73px]`}>#Threads:</span>
-          <input type="number" min={1} max={32} value={settings.nJobs} disabled={isRunning}
-            onChange={e => setSettings({ nJobs: Math.min(32, Math.max(1, parseInt(e.target.value) || 1)) })}
+          <IntInput min={1} max={32} value={settings.nJobs} disabled={isRunning}
+            onCommit={v => setSettings({ nJobs: v })}
             aria-label="Number of threads" autoComplete="off" className={`${inputClass} w-14`} />
         </label>
         <label className={rowClass}>
           <span className={`${labelClass} w-[73px]`}>First search:</span>
-          <input type="number" min={1} max={5000} value={settings.gaFirstSearch ?? 200} disabled={isRunning}
-            onChange={e => setSettings({ gaFirstSearch: Math.min(5000, Math.max(1, parseInt(e.target.value) || 1)) })}
+          <IntInput min={1} max={5000} value={settings.gaFirstSearch ?? 200} disabled={isRunning}
+            onCommit={v => setSettings({ gaFirstSearch: v })}
             aria-label="First search" autoComplete="off" className={`${inputClass} w-14`} />
         </label>
       </div>
@@ -66,14 +87,14 @@ export default function SettingsBar() {
       <div className="grid grid-rows-3">
         <label className={rowClass}>
           <span className={`${labelClass} w-[73px]`}>Stop round:</span>
-          <input type="number" min={1} max={1000} value={settings.gaStopRound ?? 40} disabled={isRunning}
-            onChange={e => setSettings({ gaStopRound: Math.min(1000, Math.max(1, parseInt(e.target.value) || 1)) })}
+          <IntInput min={1} max={1000} value={settings.gaStopRound ?? 40} disabled={isRunning}
+            onCommit={v => setSettings({ gaStopRound: v })}
             aria-label="Stop round" className={`${inputClass} w-14 disabled:opacity-60`} />
         </label>
         <label className={rowClass}>
           <span className={`${labelClass} w-[73px]`}>Stop alphas:</span>
-          <input type="number" min={1} max={5000} value={settings.gaStopAlphas ?? 400} disabled={isRunning}
-            onChange={e => setSettings({ gaStopAlphas: Math.min(5000, Math.max(1, parseInt(e.target.value) || 1)) })}
+          <IntInput min={1} max={5000} value={settings.gaStopAlphas ?? 400} disabled={isRunning}
+            onCommit={v => setSettings({ gaStopAlphas: v })}
             aria-label="Stop alphas" className={`${inputClass} w-14 disabled:opacity-60`} />
         </label>
       </div>

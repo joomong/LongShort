@@ -399,6 +399,25 @@ TEST(ModuleOracle, TsRankMatchesReference)
     expect_matrix_near(actual, expected);
 }
 
+TEST(ModuleOracle, TsRankTreatsInfExactlyLikeNaN)
+{
+    const float inf = std::numeric_limits<float>::infinity();
+    // Asset 0: +inf in the window; asset 1: -inf in the window; asset 2: current value inf.
+    Matrix with_inf = {{1, 5, 2}, {inf, -inf, 3}, {2, 4, inf}, {3, 6, -inf}};
+    Matrix with_nan = {{1, 5, 2}, {nanf(), nanf(), 3}, {2, 4, nanf()}, {3, 6, nanf()}};
+    for (int min_count : {1, 3}) {
+        MTsRank a, b;
+        a.days = b.days = IntParameter(3);
+        a.pct = b.pct = IntParameter(1);
+        a.min_count = b.min_count = IntParameter(min_count);
+        Matrix actual = run_module(a, with_inf);
+        Matrix expected = run_module(b, with_nan);
+        expect_matrix_near(actual, expected);
+        EXPECT_TRUE(std::isnan(actual[2][2]));
+        EXPECT_TRUE(std::isnan(actual[3][2]));
+    }
+}
+
 TEST(ModuleOracle, DecayDays3MatchesReference)
 {
     Matrix input = make_fixture();
