@@ -3,7 +3,7 @@
 import React, { startTransition, useMemo } from 'react';
 import { useAlphaStore } from '@/store/alphaStore';
 import { getMetricCellColor } from '@/lib/metricColors';
-import type { BacktestAlphaResult, PeriodMetrics } from '@/types';
+import type { BacktestAlphaResult, PeriodMetrics, PoolCorrelation } from '@/types';
 
 const EMPTY_ALPHAS: BacktestAlphaResult[] = [];
 
@@ -33,6 +33,8 @@ function MetricValue({ metric, value, children }: { metric: string; value: numbe
 // Hoisted static thead — column labels never change (rendering-hoist-jsx)
 // Order: avgBet | avgMaxWeight | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover
 const QUALITY_DESCRIPTION = 'Sharpe × sqrt(abs(1 − max net exposure)) × (1 − max single-symbol weight). Net exposure = abs(long − absolute short); both maxima are taken over this IS/OS period, with weights as fractions of the gross=1 book.';
+const POOL_CORR_DESCRIPTION = 'Correlation of daily net returns with the equal-weight alpha pool over the whole sim window (IS and OS).';
+
 const TABLE_HEADER = (
   <thead className="sticky top-0 bg-white dark:bg-background-secondary">
     {/* Group Header Row */}
@@ -41,6 +43,7 @@ const TABLE_HEADER = (
       <th className="w-6"></th>
       <th className="text-center pb-0" colSpan={9}><span className="block mx-2 border-b border-foreground-muted">IS</span></th>
       <th className="text-center pb-0" colSpan={9}><span className="block mx-2 border-b border-foreground-muted">OS</span></th>
+      <th className="text-center pb-0"><span className="block mx-2 border-b border-foreground-muted">Corr</span></th>
     </tr>
     {/* Metric Header Row */}
     <tr className="text-[10px] font-medium text-[#111111] dark:text-foreground border-b border-border-strong">
@@ -64,6 +67,7 @@ const TABLE_HEADER = (
       <th className="text-right px-1.5">sharpe</th>
       <th className="text-right px-1.5">sharpe400</th>
       <th className="text-right px-1.5">turnover</th>
+      <th className="text-right px-1.5" title={POOL_CORR_DESCRIPTION}>pool</th>
     </tr>
   </thead>
 );
@@ -83,6 +87,12 @@ const MetricCells = React.memo(function MetricCells({ m }: { m: PeriodMetrics })
       <td className={cellClass}>{isFiniteNumber(m.turnover) ? m.turnover.toFixed(2) + '%' : '-'}</td>
     </>
   );
+});
+
+const PoolCorrCell = React.memo(function PoolCorrCell({ corr }: { corr: PoolCorrelation | undefined }) {
+  const cellClass = "text-[10px] font-sans font-semibold tabular-nums text-right px-1.5 py-0.5 text-[#111111] dark:text-foreground";
+  if (!corr) return <td className={cellClass} title="No alpha pool configured">-</td>;
+  return <td className={cellClass} title={`EW pool correlation over ${corr.days} days`} aria-label="Pool correlation">{formatNumber(corr.ew)}</td>;
 });
 
 // React.memo — BatchRow has no props; memo prevents parent re-renders from calling this
@@ -133,6 +143,7 @@ const BatchRow = React.memo(function BatchRow() {
       </td>
       <MetricCells m={isMetrics} />
       <MetricCells m={osMetrics} />
+      <PoolCorrCell corr={combined.poolCorr} />
     </tr>
   );
 });
@@ -181,7 +192,7 @@ const RankRow = React.memo(function RankRow({ item, index, displayIndex }: { ite
           {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-foreground-secondary" /> : null}
         </button>
       </td>
-      {item.error ? <td colSpan={18} className="text-[10px] text-metric-negative px-2 py-0.5">Failed: {item.error}</td> : <><MetricCells m={isMetrics} /><MetricCells m={osMetrics} /></>}
+      {item.error ? <td colSpan={19} className="text-[10px] text-metric-negative px-2 py-0.5">Failed: {item.error}</td> : <><MetricCells m={isMetrics} /><MetricCells m={osMetrics} /><PoolCorrCell corr={item.poolCorr} /></>}
     </tr>
   );
 });

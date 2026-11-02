@@ -119,7 +119,7 @@ function singleAlphaSignals(state: AlphaState) {
 }
 
 const defaultSettings: BacktestSettings = {
-  simStart: '2016-01-01',
+  simStart: '2015-01-01',
   simEnd: '',
   isStart: '2016-01-01',
   osStart: '2024-01-01',

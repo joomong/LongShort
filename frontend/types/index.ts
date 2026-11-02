@@ -80,8 +80,16 @@ export interface StarSignalPayload {
   signalDistributionLog?: StarDistribution;
 }
 
+/** Correlation of a run's daily net return with the alpha pool (engine `alpha_pool`), over the sim window. */
+export interface PoolCorrelation {
+  /** Equal-weight pool (alphas active on each bar); null with fewer than 60 overlapping days. */
+  ew: number | null;
+  days: number;
+}
+
 export interface StarBatchEntry extends StarSignalPayload {
   index: number;
+  poolCorr?: PoolCorrelation;
   xml?: string;
   summary: { is: StarSummary; os: StarSummary };
   yearly?: StarYearly[];
@@ -104,6 +112,9 @@ export interface StarBatchResponse extends StarSignalPayload {
 
 export interface StarConfigResponse {
   symbols: string[];
+  alphaPool?: string | null;
+  alphaPoolSize?: number;
+  alphaPoolUniverse?: string | null;
   symbolLabels?: Record<string, string>; // panel symbol -> ticker
   simStart: string;
   simEnd: string;
@@ -256,6 +267,7 @@ export interface BacktestAlphaResult extends SignalPayload {
   osStartDate?: string;
   longRatio?: number;
   shortRatio?: number;
+  poolCorr?: PoolCorrelation;
 }
 
 export interface BacktestRunResponse extends SignalPayload {

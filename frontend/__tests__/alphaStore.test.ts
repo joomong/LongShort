@@ -76,7 +76,7 @@ describe('fetchConfig', () => {
     vi.mocked(getConfig).mockResolvedValue({
       symbols: ['A'], simStart: '2016-01-04', simEnd: '2026-09-15', feeRate: 0.001, barsPerYear: 252, T: 10, N: 1, columns: [],
     });
-    expect(useAlphaStore.getState().settings).toMatchObject({ simStart: '2016-01-01', isStart: '2016-01-01', osStart: '2024-01-01' });
+    expect(useAlphaStore.getState().settings).toMatchObject({ simStart: '2015-01-01', isStart: '2016-01-01', osStart: '2024-01-01' });
     await useAlphaStore.getState().fetchConfig();
     expect(useAlphaStore.getState().settings).toMatchObject({
       simStart: '2016-01-04', isStart: '2016-01-04', osStart: '2024-01-01', simEnd: '2026-09-15' });

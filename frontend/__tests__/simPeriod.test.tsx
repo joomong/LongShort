@@ -12,7 +12,7 @@ beforeEach(() => {
   useAlphaStore.setState({ ...initial, config, settings: { ...initial.settings, simEnd: config.simEnd } }, true);
 });
 it('defaults From and IS start to January 2016, clamped to the server range', () => {
-  expect(initial.settings).toMatchObject({ simStart: '2016-01-01', isStart: '2016-01-01' });
+  expect(initial.settings).toMatchObject({ simStart: '2015-01-01', isStart: '2016-01-01' });
   expect(enforceSettingsDates(initial.settings, '2016-01-04', '2026-09-15')).toMatchObject({ simStart: '2016-01-04', isStart: '2016-01-04' });
 });
 it('preserves warmup and splits, resets excluded splits, clamps range and permits empty one-day OS', () => {

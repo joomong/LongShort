@@ -71,7 +71,7 @@ describe('Reference table formatting', () => {
     expect(screen.queryByRole('columnheader', { name: 'sharpe80' })).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'IS' })).toHaveAttribute('colspan', '9');
     expect(screen.getByRole('columnheader', { name: 'OS' })).toHaveAttribute('colspan', '9');
-    expect(cells).toHaveLength(20);
+    expect(cells).toHaveLength(21);   // 2 + 9 IS + 9 OS + Corr
     for (const header of screen.getAllByRole('columnheader', { name: 'quality' })) {
       expect(header).toHaveAttribute('title', expect.stringContaining('max net exposure'));
     }
@@ -121,5 +121,32 @@ describe('Batch save selection', () => {
     expect(selectAll).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(within(batch).getByText('batch'));
     expect(useAlphaStore.getState().selectedAlphaIndex).toBe(-1);
+  });
+});
+
+describe('AlphaRankingTable pool correlation column', () => {
+  it('shows the EW pool correlation right of OS, or a dash without a pool', () => {
+    const fixture = structuredClone(multiAlphaMetricFixture);
+    fixture.alphas[0] = {
+      ...fixture.alphas[0],
+      poolCorr: { ew: 0.4213, days: 2500 },
+    };
+    useAlphaStore.setState({ result: fixture });
+
+    render(<AlphaRankingTable />);
+
+    const groups = within(screen.getAllByRole('row')[0]).getAllByRole('columnheader');
+    expect(groups[groups.length - 1]).toHaveTextContent('Corr');
+    const headers = within(screen.getAllByRole('row')[1]).getAllByRole('columnheader');
+    expect(headers[headers.length - 1]).toHaveTextContent('pool');
+
+    const alpha0Row = screen.getByRole('button', { name: `View ${fixture.alphas[0].name}` });
+    const cell = within(alpha0Row).getByLabelText('Pool correlation');
+    expect(cell).toHaveTextContent('0.42');
+    expect(cell.getAttribute('title')).toBe('EW pool correlation over 2500 days');
+
+    const alpha1Row = screen.getByRole('button', { name: `View ${fixture.alphas[1].name}` });
+    const cells = within(alpha1Row).getAllByRole('cell');
+    expect(cells[cells.length - 1]).toHaveTextContent('-');
   });
 });

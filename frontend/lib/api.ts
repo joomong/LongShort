@@ -175,6 +175,7 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
       yearly: combinedSource.yearly ?? resp.yearly,
       longRatio: combinedSource.summary.is.longRatio,
       shortRatio: combinedSource.summary.is.shortRatio,
+      poolCorr: combinedSource.poolCorr,
       ...combinedSeries,
     };
   }
@@ -200,6 +201,7 @@ export function adaptSimulateResponse(resp: StarBatchResponse): BacktestRunRespo
       yearly: batch.yearly ?? resp.yearly,
       longRatio: batch.summary.is.longRatio,
       shortRatio: batch.summary.is.shortRatio,
+      poolCorr: batch.poolCorr,
       ...series,
     };
   });

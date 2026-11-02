@@ -45,5 +45,12 @@ next-env.d.ts
 /public/monaco/
 
 # Isolated development and browser-test output
-/.next-dev/
+/.next-dev*/
 /.next-playwright/
+
+# env files (keep only an example), Playwright artifacts outside test-results/
+.env*
+!.env.example
+*.webm
+trace.zip
+/screenshots/

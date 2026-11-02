@@ -9,8 +9,8 @@ function readJson<T>(relativePath: string): T {
   return JSON.parse(readText(relativePath)) as T;
 }
 
-// Captured from the real C++ integration server; see fixtures/capture.json and
-// scripts/capture_engine_fixtures.mjs. No deleted Python-engine dependency.
+// Captured from a synthetic C++ integration server (fixtures/capture.json holds the
+// /api/config it answered). No Python-engine dependency.
 export const singleStarFixture = readJson<StarBatchResponse>('./fixtures/cpp_single.json');
 export const multiStarFixture = readJson<StarBatchResponse>('./fixtures/cpp_multi.json');
 export const singleAlphaFixture = adaptSimulateResponse(singleStarFixture);
