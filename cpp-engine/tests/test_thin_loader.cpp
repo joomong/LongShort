@@ -166,7 +166,7 @@ TEST(ThinLoader, LabelsPanelSymbolsFromThinMaster) {
 
 TEST(ThinLoader, DetectsLayoutAndLoadsRawPricesAndFactors) {
     ThinCache cache;
-    const auto config = BacktestConfig::from_yaml(cache.config(top500));
+    const auto config = BacktestConfig::from_yaml(cache.config(top500, "", "  pit_lag: 0\n"));   // raw alignment
     EXPECT_TRUE(config.base_thin);
     const auto panel = DataPanel::load(config);
     EXPECT_TRUE(panel.thin_layout);
@@ -236,8 +236,8 @@ TEST(ThinLoader, LoadsDestinationsTransitivelyAndMapsSortedMoveEvents) {
 }
 
 TEST(ThinLoader, IntervalUniverseBuildsInclusiveMask) {
-    ThinCache cache;
-    const auto panel = DataPanel::load(BacktestConfig::from_yaml(cache.config(top500)));
+    ThinCache cache;   // pit_lag 0: the raw interval alignment (the default lag is covered below)
+    const auto panel = DataPanel::load(BacktestConfig::from_yaml(cache.config(top500, "", "  pit_lag: 0\n")));
     ASSERT_EQ(panel.universe_mask.size(), static_cast<size_t>(panel.T) * panel.N);
     const auto member = [&](unsigned t, const std::string& s) { return panel.universe_mask[t * panel.N + index_of(panel, s)]; };
     EXPECT_EQ(member(0, "101"), 1); EXPECT_EQ(member(9, "101"), 1);
@@ -247,9 +247,35 @@ TEST(ThinLoader, IntervalUniverseBuildsInclusiveMask) {
     // Another name selects another set: 107, plus 108 it moves into on day 5.
     ThinCache other;
     const auto panel2 = DataPanel::load(BacktestConfig::from_yaml(
-        other.config("universe:\n  path: universe.parquet\n  name: Top1000\n")));
+        other.config("universe:\n  path: universe.parquet\n  name: Top1000\n", "", "  pit_lag: 0\n")));
     EXPECT_EQ(panel2.symbols, (std::vector<std::string>{"107", "108"}));
     EXPECT_EQ(panel2.universe_mask[0 * panel2.N + 1], 0);
+}
+
+// backtest.pit_lag (default 1, 2026-10-29): the membership and group codes decided at the close of bar t - lag
+// are what bar t sees; the first `lag` bars know nothing.
+TEST(ThinLoader, PitLagAppliesMembershipAndGroupCodesOneBarLater) {
+    ThinCache cache;
+    const auto panel = DataPanel::load(BacktestConfig::from_yaml(cache.config(top500)));
+    const auto member = [&](unsigned t, const std::string& s) { return panel.universe_mask[t * panel.N + index_of(panel, s)]; };
+    EXPECT_EQ(member(0, "101"), 0);                       // nothing is known at the first bar
+    EXPECT_EQ(member(1, "101"), 1); EXPECT_EQ(member(9, "101"), 1);
+    EXPECT_EQ(member(9, "102"), 1);
+    EXPECT_EQ(member(7, "103"), 1); EXPECT_EQ(member(8, "103"), 0);   // raw interval ends day 6 -> seen through day 7
+    EXPECT_EQ(member(0, "104"), 0); EXPECT_EQ(member(9, "106"), 0);
+    EXPECT_TRUE(std::isnan(panel.row("sector", 0)[index_of(panel, "101")]));
+    EXPECT_FLOAT_EQ(panel.row("sector", 1)[index_of(panel, "101")], 1.0f);
+    EXPECT_FLOAT_EQ(panel.row("industry", 9)[index_of(panel, "101")], 1.0f);
+
+    ThinCache two;
+    const auto panel2 = DataPanel::load(BacktestConfig::from_yaml(two.config(top500, "", "  pit_lag: 2\n")));
+    const auto member2 = [&](unsigned t, const std::string& s) { return panel2.universe_mask[t * panel2.N + index_of(panel2, s)]; };
+    EXPECT_EQ(member2(1, "101"), 0); EXPECT_EQ(member2(2, "101"), 1);
+    EXPECT_EQ(member2(8, "103"), 1); EXPECT_EQ(member2(9, "103"), 0);
+    EXPECT_TRUE(std::isnan(panel2.row("sector", 1)[index_of(panel2, "101")]));
+
+    ThinCache whole;   // a lag that swallows the whole panel is refused at load
+    EXPECT_THROW(DataPanel::load(BacktestConfig::from_yaml(whole.config(top500, "", "  pit_lag: 10\n"))), std::runtime_error);
 }
 
 TEST(ThinLoader, ReturnsExpressionUsesTheFieldOnThinPanels) {
@@ -326,7 +352,7 @@ TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
                  stamps({at(0), at(0), at(0), at(0), at(0), at(0)}),
                  stamps({std::nullopt, at(9), at(6), at(9), std::nullopt, at(4)})});
     const std::string names = "universe:\n  path: universe.parquet\n  names: [BIG, SMALL]\n";
-    const auto config = BacktestConfig::from_yaml(cache.config(names));
+    const auto config = BacktestConfig::from_yaml(cache.config(names, "", "  pit_lag: 0\n"));   // raw alignment
     EXPECT_EQ(config.universe.name, "BIG");
     const auto panel = DataPanel::load(config);
     EXPECT_EQ(panel.universe_names, (std::vector<std::string>{"BIG", "SMALL"}));

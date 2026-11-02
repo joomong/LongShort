@@ -16,11 +16,10 @@ if(DEFINED ENV{CONDA_PREFIX})
     list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
 endif()
 include(cmake/ArrowDependencies.cmake)
-find_package(Boost CONFIG REQUIRED COMPONENTS serialization)
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
-set(LONGSHORT_MODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../modules" CACHE PATH
-    "Directory containing additional user module headers and sources")
+set(LONGSHORT_MODULE_DIR "" CACHE PATH
+    "Directory containing additional user module headers and sources (empty: built-in modules only)")
 option(LONGSHORT_BUILD_TESTS "Build engine tests" ON)
 
 # ---------------------------------------------------------------------------
@@ -110,8 +109,7 @@ add_library(engine STATIC
     src/metrics/timeseries_output.cpp
     src/metrics/metrics_engine.cpp
 
-    # Phase 6: Checkpoint + SIMD
-    src/checkpoint/checkpoint_manager.cpp
+    # Phase 6: SIMD
     src/simd/simd_utils.cpp
     src/simd/m_decay_avx2.cpp
 
@@ -127,9 +125,13 @@ add_library(engine STATIC
     src/api/meta_sets.cpp
     src/api/meta_weights.cpp
     src/api/meta_returns.cpp
+    src/api/alpha_pool.cpp
 )
 
 include(cmake/DiscoverModules.cmake)
+if(LONGSHORT_MODULE_DIR STREQUAL "")
+    set(LONGSHORT_MODULE_DIR "${CMAKE_BINARY_DIR}/no_user_modules")  # empty: built-in modules only
+endif()
 longshort_discover_modules(engine "${LONGSHORT_MODULE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_modules.py")
 
@@ -165,7 +167,6 @@ target_link_libraries(engine PUBLIC
     Parquet::parquet_shared
     pugixml
     yaml-cpp
-    Boost::serialization
     JsonCpp::JsonCpp
 )
 
@@ -177,13 +178,6 @@ target_link_libraries(longshort-server PRIVATE engine drogon)
 # Stable executable location for the launcher and HTTP tests, also with multi-config generators.
 set_target_properties(longshort-server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}>")
-
-# One-off benchmark utility for large multi-alpha request breakdown
-add_executable(data_load_probe tools/data_load_probe.cpp)
-target_link_libraries(data_load_probe PRIVATE engine)
-
-add_executable(bench_2000_breakdown tools/bench_2000_breakdown.cpp)
-target_link_libraries(bench_2000_breakdown PRIVATE engine)
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -214,7 +208,6 @@ add_engine_test(test_pipeline_contract tests/test_pipeline_contract.cpp)
 add_engine_test(test_http_contract    tests/test_http_contract.cpp)
 add_engine_test(test_extreme_alpha_stress tests/test_extreme_alpha_stress.cpp)
 add_engine_test(test_yearly_metrics   tests/test_yearly_metrics.cpp)
-add_engine_test(test_checkpoint       tests/test_checkpoint.cpp)
 add_engine_test(test_simd_parity      tests/test_simd_parity.cpp)
 add_engine_test(test_ga               tests/test_ga.cpp)
 add_engine_test(test_determinism      tests/test_determinism.cpp)
@@ -224,37 +217,39 @@ add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
 add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
 add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
+add_engine_test(test_alpha_pool       tests/test_alpha_pool.cpp)
 add_engine_test(test_meta_sets        tests/test_meta_sets.cpp)
 add_engine_test(test_meta_weights     tests/test_meta_weights.cpp)
 add_engine_test(test_unary_modules    tests/test_unary_modules.cpp)
 add_engine_test(test_expr_functions   tests/test_expr_functions.cpp)
+add_engine_test(test_ts_modules       tests/test_ts_modules.cpp)
+add_engine_test(test_cs_modules       tests/test_cs_modules.cpp)
+add_engine_test(test_ffd_pcaresid     tests/test_ffd_pcaresid.cpp)
 
 # Test-only CLI for the Python oracle of the combination weights.
-add_executable(meta_weights_probe tools/meta_weights_probe.cpp)
+add_executable(meta_weights_probe tests/meta_weights_probe.cpp)
 target_link_libraries(meta_weights_probe PRIVATE engine)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
 add_engine_test(test_execution_price  tests/test_execution_price.cpp)
-foreach(tool_test test_generate_modules test_run_engine test_module_build test_afl_catalog)
+add_engine_test(test_discovered_modules tests/test_discovered_modules.cpp)
+longshort_discover_modules(test_discovered_modules
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/discovered_modules"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_modules.py")
+foreach(tool_test test_generate_modules test_run_engine test_module_build)
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
 endforeach()
 
-# The group panel tool needs numpy/pandas/pyarrow, which ${Python3_EXECUTABLE} need not have.
+# The weights oracle needs numpy/scipy/scikit-learn, which ${Python3_EXECUTABLE} need not have.
 # Prefer the interpreter whose PyArrow already backs this build; the test itself exits 77 when
 # those modules are missing, so CTest reports a skip instead of a pass.
-set(group_panel_python "${Python3_EXECUTABLE}")
+set(oracle_python "${Python3_EXECUTABLE}")
 if(LONGSHORT_PYARROW_PYTHON)
-    set(group_panel_python "${LONGSHORT_PYARROW_PYTHON}")
+    set(oracle_python "${LONGSHORT_PYARROW_PYTHON}")
 endif()
-add_test(NAME test_build_group_panels
-    COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_group_panels.py")
-set_tests_properties(test_build_group_panels PROPERTIES SKIP_RETURN_CODE 77)
-add_test(NAME test_example_configs
-    COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_example_configs.py")
-set_tests_properties(test_example_configs PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME test_meta_weights_oracle
-    COMMAND "${group_panel_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_meta_weights_oracle.py"
+    COMMAND "${oracle_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_meta_weights_oracle.py"
             "$<TARGET_FILE:meta_weights_probe>")
 set_tests_properties(test_meta_weights_oracle PROPERTIES SKIP_RETURN_CODE 77)
 endif()

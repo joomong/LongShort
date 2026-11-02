@@ -45,6 +45,8 @@ struct BacktestConfig {
     UniverseConfig universe;
     std::string config_dir;
     unsigned warmup_bars = 0;
+    // Universe membership and group codes known at the close of bar t - pit_lag apply at bar t (PIT).
+    unsigned pit_lag = 1;
     unsigned bars_per_year = 365;
     std::string missing_close_policy = "carry"; // "carry" | "error"
     // Optional JSON file {panelSymbol: displayLabel} (e.g. tradingItemId -> ticker) served by /api/config.
@@ -58,6 +60,8 @@ struct BacktestConfig {
     std::string execution_price = "close"; // "close" | "ohlc4" | "vwap"; stock examples select ohlc4
     std::string alphas_dir; // absolute; top-level `alphas_dir`, default <config dir>/alphas
     std::string meta_dir;   // absolute; top-level `meta_dir`, default <config dir>/meta
+    std::string alpha_pool; // absolute; top-level `alpha_pool` (optional); empty = no pool correlation
+    std::string alpha_pool_universe; // top-level `alpha_pool_universe` (optional): universe the pool is simulated with; empty = universe.name
 
     static BacktestConfig from_yaml(const std::string& yaml_path);
 };

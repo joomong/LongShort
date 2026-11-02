@@ -631,7 +631,7 @@ std::vector<double> read_long_doubles(const std::string& path, const std::string
     return output;
 }
 // Split factor intervals [validFrom, validTo) by calendar day (validTo null = open), as in
-// tools/data/cache_v21/loader.py. Cells without an interval stay NaN.
+// universe_builder/cache/cache_v21/loader.py. Cells without an interval stay NaN.
 std::vector<float> read_adj_factor(const std::string& path, const std::vector<int64_t>& timestamps,
                                    const std::vector<std::string>& symbols) {
     const size_t T = timestamps.size(), N = symbols.size();
@@ -779,12 +779,19 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     }
     if (panel.symbols.size() > std::numeric_limits<unsigned>::max()) throw std::runtime_error("Too many symbols");
     panel.N = static_cast<unsigned>(panel.symbols.size());
+    // PIT lag (backtest.pit_lag, default 1): membership decided at the close of bar t - lag applies at bar t.
+    // The universe builder dates an interval by the bar whose close decided it, so applying it on that same bar
+    // would use that bar's close. The first `lag` bars of the loaded panel have no membership.
+    const size_t lag = config.pit_lag;
+    if (lag >= panel.T)
+        throw std::runtime_error("backtest.pit_lag (" + std::to_string(lag) + ") must be smaller than the number of loaded bars (" +
+                                 std::to_string(panel.T) + ")");
     auto build_mask = [&](const std::map<std::string, std::vector<uint8_t>>& members) {
         std::vector<uint8_t> mask(cell_count(panel.T, panel.N));
         for (size_t n = 0; n < panel.N; ++n) {
             auto member = members.find(panel.symbols[n]);
             if (member == members.end()) continue; // added event destination / other set: never a member
-            for (size_t t = 0; t < panel.T; ++t) mask[t * panel.N + n] = member->second[t];
+            for (size_t t = lag; t < panel.T; ++t) mask[t * panel.N + n] = member->second[t - lag];
         }
         return mask;
     };
@@ -856,8 +863,22 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
                         std::string("Group panel '") + field + "' has no codes on " +
                         iso_date(panel.timestamps[t]) +
                         ": base.groups is stale or was built for another cache;"
-                        " regenerate it with tools/data/build_group_panels.py");
+                        " regenerate it with universe_builder/cache/build_groups.py");
             }
+        }
+    }
+    // Same PIT lag for the group codes: the classification as of bar t - lag applies at bar t
+    // (checked for staleness above on the raw alignment; the first `lag` bars become NaN).
+    if (lag > 0) {
+        for (const char* field : {"sector", "industry"}) {
+            auto codes = panel.arrays.find(field);
+            if (codes == panel.arrays.end()) continue;
+            auto& values = codes->second;
+            const size_t stride = panel.N;
+            for (size_t t = panel.T; t-- > lag;)
+                std::copy_n(values.begin() + static_cast<std::ptrdiff_t>((t - lag) * stride), stride,
+                            values.begin() + static_cast<std::ptrdiff_t>(t * stride));
+            std::fill_n(values.begin(), lag * stride, std::numeric_limits<float>::quiet_NaN());
         }
     }
     if (config.base_thin) {

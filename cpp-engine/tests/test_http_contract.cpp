@@ -208,15 +208,6 @@ fs::path find_config_path()
             throw std::runtime_error("LONGSHORT_TEST_CONFIG does not name an existing config");
         return fs::weakly_canonical(path);
     }
-    const std::vector<fs::path> candidates = {
-        fs::current_path() / "../../config.yaml",
-        fs::current_path() / "../config.yaml",
-        fs::current_path() / "config.yaml",
-    };
-    for (const auto& p : candidates) {
-        if (fs::exists(p))
-            return fs::weakly_canonical(p);
-    }
     return {};
 }
 
@@ -325,7 +316,7 @@ protected:
         }
         if (cfg.empty()) {
             available_ = false;
-            skip_reason_ = "config.yaml not found";
+            skip_reason_ = "LONGSHORT_TEST_CONFIG not set";
             return;
         }
 
@@ -1331,7 +1322,7 @@ std::vector<fs::path> hidden_entries(const fs::path& dir)
     return hidden;
 }
 
-// Same series as tools/make_http_test_fixture.py (float32 storage, day index from 2020-01-01).
+// Same series as tests/make_http_test_fixture.py (float32 storage, day index from 2020-01-01).
 double fixture_close(int symbol, long day)
 {
     const double t = static_cast<double>(day);
@@ -1367,12 +1358,16 @@ TEST_F(AlphaStorageHttpTest, ConfigPublishesAnExistingAbsoluteAlphasDir) {
     EXPECT_EQ(fs::weakly_canonical(dir), fs::weakly_canonical(run_dir_ / "alphas"));
 }
 
-TEST_F(AlphaStorageHttpTest, XmlLevelStoresEditorBytesAndToolbarMetadataOnly) {
+TEST_F(AlphaStorageHttpTest, XmlLevelStoresFormattedXmlAndToolbarMetadataOnly) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     const std::string name = unique_alpha_name("xml");
     remove(name);
     const std::string xml = "<!-- keep me -->\r\n<data expr=\"close\" delay=\"1\"/>\n\t<tsmean days=\"5|10\"/>  \n"
                             "<choice><rank/><zscore/></choice>\n\xec\x95\x8c\xed\x8c\x8c\n";
+    const std::string formatted = "<!-- keep me -->\n<data expr=\"close\" delay=\"1\" />\n"
+                                  "<tsmean days=\"5|10\" />\n"
+                                  "<choice>\n  <rank />\n  <zscore />\n</choice>\n"
+                                  "\xec\x95\x8c\xed\x8c\x8c\n";
     Json::Value request;
     request["name"] = name;
     request["xml"] = xml;
@@ -1389,7 +1384,7 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresEditorBytesAndToolbarMetadataOnly) {
     EXPECT_EQ(body["level"].asString(), "xml");
     const fs::path dir = alphas_dir() / name;
     EXPECT_EQ(fs::weakly_canonical(body["path"].asString()), fs::weakly_canonical(dir));
-    EXPECT_EQ(read_text(dir / "alpha.xml"), xml);
+    EXPECT_EQ(read_text(dir / "alpha.xml"), formatted);
     EXPECT_EQ(read_text(dir / "metadata.yml"),
               "level: xml\nsimStart: 2024-01-01\nsimEnd: 2024-12-31\nisStart: 2024-01-01\n"
               "osStart: 2024-07-01\nuniverse: \"\"\nexecutionPrice: vwap\n");
@@ -1406,7 +1401,7 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresEditorBytesAndToolbarMetadataOnly) {
         EXPECT_NE(item["name"].asString().front(), '.');
         if (item["name"].asString() != name) continue;
         found = true;
-        EXPECT_EQ(item["xml"].asString(), xml);
+        EXPECT_EQ(item["xml"].asString(), formatted);
         EXPECT_EQ(item["level"].asString(), "xml");
         EXPECT_EQ(item["metadata"], alpha_metadata("vwap"));
     }
@@ -1416,7 +1411,7 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresEditorBytesAndToolbarMetadataOnly) {
     request["xml"] = "<data expr=\"close\"/>";
     const auto duplicate = save(request);
     EXPECT_EQ(duplicate.status, 409) << duplicate.body;
-    EXPECT_EQ(read_text(dir / "alpha.xml"), xml);
+    EXPECT_EQ(read_text(dir / "alpha.xml"), formatted);
 
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
     EXPECT_FALSE(fs::exists(dir));
@@ -1447,6 +1442,7 @@ TEST_F(AlphaStorageHttpTest, InvalidNamesMetadataAndRowsAreRejectedWithoutFiles)
     for (const char* bad : {"", ".hidden", "..", "a/b", "../escape", "a b"})
         variant(std::string("name ") + bad, [&](Json::Value& r) { r["name"] = bad; });
     variant("no xml", [](Json::Value& r) { r.removeMember("xml"); });
+    variant("malformed xml", [](Json::Value& r) { r["level"] = "xml"; r["xml"] = "<choice><rank/></wrong>"; });
     variant("bad level", [](Json::Value& r) { r["level"] = "signals"; });
     variant("no metadata", [](Json::Value& r) { r.removeMember("metadata"); });
     variant("missing osStart", [](Json::Value& r) { r["metadata"].removeMember("osStart"); });
@@ -1646,7 +1642,7 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
 TEST(AlphaStorageStartup, UnwritableAlphasDirFailsStartupWithAClearMessage) {
     const fs::path bin = find_server_binary();
     const fs::path cfg = find_config_path();
-    if (bin.empty() || cfg.empty()) GTEST_SKIP() << "server binary or config not found";
+    if (bin.empty() || cfg.empty()) GTEST_SKIP() << "server binary or LONGSHORT_TEST_CONFIG not found";
     const fs::path temp = fs::temp_directory_path() / ("longshort_alphas_startup_" + std::to_string(::getpid()));
     fs::create_directories(temp);
     std::ofstream(temp / "blocker") << "file";
@@ -1987,6 +1983,8 @@ TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
     }
     const auto saved = save(request);
     ASSERT_EQ(saved.status, 200) << saved.body;
+    EXPECT_EQ(read_text(alphas_dir() / name / "alpha.xml"),
+              "<meta expr=\"sample\" />\n<neutralize group=\"sector|industry\" />\n");
     const auto index_response = http_get(server_->port(), "/api/alphas/" + name + "/results");
     ASSERT_EQ(index_response.status, 200) << index_response.body;
     Json::Value index;

@@ -33,7 +33,7 @@ struct DataPanel {
     std::unordered_map<std::string, std::vector<float>> arrays;
     // Populated before publication; each shared column loads exactly once. Aliases share values.
     std::unordered_map<std::string, std::shared_ptr<LazyColumn>> lazy_columns;
-    std::vector<uint8_t> universe_mask; // T*N membership on the signal date; empty means all
+    std::vector<uint8_t> universe_mask; // T*N; row t = membership known at the close of bar t - pit_lag; empty means all
     // Selectable named sets (universe.names): universe_mask holds default_universe, the others
     // live here. universe_names is empty when the config has a single universe.
     std::vector<std::string> universe_names;

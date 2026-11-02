@@ -78,6 +78,7 @@ TEST(ParquetLoader, AlignsSelectedWideCoordinatesKeepsRawPricesAndWarmupMask) {
     auto config = base(files);
     config.datasets[0].fields["volume"] = "volume.parquet";
     config.start_date = "1970-01-02"; config.end_date = "1970-01-04"; config.warmup_bars = 1;
+    config.pit_lag = 0;   // raw alignment; the PIT lag is covered in test_thin_loader
     config.universe.path = "universe.parquet";
     auto panel = DataPanel::load(config);
     EXPECT_EQ(panel.timestamps, (std::vector<int64_t>{0,day,2*day,3*day}));
@@ -239,6 +240,7 @@ TEST(ParquetLoader, LatestTrimsOnlyMissingTailAndAlignsEagerLazyAndUniverseData)
         {numeric({1,1,1,1}), numeric({1,0,1,1}), dates({0,day,2*day,3*day})});
     auto config = base(files);
     config.start_date = "1970-01-02"; config.end_date = "latest"; config.warmup_bars = 1;
+    config.pit_lag = 0;   // raw alignment; the PIT lag is covered in test_thin_loader
     config.universe.path = "universe.parquet";
     config.datasets[0].fields["eager_factor"] = "factor.parquet";
     config.datasets.push_back(wide("afl", {{"lazy_factor", "factor.parquet"}}, true));
@@ -327,7 +329,7 @@ TEST(ParquetLoader, BaseBlockLoadsPricesAndRealignsShuffledGroupPanels) {
     files.write("groups/industry.parquet", {"B", "A", "C", "__index_level_0__"},
         {numeric({74, 74, 74}), numeric({3, 3, 3}),
          numeric({std::nan(""), std::nan(""), std::nan("")}), dates({0, day, 2 * day})});
-    std::ofstream(files.dir / "config.yaml") << "base: {cache: ., groups: groups}\nbacktest: {}\n";
+    std::ofstream(files.dir / "config.yaml") << "base: {cache: ., groups: groups}\nbacktest: {pit_lag: 0}\n";
     const auto config = BacktestConfig::from_yaml((files.dir / "config.yaml").string());
     const auto panel = DataPanel::load(config);
     ASSERT_EQ(panel.symbols, (std::vector<std::string>{"A", "B", "C"}));
@@ -379,7 +381,7 @@ TEST(ParquetLoader, BaseFieldRedeclaredInDatasetsIsADuplicatePublicField) {
             {dates({0, day}), numeric({1, 1}), numeric({2, 2})});
     std::ofstream(files.dir / "config.yaml")
         << "base: {cache: ., groups: groups}\n"
-        << "datasets: [{name: extra, format: wide, path: BaseData, fields: {close: close.parquet}}]\n"
+        << "datasets: [{name: extra, path: BaseData/close.parquet, use_col: [close]}]\n"
         << "backtest: {}\n";
     const auto config = BacktestConfig::from_yaml((files.dir / "config.yaml").string());
     ASSERT_EQ(config.datasets.size(), 3u);
@@ -440,7 +442,7 @@ TEST(ParquetLoader, GroupPanelStartingAfterTheFirstPriceBarFailsTheLoad) {
     } catch (const std::exception& error) {
         const std::string message = error.what();
         EXPECT_NE(message.find("Group panel 'sector' has no codes on 1970-01-01"), std::string::npos) << message;
-        EXPECT_NE(message.find("build_group_panels.py"), std::string::npos) << message;
+        EXPECT_NE(message.find("build_groups.py"), std::string::npos) << message;
     }
 }
 
@@ -489,4 +491,47 @@ TEST(ParquetLoader, InfinityLoadsAsMissingLikeANullCell) {
     EXPECT_FLOAT_EQ(panel.at("y", 1, 0), 2.0f);
     EXPECT_TRUE(std::isnan(panel.at("y", 2, 0)));
     EXPECT_TRUE(std::isnan(panel.at("y", 3, 0)));
+}
+
+// Wide datasets register `<dataset>.<field>` only; each dotted name reads its own file and two
+// names share one lazy buffer only when they point at the same file.
+TEST(ParquetLoader, DottedWideFieldsLoadTheirOwnFileAndShareOnlySameFileBuffers) {
+    DataFiles files;
+    std::filesystem::create_directories(files.dir / "BaseData");
+    std::filesystem::create_directories(files.dir / "groups");
+    std::filesystem::create_directories(files.dir / "afl");
+    std::filesystem::create_directories(files.dir / "other");
+    for (const std::string& name : {"open", "high", "low", "close", "volume", "VWAP", "marketCap_USD"})
+        files.write("BaseData/" + name + ".parquet", {"__index_level_0__", "A", "B"},
+            {dates({0, day}), numeric({10, 11}), numeric({20, 21})});
+    for (const std::string& name : {"sector", "industry"})
+        files.write("groups/" + name + ".parquet", {"__index_level_0__", "A", "B"},
+            {dates({0, day}), numeric({1, 1}), numeric({2, 2})});
+    files.write("afl/963.parquet", {"__index_level_0__", "A", "B"}, {dates({0, day}), numeric({1, 2}), numeric({3, 4})});
+    files.write("afl/377.parquet", {"__index_level_0__", "A", "B"}, {dates({0, day}), numeric({5, 6}), numeric({7, 8})});
+    files.write("other/x.parquet", {"__index_level_0__", "A", "B"}, {dates({0, day}), numeric({9, 9}), numeric({9, 9})});
+    std::ofstream(files.dir / "catalog.json") << R"({"schema_version":2,"fields":{"EPS":"963.parquet","10DMACD":"377.parquet"}})";
+    std::ofstream(files.dir / "config.yaml")
+        << "base: {cache: ., groups: groups}\n"
+        << "datasets:\n"
+        << "  - {name: AFL, format: wide, path: afl, catalog: catalog.json, fields: {EPS_alias: 963.parquet}}\n"
+        << "  - {name: B, format: wide, path: other, lazy: true, fields: {EPS: x.parquet}}\n"
+        << "backtest: {}\n";
+    const auto config = BacktestConfig::from_yaml((files.dir / "config.yaml").string());
+    const auto panel = DataPanel::load(config);
+    for (const char* name : {"AFL.EPS", "AFL.EPS_alias", "AFL.10DMACD", "B.EPS"})
+        EXPECT_TRUE(panel.has_column(name)) << name;
+    for (const char* name : {"EPS", "EPS_alias", "10DMACD"})
+        EXPECT_FALSE(panel.has_column(name)) << name;
+    EXPECT_EQ(panel.lazy_columns.at("AFL.EPS"), panel.lazy_columns.at("AFL.EPS_alias"));
+    EXPECT_NE(panel.lazy_columns.at("AFL.EPS"), panel.lazy_columns.at("AFL.10DMACD"));
+    EXPECT_NE(panel.lazy_columns.at("AFL.EPS"), panel.lazy_columns.at("B.EPS"));
+    EXPECT_FLOAT_EQ(panel.at("AFL.EPS", 1, 1), 4);
+    EXPECT_FLOAT_EQ(panel.at("AFL.10DMACD", 1, 1), 8);
+    EXPECT_FLOAT_EQ(panel.at("B.EPS", 1, 1), 9);
+    // A restricted selection uses the dotted names too.
+    const auto selected = DataPanel::load(config, {"AFL.10DMACD"});
+    EXPECT_TRUE(selected.has_column("AFL.10DMACD"));
+    EXPECT_FALSE(selected.has_column("AFL.EPS"));
+    EXPECT_THROW(DataPanel::load(config, {"10DMACD"}), std::runtime_error);
 }

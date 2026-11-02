@@ -35,16 +35,22 @@ void require_known_keys(const YAML::Node& node, const std::string& prefix,
             throw std::runtime_error("Unknown config key '" + prefix + key + "'");
     }
 }
-void merge_fields(std::map<std::string, std::string>& fields, const YAML::Node& node) {
+// A wide dataset field is published as `<dataset>.<field>`; its field part may start with a
+// digit (`AFL.10DMACD`) but is never all digits.
+bool valid_field_name(const std::string& name, bool wide) {
+    if (!wide) return std::regex_match(name, std::regex("[A-Za-z_][A-Za-z0-9_]*"));
+    return std::regex_match(name, std::regex("[A-Za-z0-9_]+")) && !std::regex_match(name, std::regex("[0-9]+"));
+}
+void merge_fields(std::map<std::string, std::string>& fields, const YAML::Node& node, bool wide) {
     if (!node) return;
     if (!node.IsMap()) throw std::runtime_error("fields must map public names to source columns/files");
-    const std::regex identifier("[A-Za-z_][A-Za-z0-9_]*");
     for (const auto& entry : node) {
         const auto name = entry.first.as<std::string>();
         const auto source = entry.second.as<std::string>();
-        if (name == "returns")
+        // Only a bare name can shadow the derived `returns`; a wide field is `<dataset>.returns`.
+        if (!wide && name == "returns")
             throw std::runtime_error("Field 'returns' is reserved for close-derived returns; use 'holding_return' or another name");
-        if (!std::regex_match(name, identifier) || source.empty())
+        if (!valid_field_name(name, wide) || source.empty())
             throw std::runtime_error("Invalid field mapping: " + name);
         auto previous = fields.find(name);
         if (previous != fields.end() && previous->second != source)
@@ -157,7 +163,7 @@ int64_t config_date_ms(const std::string& value) {
 BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const YAML::Node root = YAML::LoadFile(yaml_path);
     BacktestConfig cfg;
-    require_known_keys(root, "", {"base", "datasets", "universe", "backtest", "alphas_dir", "meta_dir"});
+    require_known_keys(root, "", {"base", "datasets", "universe", "backtest", "alphas_dir", "meta_dir", "alpha_pool", "alpha_pool_universe"});
     cfg.config_dir = std::filesystem::absolute(yaml_path).parent_path().lexically_normal().string();
     const auto base = root["base"];
     const auto datasets = root["datasets"];
@@ -195,32 +201,51 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
         dataset.alignment = alignment(ds["alignment"]);
         if (dataset.format == DatasetFormat::Long && dataset.alignment != FieldAlignment::Exact)
             throw std::runtime_error("Long datasets currently require exact alignment");
+        const bool wide = dataset.format == DatasetFormat::Wide;
+        // Wide dataset fields are registered only as `<dataset name>.<field>`.
+        if (wide && (!ds["name"] || !std::regex_match(dataset.name, std::regex("[A-Za-z][A-Za-z0-9_]*"))))
+            throw std::runtime_error("Wide dataset requires a name matching [A-Za-z][A-Za-z0-9_]*: " + dataset.name);
+        const std::string prefix = wide ? dataset.name + "." : "";
         if (ds["catalog"]) {
             const auto catalog_path = std::filesystem::path(cfg.config_dir) / ds["catalog"].as<std::string>();
-            merge_fields(dataset.fields, YAML::LoadFile(catalog_path.string())["fields"]);
+            const YAML::Node catalog = YAML::LoadFile(catalog_path.string());
+            const YAML::Node version = catalog["schema_version"];
+            const std::string seen = version && version.IsScalar() ? version.as<std::string>() : "1";
+            if (seen == "1")
+                throw std::runtime_error(catalog_path.string() + ": AFL catalog schema_version 1 is no longer supported "
+                                         "(rebuild with universe_builder/afl/build_afl_catalog.py)");
+            if (seen != "2")
+                throw std::runtime_error(catalog_path.string() + ": unsupported AFL catalog schema_version " + seen +
+                                         " (expected 2)");
+            merge_fields(dataset.fields, catalog["fields"], wide);
         }
-        merge_fields(dataset.fields, ds["fields"]);
+        merge_fields(dataset.fields, ds["fields"], wide);
         if (ds["use_col"]) {
             if (!ds["use_col"].IsSequence()) throw std::runtime_error("use_col must be a sequence");
             for (const auto& column : ds["use_col"]) {
                 const auto name = column.as<std::string>();
-                if (name == "returns")
+                if (!wide && name == "returns")
                     throw std::runtime_error("Field 'returns' is reserved for close-derived returns; use 'holding_return' or another name");
                 const auto source = dataset.format == DatasetFormat::Wide ? name + ".parquet" : name;
                 auto previous = dataset.fields.find(name);
                 if (previous != dataset.fields.end() && previous->second != source)
                     throw std::runtime_error("use_col conflicts with field mapping: " + name);
                 dataset.fields[name] = source;
-                if (!std::regex_match(name, std::regex("[A-Za-z_][A-Za-z0-9_]*")) || !all_fields.insert(name).second)
-                    throw std::runtime_error("Invalid/duplicate field across datasets: " + name);
-                cfg.use_columns.push_back(name);
+                if (!valid_field_name(name, wide) || !all_fields.insert(prefix + name).second)
+                    throw std::runtime_error("Invalid/duplicate field across datasets: " + prefix + name);
+                cfg.use_columns.push_back(prefix + name);
             }
         }
         if (dataset.fields.empty()) throw std::runtime_error("Dataset has no fields: " + dataset.name);
+        if (wide) {
+            std::map<std::string, std::string> named;
+            for (const auto& field : dataset.fields) named.emplace(prefix + field.first, field.second);
+            dataset.fields.swap(named);
+        }
         for (const auto& field : dataset.fields) {
             bool from_this_use_col = false;
             if (ds["use_col"]) for (const auto& column : ds["use_col"])
-                if (column.as<std::string>() == field.first) from_this_use_col = true;
+                if (prefix + column.as<std::string>() == field.first) from_this_use_col = true;
             if (!from_this_use_col && !all_fields.insert(field.first).second)
                 throw std::runtime_error("Field occurs in multiple datasets: " + field.first);
             if (!from_this_use_col) cfg.use_columns.push_back(field.first);
@@ -263,7 +288,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const auto bt = root["backtest"];
     if (!bt || !bt.IsMap()) throw std::runtime_error("config.yaml: missing backtest mapping");
     require_known_keys(bt, "backtest.", {"start_date", "end_date", "initial_capital", "transaction_fee",
-                                         "bars_per_year", "execution_price", "warmup_bars",
+                                         "bars_per_year", "execution_price", "warmup_bars", "pit_lag",
                                          "symbol_labels_path", "missing_close_policy"});
     cfg.start_date = bt["start_date"] ? bt["start_date"].as<std::string>() : "";
     cfg.end_date = bt["end_date"] && !bt["end_date"].IsNull()
@@ -283,6 +308,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     if (cfg.execution_price != "close" && cfg.execution_price != "ohlc4" && cfg.execution_price != "vwap")
         throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
     cfg.warmup_bars = unsigned_option(bt["warmup_bars"], 0, false);
+    cfg.pit_lag = unsigned_option(bt["pit_lag"], 1, false);
     if (bt["symbol_labels_path"] && !bt["symbol_labels_path"].IsNull()) {
         std::filesystem::path labels = bt["symbol_labels_path"].as<std::string>();
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
@@ -298,6 +324,11 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     };
     cfg.alphas_dir = directory_option("alphas_dir", "alphas");
     cfg.meta_dir = directory_option("meta_dir", "meta");
+    if (root["alpha_pool"] && !root["alpha_pool"].IsNull()) cfg.alpha_pool = directory_option("alpha_pool", "");
+    if (root["alpha_pool_universe"] && !root["alpha_pool_universe"].IsNull()) {
+        cfg.alpha_pool_universe = root["alpha_pool_universe"].as<std::string>();
+        if (cfg.alpha_pool_universe.empty()) throw std::runtime_error("alpha_pool_universe must not be empty");
+    }
     // Missing-close policy applies to ordinary and thin panels.
     cfg.missing_close_policy = bt["missing_close_policy"] && !bt["missing_close_policy"].IsNull()
         ? bt["missing_close_policy"].as<std::string>() : cfg.missing_close_policy;

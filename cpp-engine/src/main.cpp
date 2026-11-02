@@ -8,14 +8,18 @@
 #include <atomic>
 #include <mutex>
 #include <algorithm>
+#include <iomanip>
+#include <chrono>
 #include <limits>
 #include <cmath>
 #include "data/config_loader.h"
 #include "data/data_panel.h"
 #include "data/parquet_reader.h"
 #include "compiler/dag_builder.h"
+#include "compiler/xml_parser.h"
 #include "engine/simulator.h"
 #include "metrics/metrics_engine.h"
+#include "api/alpha_pool.h"
 #include "api/json_serializer.h"
 #include "api/combined_signals.h"
 #include "api/alpha_storage.h"
@@ -41,6 +45,7 @@ static fs::path g_alphas_dir;
 static fs::path g_meta_dir;  // optional; never created by the engine
 static MemberReturnsCache g_member_returns;  // member gross returns of non-EW sets, shared by requests
 static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
+static std::unique_ptr<alpha_pool::Cache> g_alpha_pool;  // set when the config names an alpha_pool
 
 static bool supports_exact_fields(std::initializer_list<const char*> names) {
     for (const char* name : names) {
@@ -402,6 +407,45 @@ static FullMetricsResult full_metrics(const SimulatorOutput& output, const RunOp
         options.is_ms, options.os_ms, g_config.bars_per_year, first_metric_bar, &frozen_gross);
 }
 
+// The universe the pool is simulated with: config alpha_pool_universe, else the engine default.
+static std::string pool_universe() {
+    return g_config.alpha_pool_universe.empty() ? g_data.default_universe : g_config.alpha_pool_universe;
+}
+
+// Pool alphas run with the pool's standard settings: alpha_pool_universe and the config execution price,
+// the whole panel, no metrics. Returns the daily net return by panel row (zero before the first position).
+static std::vector<double> pool_net_returns(const std::string& xml) {
+    RunOptions options;
+    options.execution_price = g_config.execution_price;
+    if (options.execution_price == "ohlc4" && !supports_ohlc4())
+        throw std::runtime_error("alpha_pool: OHLC4 execution needs exact open/high/low fields");
+    if (options.execution_price == "vwap" && !supports_vwap())
+        throw std::runtime_error("alpha_pool: VWAP execution needs exact vwap/high/low fields");
+    options.sim_start_index = g_data.trade_start_index;
+    options.sim_end_index = g_data.T;
+    options.threads = 1;
+    options.metrics_only = true;
+    options.missing_close_policy = g_missing_close_policy;
+    options.universe = pool_universe();
+    options.universe_mask = &g_data.mask_for(options.universe);
+    auto alphas = compile_request_xml(xml, options);
+    if (alphas.size() != 1) throw std::runtime_error("alpha.xml must compile to exactly one alpha");
+    MetaSetCache cache(1);
+    auto output = execute_alpha(alphas[0], options, false, [](unsigned, const float*, unsigned) {}, {}, cache,
+                                [] { return false; });
+    return std::move(output.ret);
+}
+
+// Picks up pool alphas added or changed since the last call; a no-op when the listing is unchanged.
+static void refresh_alpha_pool(unsigned threads) {
+    if (!g_alpha_pool) return;
+    std::vector<std::string> failures;
+    const std::size_t added = g_alpha_pool->refresh(pool_net_returns, threads, &failures);
+    for (const auto& failure : failures) std::cerr << "alpha_pool: skipped " << failure << std::endl;
+    if (added)
+        std::cout << "alpha_pool: " << added << " alpha(s) simulated, " << g_alpha_pool->size() << " cached" << std::endl;
+}
+
 // Missing quotes freeze held weights; thin ending moves retire their sources.
 static Json::Value missing_data_payload(const SimulatorOutput& output) {
     MissingDataDiagnostics total;
@@ -505,6 +549,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                                      const SimulatorConfig::AccountingRowCallback& accounting = {},
                                      MetaSetCache* shared_cache = nullptr) {
     const RunOptions options = parse_run_options(body);
+    refresh_alpha_pool(options.threads);   // new pool entries before this run; cheap when unchanged
     MetaSetCache request_cache(options.threads);  // one per request unless the caller shares one (save rows)
     MetaSetCache& cache = shared_cache ? *shared_cache : request_cache;
     const bool combined_only = body.get("combinedOnly", false).asBool();
@@ -539,6 +584,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         FullMetricsResult metrics;
         Json::Value diagnostics;
         Json::Value meta;  // [{name, members}] for alphas with <meta> sets, else null
+        Json::Value pool_corr;  // correlation with the alpha pool (null without a pool)
     };
     std::vector<BatchResult> batches(alphas.size());
     SimulatorOutput single_output;
@@ -552,6 +598,9 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         batches[0] = {0, alphas[0].source_xml, full_metrics(single_output, options),
                       diagnostics_payload(single_output, options), {}};
         if (!alphas[0].meta_sets.empty()) batches[0].meta = meta_payload(alphas[0], cache);
+        if (g_alpha_pool)
+            batches[0].pool_corr = g_alpha_pool->correlation_json(single_output.ret, options.sim_start_index,
+                                                                  options.sim_end_index);
     } else {
         OrderedSignalAccumulator accumulator(
             g_data, options.missing_close_policy,
@@ -591,6 +640,9 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                         batches[i] = {i, alphas[i].source_xml, full_metrics(output, options),
                                       diagnostics_payload(output, options), {}};
                         if (!alphas[i].meta_sets.empty()) batches[i].meta = meta_payload(alphas[i], cache);
+                        if (g_alpha_pool)   // computed here so batches correlate in parallel
+                            batches[i].pool_corr = g_alpha_pool->correlation_json(
+                                output.ret, options.sim_start_index, options.sim_end_index);
                     }
                     flush();
                     // Completed module state is no longer needed; selected plots
@@ -643,6 +695,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         entry["index"] = static_cast<Json::UInt64>(batch.index);
         entry["xml"] = batch.xml;
         if (!batch.meta.isNull()) entry["meta"] = batch.meta;
+        if (!batch.pool_corr.isNull()) entry["poolCorr"] = batch.pool_corr;
         if (!single && options.collect_signals && !options.metrics_only && i < options.signal_top_k) {
             auto selected = compile_request_xml(batch.xml, options);
             auto output = execute_alpha(selected.at(0), options, true, stop_on_cancel, {}, cache, cancelled);
@@ -666,6 +719,11 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         for (const auto& key : combined_diagnostics.getMemberNames())
             combined[key] = combined_diagnostics[key];
         combined["index"] = -1;
+        if (g_alpha_pool) {
+            const Json::Value pool_corr = g_alpha_pool->correlation_json(
+                combined_output.ret, options.sim_start_index, options.sim_end_index);
+            if (!pool_corr.isNull()) combined["poolCorr"] = pool_corr;
+        }
         if (options.collect_signals && !options.metrics_only) {
             combined_signals.resize(combined_output.timestamps.size());
             append_signal_payload(combined, combined_signals, combined_output.timestamps, options);
@@ -832,8 +890,14 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
     if (alpha_storage::exists(g_alphas_dir, name))
         throw AlphaRequestError(drogon::k409Conflict, "Alpha already exists: " + name);
 
+    std::string formatted_xml;
+    try {
+        formatted_xml = format_xml(xml);
+    } catch (const std::exception& error) {
+        throw invalid(error.what());
+    }
     alpha_storage::SaveTransaction save(g_alphas_dir, name);
-    save.write("alpha.xml", xml);
+    save.write("alpha.xml", formatted_xml);
     save.write("metadata.yml", alpha_storage::metadata_yaml(metadata));
     if (!rows.empty()) {
         const auto cancelled = [] { return g_alpha_workers.stopping(); };
@@ -933,8 +997,12 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
 
 int main(int argc, char* argv[])
 {
-    // Config path: first arg or default
-    std::string config_path = (argc > 1) ? argv[1] : "../../config.yaml";
+    // Config path is required; there is no repo-root default.
+    if (argc < 2) {
+        std::cerr << "usage: longshort-server <config.yaml>" << std::endl;
+        return 2;
+    }
+    std::string config_path = argv[1];
 
     // Load config + data. A bad config or an unreadable dataset is a startup
     // failure with a readable message, not an uncaught exception.
@@ -976,6 +1044,29 @@ int main(int argc, char* argv[])
     }
     g_alphas_dir = g_config.alphas_dir;
     g_meta_dir = g_config.meta_dir;
+    if (!g_config.alpha_pool.empty()) {
+        // Pool alphas are simulated now, in parallel, so the first request already has the Corr column.
+        g_alpha_pool = std::make_unique<alpha_pool::Cache>(fs::path(g_config.alpha_pool));
+        if (!fs::is_directory(g_alpha_pool->dir()))
+            std::cerr << "alpha_pool: directory not found, pool correlation stays empty: " << g_config.alpha_pool << std::endl;
+        try {
+            (void)g_data.mask_for(pool_universe());
+        } catch (const std::exception& error) {
+            std::cerr << "Cannot start: alpha_pool_universe: " << error.what() << std::endl;
+            return 1;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        try {
+            refresh_alpha_pool(std::clamp(std::thread::hardware_concurrency(), 1u, 8u));
+        } catch (const std::exception& error) {
+            std::cerr << "Cannot start: alpha_pool " << error.what() << std::endl;
+            return 1;
+        }
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        std::cout << "Alpha pool: " << g_alpha_pool->size() << " alpha(s) from " << g_config.alpha_pool << " ("
+                  << pool_universe() << ", " << g_config.execution_price << ") in " << std::fixed
+                  << std::setprecision(1) << seconds << "s" << std::endl;
+    }
     try {
         alpha_storage::prepare_directory(g_alphas_dir);
     } catch (const std::exception& error) {
@@ -1072,6 +1163,9 @@ int main(int argc, char* argv[])
             for (const auto& name : g_data.universe_names) universes.append(name);
             json["universes"] = universes;  // empty: a single configured universe
             json["defaultUniverse"] = g_data.default_universe;
+            json["alphaPool"] = g_alpha_pool ? Json::Value(g_alpha_pool->dir().string()) : Json::Value();
+            json["alphaPoolSize"] = static_cast<Json::UInt64>(g_alpha_pool ? g_alpha_pool->size() : 0);
+            json["alphaPoolUniverse"] = g_alpha_pool ? Json::Value(pool_universe()) : Json::Value();
             json["T"] = g_data.T;
             json["N"] = g_data.N;
 
@@ -1297,6 +1391,11 @@ int main(int argc, char* argv[])
                                         batch[key] = diagnostics[key];
                                     batch["index"] = 0;
                                     batch["xml"] = best.best_xml;
+                                    if (g_alpha_pool) {
+                                        const Json::Value pool_corr = g_alpha_pool->correlation_json(
+                                            output.ret, options.sim_start_index, options.sim_end_index);
+                                        if (!pool_corr.isNull()) batch["poolCorr"] = pool_corr;
+                                    }
                                     if (!alphas[0].meta_sets.empty()) batch["meta"] = meta_payload(alphas[0], meta_cache);
                                     append_signal_payload(batch, output.signals, output.timestamps, options);
                                     Json::Value complete;
