@@ -75,7 +75,8 @@ def run_checked(command, stage, *, cwd):
 def main(argv=None):
     engine_dir = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=engine_dir.parent / "config.yaml")
+    parser.add_argument("--config", type=Path, default=Path.home() / "longshort_workspace" / "config.yaml",
+                        help="default: ~/longshort_workspace/config.yaml")
     parser.add_argument("--modules-dir", type=Path, help="default: modules/ beside config")
     parser.add_argument("--build-dir", type=Path, help="default: .longshort/build/ beside config")
     parser.add_argument("--build-only", action="store_true")

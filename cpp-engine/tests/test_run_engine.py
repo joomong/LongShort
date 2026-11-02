@@ -74,6 +74,16 @@ class LauncherTests(unittest.TestCase):
         command = self.calls()[0]
         self.assertLess(command.index("-DLONGSHORT_BUILD_TESTS:BOOL=OFF"), command.index("-DLONGSHORT_BUILD_TESTS:BOOL=ON"))
 
+    def test_default_config_is_the_workspace_config(self):
+        home = self.root / "home"
+        result = subprocess.run(
+            [sys.executable, str(LAUNCHER), "--cmake", str(self.cmake), "--build-only"],
+            capture_output=True, text=True, env=dict(self.env, HOME=str(home)), shell=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"Config file does not exist: {home / 'longshort_workspace' / 'config.yaml'}", result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_build_only_never_starts_server(self):
         result = self.launch("--build-only")
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# longshort — 개인 workspace(~/longshort_workspace)로 엔진과 화면을 빌드·기동·중지한다.
+#
+#   longshort init                                  # 최초 1회: 도구 확인, 공용 deps(/home/base/longshort_deps) 없으면 생성, 화면 npm ci
+#   longshort start --port 50017 --ui-port 50016   # 첫 기동: workspace 생성(없으면), 빌드, 엔진+화면 기동
+#   longshort start                                 # 다음부터는 저장된 포트로
+#   longshort start --build-only                    # 빌드만 (돌고 있는 엔진은 그대로)
+#   longshort stop                                  # 이 workspace의 엔진·화면만 내린다
+#   longshort restart                               # 빌드 → 중지 → 기동 (빌드 실패 시 기존 엔진 유지)
+#
+# 환경변수(선택): LONGSHORT_WORKSPACE(기본 ~/longshort_workspace), LONGSHORT_DEPS(기본 /home/base/longshort_deps:
+# venv/bin/python 의 pyarrow가 Arrow/Parquet, prefix/ 가 jsoncpp·uuid), LONGSHORT_HOST(브라우저가 접속하는 주소).
+set -euo pipefail
+
+PLATFORM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS="${LONGSHORT_WORKSPACE:-$HOME/longshort_workspace}"
+STATE="$WS/.longshort"
+LOGS="$STATE/logs"
+DEPS="${LONGSHORT_DEPS:-/home/base/longshort_deps}"
+HOST="${LONGSHORT_HOST:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+TEMPLATE="$PLATFORM/config.example.yaml"
+START_TIMEOUT="${LONGSHORT_START_TIMEOUT:-900}"
+
+die() { echo "longshort: $*" >&2; exit 1; }
+
+usage() {
+    sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit "${1:-1}"
+}
+
+# --- workspace -------------------------------------------------------------
+bootstrap() {
+    mkdir -p "$WS"/{alphas,meta,modules,research} "$LOGS"
+    if [ ! -f "$WS/config.yaml" ]; then
+        cp "$TEMPLATE" "$WS/config.yaml"
+        echo "[workspace] $WS/config.yaml 를 예제에서 만들었다 (데이터 경로는 공용 캐시; 필요하면 backtest 블록만 고친다)"
+    fi
+}
+
+# --- ports -----------------------------------------------------------------
+load_ports() {
+    ENGINE_PORT="" UI_PORT=""
+    if [ -f "$STATE/ports" ]; then . "$STATE/ports"; fi
+}
+save_ports() { printf 'ENGINE_PORT=%s\nUI_PORT=%s\n' "$ENGINE_PORT" "$UI_PORT" > "$STATE/ports"; }
+check_port() {
+    case "$1" in ''|*[!0-9]*) die "포트는 숫자여야 한다: '$1'";; esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ] || die "포트 범위 밖: $1"
+}
+port_busy() { ss -ltnH 2>/dev/null | awk '{print $4}' | grep -q ":$1\$"; }
+
+# --- processes -------------------------------------------------------------
+# pid 파일의 프로세스가 살아 있고 우리 것(이름이 맞음)인지
+alive() {  # alive <pidfile> <name-pattern>
+    local pid
+    [ -f "$1" ] || return 1
+    pid="$(cat "$1")"
+    [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q -- "$2"
+}
+# 프로세스 그룹 리더로 띄우고 pid 파일에 적는다: spawn <pidfile> <logfile> <cmd...>
+spawn() {
+    local pidfile="$1" log="$2"; shift 2
+    setsid bash -c 'echo $$ > "$0"; exec "$@"' "$pidfile" "$@" >> "$log" 2>&1 < /dev/null &
+    local i=0
+    while [ ! -s "$pidfile" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+    [ -s "$pidfile" ] || die "프로세스를 띄우지 못했다: $*"
+}
+stop_one() {  # stop_one <pidfile> <name-pattern> <label>
+    if alive "$1" "$2"; then
+        local pid; pid="$(cat "$1")"
+        kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+        local i=0
+        while [ -d "/proc/$pid" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+        if [ -d "/proc/$pid" ]; then kill -KILL -- "-$pid" 2>/dev/null || true; sleep 0.2; fi
+        echo "[stop] $3 (pid $pid) 중지"
+    elif [ -f "$1" ]; then
+        echo "[stop] $3: 떠 있지 않음 (오래된 pid 파일 정리)"
+    else
+        echo "[stop] $3: 떠 있지 않음"
+    fi
+    rm -f "$1"
+}
+
+# --- init: 공용 빌드 의존성 ---------------------------------------------------
+# 이 서버에는 Arrow C++ 와 jsoncpp·uuid 개발 헤더가 없다(root 없이 apt 설치 불가). 대신
+#   venv/   : pip 의 pyarrow 휠이 libarrow·libparquet 를 가져온다(빌드·실행 모두 이 경로를 읽음)
+#   prefix/ : Ubuntu 패키지(libjsoncpp-dev+libjsoncpp25, uuid-dev+libuuid1)를 받아 풀어 둔 것(헤더·.so·CMake 설정)
+# 둘 다 한 번만 만들면 모든 사용자가 같이 쓴다. 이미 있으면 건너뛴다.
+PYARROW_VERSION="${LONGSHORT_PYARROW_VERSION:-18.1.0}"   # 운영 엔진이 링크된 버전
+DEB_PACKAGES=(libjsoncpp-dev libjsoncpp25 uuid-dev libuuid1)
+
+deps_ready() { [ -x "$DEPS/venv/bin/python" ] && [ -f "$DEPS/prefix/include/uuid/uuid.h" ] && [ -d "$DEPS/prefix/lib" ]; }
+
+cmd_init() {
+    [ $# -eq 0 ] || die "init 은 옵션이 없다 (deps 위치는 LONGSHORT_DEPS 로)"
+    local missing=()
+    for t in cmake c++ python3 node npm curl ss; do command -v "$t" > /dev/null || missing+=("$t"); done
+    [ ${#missing[@]} -eq 0 ] || die "시스템 도구가 없다: ${missing[*]} (관리자에게 설치를 요청한다)"
+    echo "[init] cmake $(cmake --version | head -1 | awk '{print $3}'), $(c++ --version | head -1), python $(python3 -c 'import sys;print(sys.version.split()[0])'), node $(node --version)"
+
+    mkdir -p "$DEPS"
+    exec 9> "$DEPS/.init.lock"; flock 9   # 두 사용자가 동시에 init 해도 한 번만 만든다
+
+    if "$DEPS/venv/bin/python" -c 'import pyarrow' 2> /dev/null; then
+        echo "[init] venv 있음: pyarrow $("$DEPS/venv/bin/python" -c 'import pyarrow;print(pyarrow.__version__)')"
+    else
+        echo "[init] venv 생성 + pyarrow $PYARROW_VERSION 설치 (Arrow/Parquet 라이브러리 용도) ..."
+        python3 -m venv "$DEPS/venv"
+        "$DEPS/venv/bin/python" -m pip install --quiet --upgrade pip
+        "$DEPS/venv/bin/python" -m pip install --quiet "pyarrow==$PYARROW_VERSION"
+    fi
+
+    if [ -f "$DEPS/prefix/include/uuid/uuid.h" ] && [ -n "$(find "$DEPS/prefix/lib" -name 'libjsoncpp.so.*' 2> /dev/null)" ]; then
+        echo "[init] prefix 있음: $DEPS/prefix"
+    else
+        echo "[init] prefix 생성: ${DEB_PACKAGES[*]} 를 받아 $DEPS/prefix 에 푼다 ..."
+        local tmp; tmp="$(mktemp -d "$DEPS/.prefix.XXXXXX")"
+        (cd "$tmp" && apt-get download "${DEB_PACKAGES[@]}" > /dev/null) \
+            || { rm -rf "$tmp"; die "apt-get download 실패 (네트워크/미러). deb 4개를 받아 $DEPS/prefix 에 dpkg -x 로 풀어도 된다"; }
+        for d in "$tmp"/*.deb; do dpkg -x "$d" "$tmp/x"; done
+        mkdir -p "$DEPS/prefix" && cp -a "$tmp/x/usr/." "$DEPS/prefix/" && rm -rf "$tmp"
+        local dangling; dangling="$(find "$DEPS/prefix" -xtype l)"
+        [ -z "$dangling" ] || die "prefix 에 깨진 링크가 있다: $dangling"
+    fi
+    chmod -R g+rwX,o+rX "$DEPS" 2> /dev/null || true   # 같은 그룹은 갱신, 나머지는 읽기
+    echo "[init] deps 준비됨: $DEPS"
+
+    local fe="$PLATFORM/frontend"
+    if [ -d "$fe/node_modules" ]; then echo "[init] frontend node_modules 있음"
+    else echo "[init] frontend npm ci (몇 분) ..."; (cd "$fe" && npm ci --no-audit --no-fund > /dev/null); fi
+    echo "다음: $PLATFORM/longshort start --port <엔진포트> --ui-port <화면포트>"
+}
+
+# --- build -----------------------------------------------------------------
+build() {
+    local defines=()
+    if deps_ready; then
+        defines+=(--cmake-define "LONGSHORT_PYARROW_PYTHON=$DEPS/venv/bin/python"
+                  --cmake-define "CMAKE_PREFIX_PATH=$DEPS/prefix")
+    elif [ ! -f "$STATE/build/CMakeCache.txt" ]; then
+        die "빌드 의존성이 없다: $DEPS (먼저 $PLATFORM/longshort init)"
+    fi
+    # deps 폴더가 없어도 이미 configure 된 빌드는 CMake 캐시의 경로를 그대로 쓴다.
+    python3 "$PLATFORM/cpp-engine/tools/run_engine.py" --config "$WS/config.yaml" --build-only "${defines[@]}"
+}
+
+# --- start -----------------------------------------------------------------
+launch() {
+    local bin="$STATE/build/longshort-server"
+    [ -x "$bin" ] || die "빌드 결과가 없다: $bin"
+    alive "$STATE/engine.pid" longshort-server && die "엔진이 이미 떠 있다 (pid $(cat "$STATE/engine.pid")); restart 를 쓴다"
+    alive "$STATE/ui.pid" next && die "화면이 이미 떠 있다 (pid $(cat "$STATE/ui.pid")); restart 를 쓴다"
+    port_busy "$ENGINE_PORT" && die "포트 $ENGINE_PORT 는 다른 프로세스가 쓰고 있다 (--port 로 바꾼다)"
+    port_busy "$UI_PORT" && die "포트 $UI_PORT 는 다른 프로세스가 쓰고 있다 (--ui-port 로 바꾼다)"
+
+    echo "[start] engine :$ENGINE_PORT  ($LOGS/engine.log)"
+    (cd "$WS" && spawn "$STATE/engine.pid" "$LOGS/engine.log" env "LONGSHORT_PORT=$ENGINE_PORT" "$bin" "$WS/config.yaml")
+
+    local fe="$PLATFORM/frontend"
+    [ -d "$fe/node_modules" ] || (cd "$fe" && echo "[start] npm ci (최초 1회)" && npm ci --no-audit --no-fund)
+    [ -d "$fe/public/monaco/vs" ] || (cd "$fe" && node scripts/prepare-monaco.mjs)
+    echo "[start] ui     :$UI_PORT  ($LOGS/ui.log)"
+    (cd "$fe" && spawn "$STATE/ui.pid" "$LOGS/ui.log" env "NEXT_PUBLIC_API_URL=http://$HOST:$ENGINE_PORT" \
+        "$fe/node_modules/.bin/next" dev --port "$UI_PORT" --hostname 0.0.0.0)
+    save_ports
+
+    # 엔진은 데이터를 다 읽은 뒤 응답한다. 죽으면 로그 끝을 보여 주고 실패.
+    local waited=0 pid; pid="$(cat "$STATE/engine.pid")"
+    until curl -sf "http://127.0.0.1:$ENGINE_PORT/api/config" > /dev/null; do
+        if [ ! -d "/proc/$pid" ]; then
+            tail -n 20 "$LOGS/engine.log" >&2
+            stop_one "$STATE/ui.pid" next "ui" > /dev/null
+            rm -f "$STATE/engine.pid"
+            die "엔진이 기동 중 종료됐다 (위는 $LOGS/engine.log 끝 20줄)"
+        fi
+        [ $waited -ge "$START_TIMEOUT" ] && die "엔진이 ${START_TIMEOUT}초 안에 응답하지 않는다: $LOGS/engine.log"
+        sleep 2; waited=$((waited + 2))
+        [ $((waited % 30)) -eq 0 ] && echo "[start] 데이터 로딩 중... ${waited}s"
+    done
+    echo "ready  engine http://$HOST:$ENGINE_PORT   ui http://$HOST:$UI_PORT"
+}
+
+cmd_start() {
+    local build_only=0 restart=0
+    [ "${1:-}" = "--restart" ] && { restart=1; shift; }
+    load_ports
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --port)       check_port "${2:-}"; ENGINE_PORT="$2"; shift 2;;
+            --ui-port)    check_port "${2:-}"; UI_PORT="$2"; shift 2;;
+            --build-only) build_only=1; shift;;
+            -h|--help)    usage 0;;
+            *)            die "모르는 옵션: $1 (start [--port N] [--ui-port N] [--build-only])";;
+        esac
+    done
+    bootstrap
+    if [ $build_only -eq 0 ]; then   # 빌드 전에 먼저 걸러서 몇 분 기다린 뒤 실패하지 않게 한다
+        [ -n "$ENGINE_PORT" ] && [ -n "$UI_PORT" ] || die "첫 기동은 포트를 정해 준다: longshort start --port <엔진> --ui-port <화면>"
+        [ "$ENGINE_PORT" != "$UI_PORT" ] || die "엔진 포트와 화면 포트는 달라야 한다"
+        if [ $restart -eq 0 ]; then
+            alive "$STATE/engine.pid" longshort-server && die "엔진이 이미 떠 있다 (pid $(cat "$STATE/engine.pid")); restart 를 쓴다"
+            alive "$STATE/ui.pid" next && die "화면이 이미 떠 있다 (pid $(cat "$STATE/ui.pid")); restart 를 쓴다"
+            port_busy "$ENGINE_PORT" && die "포트 $ENGINE_PORT 는 다른 프로세스가 쓰고 있다 (--port 로 바꾼다)"
+            port_busy "$UI_PORT" && die "포트 $UI_PORT 는 다른 프로세스가 쓰고 있다 (--ui-port 로 바꾼다)"
+        fi
+    fi
+    build
+    [ $build_only -eq 1 ] && { echo "[build] 끝 ($STATE/build/longshort-server); 엔진은 건드리지 않았다"; return 0; }
+    [ $restart -eq 1 ] && cmd_stop
+    launch
+}
+
+cmd_stop() {
+    stop_one "$STATE/engine.pid" longshort-server "engine"
+    stop_one "$STATE/ui.pid" next "ui"
+}
+
+case "${1:-}" in
+    init)    shift; cmd_init "$@";;
+    start)   shift; cmd_start "$@";;
+    stop)    [ $# -eq 1 ] || die "stop 은 옵션이 없다"; cmd_stop;;
+    restart) shift; cmd_start --restart "$@";;
+    -h|--help|help) usage 0;;
+    *)       usage 1;;
+esac

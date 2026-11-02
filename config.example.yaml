@@ -1,3 +1,5 @@
+# Personal research configuration template: `longshort start` copies this to ~/longshort_workspace/config.yaml
+# when none exists. Data and the AFL catalog are shared; the backtest block matches the operating book.
 # Thin-v1 cache (docs/data_contract.md): the loader detects
 # the layout from `cache`/manifest.json. Prices (open high low close volume vwap cap) are raw;
 # `returns`, `adj_returns` and `adj_factor` are cache fields (split-adjusted close = close / adj_factor).
@@ -12,7 +14,7 @@ datasets:
     enabled: true
     format: wide
     path: /home/base/cache/cache_v2_cash_1d/AflData
-    catalog: afl_catalog.json
+    catalog: /home/base/cache/cache_v2_cash_1d/afl_catalog.json
     lazy: true
     alignment: asof
 
@@ -21,12 +23,20 @@ universe:
   path: /home/base/cache/cache_v2_cash_1d/universe.parquet
   names: [TOP3000, TOP3000_ADR, TOP2000, TOP2000_ADR, TOP1000, TOP1000_ADR, TOP500, TOP500_ADR, TOP1000_CAP, TOP500_CAP]
 
+# start_date is the DATA load start (rows before it are dropped; modules see nothing earlier), not the
+# simulation start. Each alpha picks its own simulation range in the UI (simStart / isStart / osStart,
+# saved with the alpha), so keep this early enough for long warm-ups such as a 5-year PCA fit.
 backtest:
-  start_date: '2016-01-01'
+  start_date: '2000-01-01'
   end_date: latest
-  warmup_bars: 252
+  warmup_bars: 0
+  pit_lag: 1            # bar t uses the universe membership and group codes decided at the close of bar t-1; 0 = same-bar (look-ahead)
   initial_capital: 1000000
   transaction_fee: 1.5
   bars_per_year: 252
-  execution_price: close
+  execution_price: vwap
   missing_close_policy: carry
+
+# Approved alpha pool (optional): the Corr column of the results table correlates a run with these alphas.
+alpha_pool: /home/base/alpha_pool
+alpha_pool_universe: TOP500_CAP   # the pool standard (book universe); pool alphas are simulated with it once at startup
