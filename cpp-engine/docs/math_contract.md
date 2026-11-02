@@ -30,7 +30,7 @@ This document is the single source of truth for C++ engine test math.
 - An initially empty book has no holding return on its first trading bar. It pays
   entry fees and, with OHLC4/VWAP execution, can earn the fill-to-close trading return.
 - Explicit XML delay owns signal timing; there is no Interval/execution mode.
-  - The pipeline output at bar `t` is masked and normalized at `t`, then executed at `t`.
+  - The pipeline output at bar `t` is masked and normalized with the universe membership and group codes known at the close of bar `t - pit_lag` (`backtest.pit_lag`, default 1, since 2026-10-29; before that the membership decided on the close of `t` itself was applied at `t`), then executed at `t`. The first `pit_lag` bars of the loaded panel have no membership, so size `warmup_bars` accordingly.
   - `<data expr="close" delay="1"/>` reads the prior bar exactly once.
   - Holding return at `t` uses previous executed weights and the close-to-close move.
 - Execution-price contract (`backtest.execution_price`): `close` is the general
@@ -138,7 +138,7 @@ This document is the single source of truth for C++ engine test math.
 
 ## Module Contracts
 
-- Calling `init()` starts a fresh run: rolling sums, counts and input history must reset, including when the asset count changes. Checkpoint restoration happens after initialization.
+- Calling `init()` starts a fresh run: rolling sums, counts and input history must reset, including when the asset count changes.
 
 - `MDelay(days)`:
   - output at `t` is input at `t-days`; unavailable lookback -> `NaN`
@@ -162,6 +162,7 @@ This document is the single source of truth for C++ engine test math.
 - `MZscore(ddof, min_count, eps)`:
   - cross-sectional z-score on finite values
   - if finite count `< min_count` or `scale < eps`: all `NaN`
+- `<signal id>` names are unique within a pipeline: a second `<signal id="x">` is a compile error (`Duplicate signal id 'x'`); expanded alternatives (`|`, `<choice>`) compile separately.
 - inf is never a value: a ±inf cell read from a data file is NaN (missing); after every module call (each pipeline
   step and each `MChain` step, user modules included) ±inf in the output is replaced by `NaN`, so downstream modules
   and the gross-1 target normalization treat it exactly like `NaN` (the `(t, i)` cell gets no position).
@@ -181,7 +182,52 @@ This document is the single source of truth for C++ engine test math.
   - `log`: `x <= 0` -> `NaN`; `sqrt`: `x < 0` -> `NaN`; `inverse`: `±0` -> `NaN`; `sign(±0) = 0`
   - `power`: negative base with a non-integer exponent or `0^negative` -> `NaN`;
     `signedpower = sign(x)·|x|^exp` (`0^negative` -> `NaN`, `±0^p` -> `+0` for `p >= 0`)
+  - `exp` (`<exp/>`, expr `exp(x)`): `e^x`; float overflow (x ≳ 88.7) -> `NaN`
   - `max`/`min` against the scalar `value` (ties return `value`, so `max(-0, 0) = +0`); a `NaN` input stays `NaN`
+- Time-series tags (2026-10-22; per instrument, window = last `days` bars incl. today, lag 0 = today; non-finite values are missing):
+  - `<tsdelta days=1>`: `x[t] − x[t−days]`; `NaN` if either is non-finite or fewer than `days+1` bars were seen (days=1 equals `x − delay(x,1)` bit for bit)
+  - `<tssum days=20 min_count=days>`: sum of the finite window values; `NaN` if fewer than `min_count`; a `NaN` today does not force `NaN`
+  - `<tsstddev days=20 ddof=1 min_count=days>`: std of the finite window values, divisor `n−ddof` (rolling double sums, variance clamped at 0); `NaN` if `n < min_count` or `n−ddof <= 0`; a window whose finite values are all equal is exactly `0`
+  - `<tsargmax|tsargmin days=20 min_count=days>`: lag (0..days−1) of the max/min finite window value, ties → most recent; `NaN` if fewer than `min_count` finite values (monotonic deque, amortized O(1))
+  - `<tsfill days=20>` (sample-and-hold, 2026-10-26): blocks `[k·days, (k+1)·days)` of the panel bar index (anchored at panel
+    index 0, independent of simStart); the whole block outputs `x` at the block's first bar (`NaN` included, no carry of older
+    values) and ignores the other inputs of the block; `days=1` is the identity. With delay ≥ 1 data the first block is `NaN`
+  - `<tsmax|tsmin days=20 min_count=days>`: max/min of the finite window values; `NaN` if fewer than `min_count`; a `NaN` today does not force `NaN`
+  - `<tsewma span=20 | halflife | alpha, adjust=1, min_count=1>`: pandas `ewm(alpha, adjust, ignore_na=False, min_periods=min_count).mean()` with the
+    float-rounded parameter (α = 2/(span+1), 1−exp(ln 0.5/halflife) or alpha; at most one given); a missing bar outputs the previous mean;
+    infinite memory, so the value depends on the panel start (difference bounded by (1−α)^warmup)
+- Fractional difference and PCA residual (2026-10-29, built in from the combo15 MR workspace modules; outputs are bit-identical to them):
+  - `<ffd d=0.24 thres=0.00001>`: per instrument; weights `w_0 = 1`, `w_k = −w_{k−1}/k·(d−k+1)` until `|w_k| < thres` or 1000 weights
+    (the desk's `getWeights_FFD`); `out[t] = Σ_k w_k·x~[t−k]` with `x~` the input forward-filled from its first finite value, double
+    accumulation; `NaN` when today's input is non-finite or fewer than `len(w)` bars have passed since the first finite input. `d=0` is the identity
+  - `<pcaresid group train=1260 refit=252 k=0 var=0.9>`: refit at panel bars `b ≥ train` with `b % refit == 0` on the input rows `[b−train, b)`
+    (`NaN` before the first fit); `group` is optional (`sector|industry`, validated like neutralize; absent = one block over the run universe).
+    Fit set per group: in the run universe, finite code ≥ 0 equal on every train bar, finite input on every train bar. Columns standardized with the
+    train mean/std (ddof 0; zero-std columns dropped); PCA as sklearn on the standardized matrix (`k > 0` fixes the component count, else the first `k`
+    with cumulative explained-variance ratio ≥ `var`, `0 < var < 1`). Output at bar `t` of the block: `z_hat − z` for fitted instruments with finite
+    input and the fitted group code at `t`, `z_hat = mu + V·s`, `s` the least-squares scores on the observed coordinates (`Vᵀ(z−mu)` when all are
+    observed); everything else `NaN`. The run-universe mask is applied to the fit set only, not at `t` (rank/neutralize do that)
+- Cross-sectional and group tags (2026-10-22): the run universe mask is applied first exactly like rank/zscore/neutralize
+  (excluded or non-finite → `NaN`, never in any statistic); statistics are two-pass double with sample sd (ddof 1).
+  Group tags use neutralize's membership (finite value, finite code ≥ 0 on the signal date) and its `group="sector|industry"` validation.
+  - `<winsorize std=4>`: clip to `[m − std·s, m + std·s]`; fewer than 2 finite values pass unchanged
+  - `<normalize usestd=0 limit=0>`: `x − m`; `usestd`: `(x − m)/s`, whole row `NaN` if count < 2 or `s < 1e-12`; `limit > 0` clamps to `±limit`
+  - `<hump hump=0.01>`: per instrument with `prev` (initially `NaN`); `limit = hump·Σ|x|` over today's masked finite inputs;
+    `prev` `NaN` → `x`; `|x − prev| > limit` → `prev + sign·limit`, else `prev`; a missing/excluded instrument outputs `NaN` and resets `prev`
+  - `<group_rank group pct=1>`: rank within the group with `<rank/>`'s tie rule, pct divides by the group size (one group = `<rank/>` bit for bit)
+  - `<group_mean group weight=equal|cap mean=arithmetic|harmonic>`: arithmetic `Σw·x/Σw`, harmonic `Σw/Σ(w/x)` (`x = ±0` is not a member;
+    reciprocal sum 0 or non-finite → group `NaN`); `cap` weights are the `cap` field on the previous bar (di−1, never di), a member without a
+    valid weight still receives the mean, a group without any → `NaN`. Group PER = `<group_mean group="sector" weight="cap" mean="harmonic"/>`
+  - `<group_zscore group>`: `(x − m_g)/(s_g + 1e-12)`; a group with fewer than 2 members or `s_g < 1e-12` → `NaN`
+  - `<rank_sharp exp=2>`: `r = <rank/> pct − 0.5`, `sign(r)·|r|^exp` (exp=3 is the research `rank_sharp`)
+  - `<truncate max side=0 post=1>` (per-name cap; put it last): sets are all nonzero `|x|` (side=0) or longs and shorts separately (side=1);
+    output `sign(x)·min(|x|, c)`, zeros stay 0. post=1: `c` is the water-filling level so the weight after gross-1 normalization is ≤ `max`
+    (of its leg for side=1); if `max·n_nonzero < 1` every nonzero member is clipped to the smallest nonzero `|x|` (equal weights).
+    post=0: `c = max·Σ|x|` of the set. Desk `cs_truncate(x, t)` = `side=1 post=0`; `cs_truncate(x, t, post_trunc=True, absolute=True)` = defaults
+
+- Affine (2026-10-29, built in from the former `examples/modules` sample): `<affine factor="1" offset="0"/>` maps each finite x to `factor * x + offset`, computed in double and stored as float; a non-finite input or result becomes NaN (the unary chain rule). Stateless, no universe mask.
+
+- Alpha pool correlation (2026-10-29, config `alpha_pool`): each `<alpha_pool>/<name>/alpha.xml` is simulated once at startup (new or changed entries on the next request) with `alpha_pool_universe` (default: the config default universe) and the config execution price over the whole panel; its daily net return by panel row is cached. The EW pool return on bar t is the mean of the pool alphas already active on t (first nonzero return <= t). `/api/simulate` adds to every batch (and `combined`) `poolCorr: {ew, days}`: the Pearson correlation of the daily net return of the run with the EW pool over the sim window [simStart, simEnd], using only bars at or after the first nonzero return of both sides; null below 60 overlapping bars or with zero variance. One number per run; nothing per pool alpha. The frontend shows `ew` right of the OS block. The pool is read-only for the engine.
 
 ## Regression Test Mapping
 
