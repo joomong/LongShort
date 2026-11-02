@@ -221,8 +221,6 @@ data/
 !cpp-engine/src/data/
 !cpp-engine/src/data/*.h
 !cpp-engine/src/data/*.cpp
-!cpp-engine/tools/data/
-!cpp-engine/tools/data/*.py
 
 # Claude Code / OMC
 .omc/
@@ -239,3 +237,38 @@ data/
 
 # HTTP contract test config copies (tests/test_http_contract.cpp)
 .longshort_http_test_*.yaml
+
+# Agent tool files (not part of the platform)
+.agents/
+.claude/
+CLAUDE.md
+AGENTS.md
+.codex/
+AGENT.md
+
+# Build and tool output outside .longshort/
+build-*/
+cmake-build-*/
+_deps/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+*.o
+uploads/
+*.pid
+*.tsbuildinfo
+test-results/
+playwright-report/
+nohup.out
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Keys
+*.pem
+*.key
