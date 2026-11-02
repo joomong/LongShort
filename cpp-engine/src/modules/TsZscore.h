@@ -60,14 +60,6 @@ struct MTsZscore : public Module {
                 output[ii] = (float)((new_val - mean) / (std_dev + eps));
         }
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & input & running_sum & running_sum_sq & running_count & bar_count;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & input & running_sum & running_sum_sq & running_count & bar_count;
-    }
 
     StarVector<double> running_sum;
     StarVector<double> running_sum_sq;

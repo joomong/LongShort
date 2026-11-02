@@ -38,14 +38,6 @@ struct MDecay : public Module
         for (; ii < (unsigned)numAssets; ++ii)
             process_1instrument(ii, curr, past, output);
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & input & weights & num & sum & diff;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & input & weights & num & sum & diff;
-    }
 
     std::vector<double> div;
     StarVector<int> weights, num;

@@ -114,6 +114,8 @@ TEST(ExprFunctions, OneArgMatchesDirectModule) {
     auto dp = make_panel();
     expect_bits_equal(run_expr("abs(close)", dp), run_direct<unary_ops::Abs>("close", 0.0, dp));
     expect_bits_equal(run_expr("log(close)", dp), run_direct<unary_ops::Log>("close", 0.0, dp));
+    expect_bits_equal(run_expr("exp(close)", dp), run_direct<unary_ops::Exp>("close", 0.0, dp));
+    expect_bits_equal(run_expr("exp(close * 0.1)", dp), run_direct<unary_ops::Exp>("close * 0.1", 0.0, dp));
     expect_bits_equal(run_expr("sqrt(close)", dp), run_direct<unary_ops::Sqrt>("close", 0.0, dp));
     expect_bits_equal(run_expr("sign(close)", dp), run_direct<unary_ops::Sign>("close", 0.0, dp));
 }
@@ -196,6 +198,7 @@ TEST(ExprFunctions, Errors) {
     expect_error("log(close, 2)", "expr_parser: 'log' expects 1 argument");
     expect_error("abs(close, open)", "expr_parser: 'abs' expects 1 argument");
     expect_error("log()", "expr_parser: 'log' expects 1 argument");
+    expect_error("exp(close, 2)", "expr_parser: 'exp' expects 1 argument");
     expect_error("power()", "expr_parser: 'power' expects 2 arguments");
     expect_error("power(,2)", "expr_parser: 'power' expects 2 arguments");
     expect_error("power(close)", "expr_parser: 'power' expects 2 arguments");
@@ -211,4 +214,80 @@ TEST(ExprFunctions, Errors) {
                  "expr_parser: scientific notation is not allowed ('1e-3'); write it as a plain decimal");
     expect_error("power(close, +2)", "expr_parser: 'power' exponent must be a number");
     expect_error("power(close, 2", "expr_parser: expected ')'");
+}
+
+// Wide dataset fields are `<dataset>.<field>` tokens (one dot, no whitespace, field part may
+// start with a digit); they are always data fields, never functions.
+static DataPanel make_dotted_panel() {
+    auto dp = make_panel();
+    unsigned k = 0;
+    for (const char* col : {"AFL.a", "AFL.b", "AFL.c", "AFL.10DMACD", "AFL.x", "B.x", "AFL.only"}) {
+        auto& arr = dp.arrays[col];
+        arr.resize(dp.T * dp.N);
+        for (unsigned i = 0; i < dp.T * dp.N; ++i) arr[i] = 1.0f + 0.25f * i + 3.0f * k;
+        ++k;
+    }
+    return dp;
+}
+static void expect_dotted_error(const std::string& expr, const std::string& msg) {
+    auto dp = make_dotted_panel();
+    std::vector<std::unique_ptr<Module>> owned;
+    try {
+        (void)parse_expr(expr, &dp, owned);
+        FAIL() << "expected error for " << expr;
+    } catch (const std::runtime_error& e) {
+        EXPECT_EQ(std::string(e.what()), msg) << expr;
+    }
+}
+TEST(ExprFunctions, DottedNamesAreDataFields) {
+    auto dp = make_dotted_panel();
+    const auto& a = dp.arrays.at("AFL.a");
+    const auto& b = dp.arrays.at("AFL.b");
+    const auto& c = dp.arrays.at("AFL.c");
+    const auto& m = dp.arrays.at("AFL.10DMACD");
+    auto mix = run_expr("AFL.a - 2*AFL.b + exp(AFL.c/100)", dp);
+    auto split = run_expr("AFL.10DMACD/2.5", dp);
+    auto spaced = run_expr("AFL.a-AFL.b", dp);
+    for (unsigned t = 0; t < dp.T; ++t)
+        for (unsigned n = 0; n < dp.N; ++n) {
+            const unsigned i = t * dp.N + n;
+            EXPECT_FLOAT_EQ(mix[t][n], a[i] - 2 * b[i] + std::exp(c[i] / 100));
+            EXPECT_FLOAT_EQ(split[t][n], m[i] / 2.5f);
+            EXPECT_FLOAT_EQ(spaced[t][n], a[i] - b[i]);
+        }
+    expect_bits_equal(run_expr("abs(AFL.x)", dp), run_direct<unary_ops::Abs>("AFL.x", 0.0, dp));
+    expect_bits_equal(run_expr("B.x", dp), run_expr("B.x * 1", dp));
+}
+TEST(ExprFunctions, DottedNameErrorsAndHint) {
+    expect_dotted_error("AFL.", "expr_parser: expected a field name after 'AFL.'");
+    expect_dotted_error("AFL. + close", "expr_parser: expected a field name after 'AFL.'");
+    expect_dotted_error("AFL..X", "expr_parser: expected a field name after 'AFL.'");
+    expect_dotted_error("AFL.X.Y", "expr_parser: a data name has exactly one dot ('AFL.X.')");
+    expect_dotted_error(".X", "expr_parser: invalid numeric literal '.'");
+    expect_dotted_error("AFL . a", "expr_parser: unknown or disabled data field 'AFL'");
+    expect_dotted_error("AFL.377", "expr_parser: unknown or disabled data field 'AFL.377'");
+    expect_dotted_error("AFL.exp(close)", "expr_parser: 'AFL.exp' is a data field, not a function");
+    expect_dotted_error("AFL.a(close)", "expr_parser: 'AFL.a' is a data field, not a function");
+    expect_dotted_error("AFL.returns", "expr_parser: unknown or disabled data field 'AFL.returns'");
+    // A bare name carried by exactly one wide dataset gets the dotted spelling as a hint ...
+    expect_dotted_error("only", "expr_parser: unknown or disabled data field 'only' (did you mean 'AFL.only'?)");
+    expect_dotted_error("10DMACD + 1", "expr_parser: unexpected tokens after expression");
+    expect_dotted_error("1 + abs(a)", "expr_parser: unknown or disabled data field 'a' (did you mean 'AFL.a'?)");
+    // ... but not when two datasets carry it, nor for names nobody carries.
+    expect_dotted_error("x", "expr_parser: unknown or disabled data field 'x'");
+    expect_dotted_error("nothing", "expr_parser: unknown or disabled data field 'nothing'");
+}
+// `AFL.returns` is an ordinary data field, never the close-derived returns.
+TEST(ExprFunctions, DottedReturnsIsADataField) {
+    auto dp = make_dotted_panel();
+    auto& r = dp.arrays["AFL.returns"];
+    r.assign(dp.T * dp.N, 0.0f);
+    for (unsigned i = 0; i < r.size(); ++i) r[i] = 7.0f + 0.5f * i;
+    auto out = run_expr("AFL.returns", dp);
+    for (unsigned t = 0; t < dp.T; ++t)
+        for (unsigned n = 0; n < dp.N; ++n) EXPECT_EQ(out[t][n], r[t * dp.N + n]);
+    std::vector<std::unique_ptr<Module>> owned;
+    (void)parse_expr("AFL.returns", &dp, owned);
+    ASSERT_EQ(owned.size(), 1u);  // one MData, not the close / delay(close) - 1 tree
+    EXPECT_EQ(static_cast<MData*>(owned[0].get())->column_name, "AFL.returns");
 }

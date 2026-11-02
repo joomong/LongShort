@@ -6,6 +6,7 @@
 namespace unary_ops {
 struct Abs         { static double apply(double x, double)   { return std::fabs(x); } };
 struct Log         { static double apply(double x, double)   { return std::log(x); } };
+struct Exp         { static double apply(double x, double)   { return std::exp(x); } };
 struct Sqrt        { static double apply(double x, double)   { return std::sqrt(x); } };
 struct Sign        { static double apply(double x, double)   { return (x > 0.0) - (x < 0.0); } };
 struct Power       { static double apply(double x, double p) { return std::pow(x, p); } };

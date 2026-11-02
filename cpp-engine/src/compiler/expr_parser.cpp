@@ -58,6 +58,20 @@ static std::vector<Token> tokenise(const std::string& src) {
             size_t start = i;
             while (i < src.size() && (std::isalnum((unsigned char)src[i]) || src[i] == '_'))
                 ++i;
+            // A wide dataset field is `<dataset>.<field>`: one dot, no whitespace, and a field
+            // part of [A-Za-z0-9_]+ (it may start with a digit: AFL.10DMACD).
+            if (i < src.size() && src[i] == '.') {
+                size_t j = i + 1;
+                while (j < src.size() && (std::isalnum((unsigned char)src[j]) || src[j] == '_'))
+                    ++j;
+                if (j == i + 1)
+                    throw std::runtime_error("expr_parser: expected a field name after '" +
+                                             src.substr(start, i + 1 - start) + "'");
+                if (j < src.size() && src[j] == '.')
+                    throw std::runtime_error("expr_parser: a data name has exactly one dot ('" +
+                                             src.substr(start, j + 1 - start) + "')");
+                i = j;
+            }
             toks.push_back({TokKind::Ident, src.substr(start, i - start)});
             continue;
         }
@@ -93,8 +107,21 @@ struct Parser {
     }
 
     Module* make_data(const std::string& col) {
-        if (!panel || !panel->has_column(col))
-            throw std::runtime_error("expr_parser: unknown or disabled data field '" + col + "'");
+        if (!panel || !panel->has_column(col)) {
+            // A bare name that exactly one wide dataset carries gets the dotted spelling as a hint.
+            std::string hint;
+            int matches = 0;
+            if (panel && col.find('.') == std::string::npos)
+                for (const auto& name : panel->column_names()) {
+                    const auto dot = name.find('.');
+                    if (dot != std::string::npos && name.compare(dot + 1, std::string::npos, col) == 0) {
+                        hint = name;
+                        ++matches;
+                    }
+                }
+            throw std::runtime_error("expr_parser: unknown or disabled data field '" + col + "'" +
+                                     (matches == 1 ? " (did you mean '" + hint + "'?)" : ""));
+        }
         auto m = std::make_unique<MData>();
         m->column_name = col;
         m->panel = panel;
@@ -194,7 +221,7 @@ struct Parser {
 
     // name '(' expr [',' ['-'] number] ')'; the '(' is the current token.
     Module* parse_call(const std::string& name) {
-        const bool one = name == "abs" || name == "log" || name == "sqrt" || name == "sign";
+        const bool one = name == "abs" || name == "log" || name == "exp" || name == "sqrt" || name == "sign";
         const bool two = name == "power" || name == "signedpower";
         if (!one && !two)
             throw std::runtime_error("expr_parser: unknown function '" + name + "'");
@@ -222,6 +249,7 @@ struct Parser {
         expect(TokKind::RParen, "')'");
         if (name == "abs")   return make_unary<unary_ops::Abs>(arg, p);
         if (name == "log")   return make_unary<unary_ops::Log>(arg, p);
+        if (name == "exp")   return make_unary<unary_ops::Exp>(arg, p);
         if (name == "sqrt")  return make_unary<unary_ops::Sqrt>(arg, p);
         if (name == "sign")  return make_unary<unary_ops::Sign>(arg, p);
         if (name == "power") return make_unary<unary_ops::Power>(arg, p);
@@ -234,8 +262,13 @@ struct Parser {
         if (cur().kind == TokKind::Ident) {
             std::string name = cur().text;
             consume();
-            if (cur().kind == TokKind::LParen)
+            const bool dotted = name.find('.') != std::string::npos;
+            if (cur().kind == TokKind::LParen) {
+                if (dotted)
+                    throw std::runtime_error("expr_parser: '" + name + "' is a data field, not a function");
                 return parse_call(name);
+            }
+            if (dotted) return make_data(name);
             // A thin-v1 panel carries `returns` (total return) as a cache field; other layouts derive it from close.
             if (name == "returns")
                 return panel && (panel->thin_layout || panel->has_column("returns")) ? make_data("returns") : make_returns();

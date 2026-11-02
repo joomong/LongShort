@@ -3,7 +3,9 @@
 
 This scans the framework's declaration convention, not arbitrary C++ reflection:
 one concrete, directly/publicly Module-derived type per header; XML parameters
-are public, directly declared IntParameter/FloatParameter instance fields.
+are public, directly declared IntParameter/FloatParameter/GroupParameter instance
+fields. Optional public bindings: `const DataPanel* panel` and
+`const std::vector<uint8_t>* universe` (the run-selected universe, as built-ins get it).
 C++ still compiles the header and evaluates its member initializers normally.
 """
 from __future__ import annotations
@@ -35,6 +37,7 @@ class DiscoveredModule:
     class_name: str
     parameters: tuple[Parameter, ...]
     bind_panel: bool = False
+    bind_universe: bool = False
 
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
@@ -46,12 +49,20 @@ CLASS = re.compile(
     r"(?:final\s*)?(?:\:\s*(?P<bases>[^{};]+))?\s*\{", re.ASCII
 )
 NAMESPACE = re.compile(r"\bnamespace\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\s*\{")
+PARAMETER_TYPES = ("IntParameter", "FloatParameter", "GroupParameter")
+UNIVERSE_DECLARATION = ["const", "std", "::", "vector", "<", "uint8_t", ">", "*"]
 RESERVED_TAGS = frozenset({"data", "signal", "event", "choice", "alpha",
                            "tsmean", "tsrank", "tszscore", "decay", "delay", "rank", "zscore",
                            "neutralize", "meta", "ew", "mvo", "minvar", "erc", "ivol",
                            "spca", "glasso",
                            "abs", "log", "sqrt", "sign", "inverse", "reverse",
-                           "power", "signedpower", "max", "min"})
+                           "power", "signedpower", "max", "min",
+                           "tsdelta", "tssum", "tsstddev", "tsargmax", "tsargmin", "tsfill",
+                           "winsorize", "normalize", "hump",
+                           "group_rank", "group_mean", "group_zscore", "rank_sharp",
+                           "tsmax", "tsmin", "tsewma",
+                           "exp", "truncate", "ffd", "pcaresid", "affine",
+                           })
 
 
 def error(path: Path, source: str, offset: int, message: str):
@@ -216,7 +227,7 @@ def parameters_for(masked, source, path, body_start, body_end, is_struct):
     depth = parentheses = 0
     statement_start = 0
     parameters = []
-    bind_panel = False
+    bind_panel = bind_universe = False
     i = 0
     while i < len(tokens):
         value = tokens[i].group()
@@ -227,7 +238,7 @@ def parameters_for(masked, source, path, body_start, body_end, is_struct):
                 statement_start = i
                 continue
             prefix = without_attributes([token.group() for token in tokens[statement_start:i]])
-            if value in {"IntParameter", "FloatParameter"}:
+            if value in PARAMETER_TYPES:
                 # A return type is not a configurable instance field.
                 after = [t.group() for t in tokens[i + 1:i + 4]]
                 if ((len(after) >= 2 and IDENTIFIER.fullmatch(after[0]) and after[1] == "(")
@@ -279,6 +290,15 @@ def parameters_for(masked, source, path, body_start, body_end, is_struct):
                 if following not in {"=", "{", ";"}:
                     error(path, source, tokens[i].start(), "panel must be a const DataPanel* value member")
                 bind_panel = True
+            # Optional run-selected universe, declared exactly like the built-ins' member.
+            following = tokens[i + 1].group() if i + 1 < len(tokens) else None
+            if value == "universe" and following in {"=", "{", ";", "[", ","} and "=" not in prefix:
+                if prefix != UNIVERSE_DECLARATION or following in {"[", ","}:
+                    error(path, source, tokens[i].start(),
+                          "universe must be declared as const std::vector<uint8_t>* universe")
+                if access != "public":
+                    error(path, source, tokens[i].start(), "the optional universe binding must be public")
+                bind_universe = True
         if value == "{":
             depth += 1
         elif value == "}":
@@ -293,7 +313,7 @@ def parameters_for(masked, source, path, body_start, body_end, is_struct):
             elif value == ";" and parentheses == 0:
                 statement_start = i + 1
         i += 1
-    return tuple(parameters), bind_panel
+    return tuple(parameters), bind_panel, bind_universe
 
 
 def parse_header(path: Path):
@@ -326,13 +346,13 @@ def parse_header(path: Path):
     body_start = match.end() - 1
     body_end = pairs[body_start]
     check_conditionals(masked, source, path, body_start, body_end)
-    parameters, bind_panel = parameters_for(masked, source, path, body_start, body_end, match.group("kind") == "struct")
+    parameters, bind_panel, bind_universe = parameters_for(masked, source, path, body_start, body_end, match.group("kind") == "struct")
     tag = path.stem.lower()
     if not re.fullmatch(r"[a-z_][a-z0-9_.-]*", tag):
         error(path, source, match.start(), "header stem must be a valid ASCII XML tag (letters, digits, _, -, .)")
     if tag in RESERVED_TAGS:
         error(path, source, match.start(), f"module tag {tag!r} is reserved by the engine")
-    return DiscoveredModule(path.resolve(), tag, name, parameters, bind_panel)
+    return DiscoveredModule(path.resolve(), tag, name, parameters, bind_panel, bind_universe)
 
 
 def builtin_type_names():
@@ -384,7 +404,7 @@ def cpp_string(value):
 def render(modules):
     lines = ['// Generated by generate_modules.py. Do not edit.',
              '#include "compiler/dag_builder.h"', '#include "compiler/module_attributes.h"',
-             '#include <type_traits>']
+             '#include <cstdint>', '#include <type_traits>', '#include <vector>']
     for module in modules:
         header = module.header.as_posix()
         if any(char in header for char in ('"', "\\", "\n", "\r")):
@@ -405,13 +425,31 @@ def render(modules):
         ])
         for parameter in module.parameters:
             key = cpp_string(parameter.name)
-            conversion = 'parse_int' if parameter.kind == 'IntParameter' else 'parse_float'
+            if parameter.kind == 'GroupParameter':
+                value = f'validate_group_attribute(attrs, {tag}, panel, {key})'
+            else:
+                conversion = 'parse_int' if parameter.kind == 'IntParameter' else 'parse_float'
+                value = f'module_attributes::{conversion}(it->second, {tag}, {key})'
             lines.extend([
                 f'        static_assert(std::is_same_v<decltype(module->{parameter.name}), ::{parameter.kind}>, \"XML parameters must use the SDK parameter types\");',
                 f'        if (auto it = attrs.find({key}); it != attrs.end())',
-                f'            module->{parameter.name} = {parameter.kind}(module_attributes::{conversion}(it->second, {tag}, {key}));',
+                f'            module->{parameter.name} = {parameter.kind}({value});',
             ])
         lines.extend(['        return module;', '    });'])
+    lines.extend(['}', '',
+                  'void bind_discovered_universe(Module& module, const std::vector<uint8_t>* universe) {'])
+    bound = [m for m in modules if m.bind_universe]
+    if not bound:
+        lines.extend(['    (void)module;', '    (void)universe;'])
+    for module in bound:
+        name = "::" + module.class_name
+        lines.extend([
+            f'    static_assert(std::is_same_v<decltype({name}::universe), const std::vector<uint8_t>*>, "universe must be const std::vector<uint8_t>*");',
+            f'    if (auto* bound = dynamic_cast<{name}*>(&module)) {{',
+            '        bound->universe = universe;',
+            '        return;',
+            '    }',
+        ])
     lines.extend(['}', ''])
     return '\n'.join(lines)
 
@@ -444,7 +482,7 @@ def main():
         if args.manifest:
             manifest = [{'tag': m.tag, 'class': m.class_name, 'header': str(m.header),
                          'parameters': [{'name': p.name, 'type': p.kind} for p in m.parameters],
-                         'binds_panel': m.bind_panel} for m in modules]
+                         'binds_panel': m.bind_panel, 'binds_universe': m.bind_universe} for m in modules]
             write_if_changed(args.manifest, json.dumps(manifest, indent=2)+'\n')
         print('Discovered modules: ' + (', '.join(m.tag for m in modules) or '(none)')
               + ('; factories updated' if changed else '; factories unchanged'))

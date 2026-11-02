@@ -14,3 +14,7 @@ struct XmlElement {
 // Wraps in <alpha>...</alpha> if needed (multiple sibling tags).
 // Throws std::runtime_error on parse failure.
 std::vector<XmlElement> parse_xml(const std::string& xml);
+
+// Human-readable XML fragments, with two-space indentation and a trailing newline.
+// Keeps comments, attribute values and sibling elements; throws on invalid XML.
+std::string format_xml(const std::string& xml);

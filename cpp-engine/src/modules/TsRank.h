@@ -47,14 +47,6 @@ struct MTsRank : public Module {
             output[ii] = (float)(pct ? rank / n_valid : rank);
         }
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & buf & pos & count;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & buf & pos & count;
-    }
 
     std::vector<std::vector<float>> buf;
     unsigned pos = 0;

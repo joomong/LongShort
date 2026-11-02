@@ -8,6 +8,7 @@
 #include "module.h"
 #include "signal_vector.h"
 #include "modules/Unary.h"
+#include "modules/Affine.h"
 
 // Expectations are written here from the semantics table (UNARY_COMMON / math_contract), never by calling
 // Op::apply, so a wrong Op cannot agree with itself.
@@ -70,6 +71,22 @@ TEST(UnaryModules, Log) {
         if (!(x > 0)) return kNaN;
         return wrap(x, [](double v) { return std::log(v); });
     }, "log");
+}
+
+TEST(UnaryModules, Exp) {
+    expect_bits(run<unary_ops::Exp>(kInputs), kInputs, [](float x) {
+        return wrap(x, [](double v) { return std::exp(v); });
+    }, "exp");
+    // e^0 = 1 exactly; float overflow (e^89 > FLT_MAX) and -inf input are NaN; e^-200 underflows to 0.
+    const auto out = run<unary_ops::Exp>({0.0f, -0.0f, 1.0f, 88.0f, 89.0f, -kInf, kInf, -200.0f});
+    EXPECT_EQ(bits(out[0]), bits(1.0f));
+    EXPECT_EQ(bits(out[1]), bits(1.0f));
+    EXPECT_EQ(out[2], static_cast<float>(2.718281828459045));
+    EXPECT_TRUE(std::isfinite(out[3]));
+    EXPECT_TRUE(std::isnan(out[4]));
+    EXPECT_TRUE(std::isnan(out[5]));
+    EXPECT_TRUE(std::isnan(out[6]));
+    EXPECT_EQ(bits(out[7]), bits(0.0f));
 }
 
 TEST(UnaryModules, Sqrt) {
@@ -164,5 +181,38 @@ TEST(UnaryModules, IdentitiesBitExactOnFinite) {
             EXPECT_EQ(bits(spow1[i]), bits(finite[i])) << "signedpower 1 x=" << finite[i];
         else
             EXPECT_EQ(bits(spow1[i]), bits(0.0f));
+    }
+}
+
+// ---------------------------------------------------------------- affine (built in 2026-10-29)
+TEST(AffineModule, FactorOffsetInDoubleAndNonFiniteToNaN) {
+    MAffine m;
+    m.numAssets = static_cast<unsigned>(kInputs.size());
+    m.factor = FloatParameter(-2.0);
+    m.offset = FloatParameter(0.5);
+    m.init();
+    std::vector<float> buf = kInputs;
+    SignalVector sv{buf.data(), m.numAssets};
+    m.calculate(0, sv);
+    for (size_t i = 0; i < kInputs.size(); ++i) {
+        const float x = kInputs[i];
+        if (!std::isfinite(x)) { EXPECT_TRUE(std::isnan(buf[i])) << i; continue; }
+        const float want = static_cast<float>(-2.0 * static_cast<double>(x) + 0.5);
+        if (!std::isfinite(want)) EXPECT_TRUE(std::isnan(buf[i])) << i;   // 3e38 * -2 overflows float
+        else EXPECT_EQ(bits(buf[i]), bits(want)) << i;
+    }
+}
+
+TEST(AffineModule, DefaultIsIdentityOnFiniteInput) {
+    MAffine m;
+    m.numAssets = static_cast<unsigned>(kInputs.size());
+    m.init();
+    std::vector<float> buf = kInputs;
+    SignalVector sv{buf.data(), m.numAssets};
+    m.calculate(0, sv);
+    for (size_t i = 0; i < kInputs.size(); ++i) {
+        // Value equality: 1 * (-0.0) + 0.0 is +0.0 under IEEE rules, which compares equal to -0.0.
+        if (std::isfinite(kInputs[i])) EXPECT_EQ(buf[i], kInputs[i]) << i;
+        else EXPECT_TRUE(std::isnan(buf[i])) << i;
     }
 }

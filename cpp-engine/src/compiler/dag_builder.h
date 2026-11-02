@@ -36,6 +36,14 @@ public:
 
 // Generated from the configured modules directory during the build.
 void register_discovered_modules(ModuleRegistry& registry);
+// Generated too: sets `universe` on discovered modules that declare it.
+void bind_discovered_universe(Module& module, const std::vector<uint8_t>* universe);
+
+// Shared group= validation (sector|industry, trimmed, panel column present) for
+// built-in group tags and discovered GroupParameter fields. Returns the name.
+std::string validate_group_attribute(const std::map<std::string, std::string>& attribs,
+                                     const std::string& tag, const DataPanel* panel,
+                                     const std::string& key = "group");
 
 struct MMetaSource;  // src/modules/MetaSource.h
 struct MetaSet;

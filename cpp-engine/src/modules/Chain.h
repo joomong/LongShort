@@ -16,16 +16,6 @@ struct MChain : public Module {
         second->calculate(di, output);
         output.inf_to_nan();
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        first->checkpoint(ar);
-        second->checkpoint(ar);
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        first->checkpoint(ar);
-        second->checkpoint(ar);
-    }
 
     Module* first = nullptr;
     Module* second = nullptr;

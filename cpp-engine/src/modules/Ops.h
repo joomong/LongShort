@@ -12,16 +12,6 @@ struct MBinaryOp : public Module {
         rhs->numAssets = numAssets;
         rhs->init();
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        lhs->checkpoint(ar);
-        rhs->checkpoint(ar);
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        lhs->checkpoint(ar);
-        rhs->checkpoint(ar);
-    }
 
     Module* lhs = nullptr;
     Module* rhs = nullptr;
@@ -86,34 +76,6 @@ struct MDiv : public MBinaryOp {
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
             else
                 output[ii] = l / r;
-        }
-    }
-};
-
-struct MLe : public MBinaryOp {
-    void calculate(unsigned di, SignalVector &output)
-    {
-        eval_operands(di, output);
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            float l = lhs_buf[ii], r = rhs_buf[ii];
-            if (!std::isfinite(l) || !std::isfinite(r))
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-            else
-                output[ii] = (l <= r) ? 1.0f : 0.0f;
-        }
-    }
-};
-
-struct MGe : public MBinaryOp {
-    void calculate(unsigned di, SignalVector &output)
-    {
-        eval_operands(di, output);
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            float l = lhs_buf[ii], r = rhs_buf[ii];
-            if (!std::isfinite(l) || !std::isfinite(r))
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-            else
-                output[ii] = (l >= r) ? 1.0f : 0.0f;
         }
     }
 };

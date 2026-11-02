@@ -25,14 +25,6 @@ struct MEvent : public Module {
                 output[ii] = sig[ii];
         }
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & hold;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & hold;
-    }
 
     const std::vector<float>* signal_cache = nullptr;
     const std::vector<float>* trigger_cache = nullptr;

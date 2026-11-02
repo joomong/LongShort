@@ -38,14 +38,6 @@ struct MTsMean : public Module {
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
         }
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & input & running_sum & running_count & bar_count;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & input & running_sum & running_count & bar_count;
-    }
 
     StarVector<double> running_sum;
     StarVector<int> running_count;

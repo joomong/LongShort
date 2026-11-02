@@ -10,9 +10,12 @@ struct DataPanel;
 // Parse an expression string into a Module tree.
 // All created modules are appended to `owned`; caller manages lifetime.
 // Returns a non-owning pointer to the root (output) module.
-// Allowed identifiers: fields registered in the DataPanel, plus derived returns
+// Allowed identifiers: fields registered in the DataPanel, plus derived returns. A wide dataset field
+//   is `<dataset>.<field>` (one dot, no whitespace, field part [A-Za-z0-9_]+, e.g. AFL.10DMACD) and is
+//   always a data field, never a function; an unknown bare name that exactly one wide dataset carries
+//   gets a "(did you mean '<dataset>.<name>'?)" hint.
 // Allowed operators: +, -, *, / and parentheses
-// Functions (identifier followed by '(', whitespace allowed): abs(x) log(x) sqrt(x) sign(x) power(x, p) signedpower(x, p);
+// Functions (identifier followed by '(', whitespace allowed): abs(x) log(x) exp(x) sqrt(x) sign(x) power(x, p) signedpower(x, p);
 //   x is any expression, p a numeric literal with optional '-'. Each is Chain(x, MUnary<Op>), same Op as the
 //   chain tag. Any other name followed by '(' is an error; a name not followed by '(' is a data field.
 // Numeric literals produce MConstant modules.

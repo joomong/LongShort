@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 #include <algorithm>
+#include <Eigen/Dense>   // linear algebra for modules (header-only, fetched by CMake)
 #include "signal_vector.h"
 #include "star_vector.h"
 #include "module.h"

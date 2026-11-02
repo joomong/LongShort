@@ -12,14 +12,6 @@ struct MSignalSave : public Module {
         for (unsigned ii = 0; ii < numAssets; ++ii)
             cache[ii] = output[ii];
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & cache;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & cache;
-    }
 
     std::vector<float> cache;
     std::string label;

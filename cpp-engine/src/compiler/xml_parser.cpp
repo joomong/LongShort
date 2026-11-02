@@ -3,6 +3,16 @@
 #include <stdexcept>
 #include <sstream>
 
+std::string format_xml(const std::string& xml) {
+    pugi::xml_document doc;
+    const auto result = doc.load_string(xml.c_str(), pugi::parse_full | pugi::parse_fragment);
+    if (!result)
+        throw std::runtime_error(std::string("XML parse error: ") + result.description());
+    std::ostringstream out;
+    doc.print(out, "  ");
+    return out.str();
+}
+
 static XmlElement node_to_element(const pugi::xml_node& node) {
     XmlElement el;
     el.tag = node.name();

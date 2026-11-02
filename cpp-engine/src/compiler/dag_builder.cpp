@@ -20,6 +20,21 @@
 #include "../modules/Constant.h"
 #include "../modules/SignalCache.h"
 #include "../modules/Unary.h"
+#include "../modules/TsEwma.h"
+#include "../modules/Truncate.h"
+#include "../modules/TsDelta.h"
+#include "../modules/TsSum.h"
+#include "../modules/TsStdDev.h"
+#include "../modules/TsArgExtreme.h"
+#include "../modules/TsFill.h"
+#include "../modules/Winsorize.h"
+#include "../modules/Normalize.h"
+#include "../modules/Hump.h"
+#include "../modules/GroupOps.h"
+#include "../modules/RankSharp.h"
+#include "../modules/Ffd.h"
+#include "../modules/Affine.h"
+#include "../modules/PcaResid.h"
 #include <stdexcept>
 #include <sstream>
 #include <limits>
@@ -161,6 +176,34 @@ std::unique_ptr<Module> ModuleRegistry::create(
     return it->second(attribs, panel);
 }
 
+// Shared group validation for neutralize, group_* and discovered GroupParameter
+// fields; `tag` is substituted into the messages (neutralize texts unchanged).
+// Returns the group name, which is also the panel field name for every supported group.
+std::string validate_group_attribute(const std::map<std::string, std::string>& a,
+                                     const std::string& tag, const DataPanel* panel,
+                                     const std::string& key) {
+    auto it = a.find(key);
+    if (it == a.end())
+        throw CompileError(
+            "<" + tag + "> requires attribute '" + key + "' (sector|industry)");
+    // Trim like parse_bounded_int does for numeric attributes.
+    const std::string group = trim_ascii_whitespace(it->second);
+    if (group != "sector" && group != "industry")
+        throw CompileError(
+            "Unsupported " + tag + " group '" + group +
+            "' (supported: sector, industry)");
+    if (panel == nullptr)
+        throw CompileError(
+            "DataPanel is required for <" + tag + "> group validation");
+    // group name == panel field name for every supported group
+    const std::string& column = group;
+    if (!panel->has_column(column))
+        throw CompileError(
+            tag + " group '" + group + "' needs data field '" + column +
+            "' (add base: {cache, groups} to the config)");
+    return group;
+}
+
 ModuleRegistry& ModuleRegistry::default_registry() {
     static ModuleRegistry reg = [](){
         ModuleRegistry r;
@@ -247,6 +290,7 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         };
         unary("abs", unary_ops::Abs{}, nullptr);
         unary("log", unary_ops::Log{}, nullptr);
+        unary("exp", unary_ops::Exp{}, nullptr);
         unary("sqrt", unary_ops::Sqrt{}, nullptr);
         unary("sign", unary_ops::Sign{}, nullptr);
         unary("inverse", unary_ops::Inverse{}, nullptr);
@@ -256,31 +300,273 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         unary("max", unary_ops::Max{}, "value");
         unary("min", unary_ops::Min{}, "value");
 
-        r.register_module("neutralize", [](const auto& a, const auto* panel) {
+        auto group_attr = [](const std::map<std::string, std::string>& a,
+                             const std::string& tag, const DataPanel* panel) {
+            return validate_group_attribute(a, tag, panel);
+        };
+
+        r.register_module("neutralize", [group_attr](const auto& a, const auto* panel) {
             module_attributes::validate_keys(a, {"group"}, "neutralize");
-            auto it = a.find("group");
-            if (it == a.end())
-                throw CompileError(
-                    "<neutralize> requires attribute 'group' (sector|industry)");
-            // Trim like parse_bounded_int does for numeric attributes.
-            const std::string group = trim_ascii_whitespace(it->second);
-            if (group != "sector" && group != "industry")
-                throw CompileError(
-                    "Unsupported neutralize group '" + group +
-                    "' (supported: sector, industry)");
-            if (panel == nullptr)
-                throw CompileError(
-                    "DataPanel is required for <neutralize> group validation");
-            // group name == panel field name for every supported group
-            const std::string column = group;
-            if (!panel->has_column(column))
-                throw CompileError(
-                    "neutralize group '" + group + "' needs data field '" + column +
-                    "' (add base: {cache, groups} to the config)");
+            const std::string group = group_attr(a, "neutralize", panel);
             auto m = std::make_unique<MNeutralize>();
             m->panel = panel;
             m->group = group;
-            m->column_name = column;
+            m->column_name = group;
+            return m;
+        });
+
+        // Fractional difference and rolling PCA residual (the combo15 MR alpha)
+        r.register_module("ffd", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"d", "thres"}, "ffd");
+            (void)panel;
+            auto m = std::make_unique<MFfd>();
+            m->d = FloatParameter(opt_float(a, "ffd", "d", 0.24f));
+            const float thres = opt_float(a, "ffd", "thres", 0.00001f);
+            if (!(thres >= 0.0f))
+                throw CompileError("Invalid value for <ffd> attribute 'thres': expected thres >= 0");
+            m->thres = FloatParameter(thres);
+            return m;
+        });
+
+        r.register_module("pcaresid", [group_attr](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group", "train", "refit", "k", "var"}, "pcaresid");
+            auto m = std::make_unique<MPcaResid>();
+            m->panel = panel;
+            if (a.count("group")) m->group = GroupParameter(group_attr(a, "pcaresid", panel));
+            const int max_days = panel_time_limit(panel);
+            m->train = IntParameter(get_bounded_int(a, "pcaresid", "train", 1260, 2, max_days));
+            m->refit = IntParameter(get_bounded_int(a, "pcaresid", "refit", 252, 1, max_days));
+            m->k = IntParameter(get_bounded_int(a, "pcaresid", "k", 0, 0, std::numeric_limits<int>::max()));
+            const float var = opt_float(a, "pcaresid", "var", 0.9f);
+            if (!(var > 0.0f && var < 1.0f))   // sklearn's variance mode; 1.0 is a rounding-dependent edge
+                throw CompileError("Invalid value for <pcaresid> attribute 'var': expected 0 < var < 1");
+            m->var = FloatParameter(var);
+            return m;
+        });
+
+        r.register_module("affine", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"factor", "offset"}, "affine");
+            (void)panel;
+            auto m = std::make_unique<MAffine>();
+            m->factor = FloatParameter(opt_float(a, "affine", "factor", 1.0f));
+            m->offset = FloatParameter(opt_float(a, "affine", "offset", 0.0f));
+            return m;
+        });
+
+        // Time-series tags
+        r.register_module("tsdelta", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "tsdelta");
+            auto m = std::make_unique<MTsDelta>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsdelta", "days", 1, 1, max_days));
+            return m;
+        });
+
+        r.register_module("tssum", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tssum");
+            auto m = std::make_unique<MTsSum>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tssum", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tssum", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsstddev", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "ddof", "min_count"}, "tsstddev");
+            auto m = std::make_unique<MTsStdDev>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsstddev", "days", 20, 1, max_days));
+            // Default ddof=1 is kept for days=1 (always NaN); an explicit ddof must be < days.
+            m->ddof = IntParameter(a.count("ddof")
+                ? get_bounded_int(a, "tsstddev", "ddof", 1, 0, m->days - 1) : 1);
+            m->min_count = IntParameter(get_bounded_int(a, "tsstddev", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsargmax", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tsargmax");
+            auto m = std::make_unique<MTsArgMax>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsargmax", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tsargmax", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsargmin", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tsargmin");
+            auto m = std::make_unique<MTsArgMin>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsargmin", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tsargmin", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsfill", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "tsfill");
+            auto m = std::make_unique<MTsFill>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsfill", "days", 20, 1, max_days));
+            return m;
+        });
+
+        // Cross-sectional and group tags
+        r.register_module("winsorize", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"std"}, "winsorize");
+            const float k = opt_float(a, "winsorize", "std", 4.0f);
+            if (!(k > 0.0f))
+                throw CompileError("Invalid value for <winsorize> attribute 'std': '" +
+                                   a.at("std") + "' (expected > 0)");
+            auto m = std::make_unique<MWinsorize>();
+            m->panel = panel;
+            m->std_mult = FloatParameter(k);
+            return m;
+        });
+
+        r.register_module("normalize", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"usestd", "limit"}, "normalize");
+            const float limit = opt_float(a, "normalize", "limit", 0.0f);
+            if (!(limit >= 0.0f))
+                throw CompileError("Invalid value for <normalize> attribute 'limit': '" +
+                                   a.at("limit") + "' (expected >= 0)");
+            auto m = std::make_unique<MNormalize>();
+            m->panel = panel;
+            m->usestd = IntParameter(opt_bool(a, "normalize", "usestd", false) ? 1 : 0);
+            m->limit = FloatParameter(limit);
+            return m;
+        });
+
+        r.register_module("hump", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"hump"}, "hump");
+            const float h = opt_float(a, "hump", "hump", 0.01f);
+            if (!(h > 0.0f))
+                throw CompileError("Invalid value for <hump> attribute 'hump': '" +
+                                   a.at("hump") + "' (expected > 0)");
+            auto m = std::make_unique<MHump>();
+            m->panel = panel;
+            m->hump = FloatParameter(h);
+            return m;
+        });
+
+        r.register_module("group_rank", [group_attr](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group", "pct"}, "group_rank");
+            auto m = std::make_unique<MGroupRank>();
+            m->group = m->column_name = group_attr(a, "group_rank", panel);
+            m->panel = panel;
+            m->pct = IntParameter(opt_bool(a, "group_rank", "pct", true) ? 1 : 0);
+            return m;
+        });
+
+        r.register_module("group_mean", [group_attr](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group", "weight", "mean"}, "group_mean");
+            auto m = std::make_unique<MGroupMean>();
+            m->group = m->column_name = group_attr(a, "group_mean", panel);
+            m->panel = panel;
+            auto w = a.find("weight");
+            const std::string weight = w == a.end() ? "equal" : trim_ascii_whitespace(w->second);
+            if (weight != "equal" && weight != "cap")
+                throw CompileError(
+                    "Unsupported group_mean weight '" + weight + "' (supported: equal, cap)");
+            if (weight == "cap" && !panel->has_column(m->weight_column))
+                throw CompileError(
+                    "group_mean weight 'cap' needs data field '" + m->weight_column +
+                    "' (add it to the config)");
+            m->cap_weight = IntParameter(weight == "cap" ? 1 : 0);
+            auto mn = a.find("mean");
+            const std::string mean = mn == a.end() ? "arithmetic" : trim_ascii_whitespace(mn->second);
+            if (mean != "arithmetic" && mean != "harmonic")
+                throw CompileError(
+                    "Unsupported group_mean mean '" + mean + "' (supported: arithmetic, harmonic)");
+            m->harmonic = IntParameter(mean == "harmonic" ? 1 : 0);
+            return m;
+        });
+
+        r.register_module("group_zscore", [group_attr](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group"}, "group_zscore");
+            auto m = std::make_unique<MGroupZscore>();
+            m->group = m->column_name = group_attr(a, "group_zscore", panel);
+            m->panel = panel;
+            return m;
+        });
+
+        r.register_module("rank_sharp", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"exp"}, "rank_sharp");
+            const float e = opt_float(a, "rank_sharp", "exp", 2.0f);
+            if (!(e > 0.0f))
+                throw CompileError("Invalid value for <rank_sharp> attribute 'exp': '" +
+                                   a.at("exp") + "' (expected > 0)");
+            auto m = std::make_unique<MRankSharp>();
+            m->panel = panel;
+            m->exp = FloatParameter(e);
+            return m;
+        });
+
+        r.register_module("tsmax", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tsmax");
+            auto m = std::make_unique<MTsMax>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsmax", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tsmax", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsmin", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tsmin");
+            auto m = std::make_unique<MTsMin>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tsmin", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tsmin", "min_count", m->days, 1, m->days));
+            return m;
+        });
+
+        r.register_module("tsewma", [](const auto& a, const auto* /*panel*/) {
+            module_attributes::validate_keys(a, {"span", "halflife", "alpha", "adjust", "min_count"}, "tsewma");
+            const int given = (int)a.count("span") + (int)a.count("halflife") + (int)a.count("alpha");
+            if (given > 1)
+                throw CompileError("<tsewma> takes at most one of 'span', 'halflife', 'alpha'");
+            auto m = std::make_unique<MTsEwma>();
+            m->span = FloatParameter(-1.0f);
+            if (a.count("alpha")) {
+                const float v = opt_float(a, "tsewma", "alpha", 0.0f);
+                if (!(v > 0.0f && v <= 1.0f))
+                    throw CompileError("Invalid value for <tsewma> attribute 'alpha': '" +
+                                       a.at("alpha") + "' (expected 0 < alpha <= 1)");
+                m->alpha = FloatParameter(v);
+            } else if (a.count("halflife")) {
+                const float v = opt_float(a, "tsewma", "halflife", 0.0f);
+                if (!(v > 0.0f))
+                    throw CompileError("Invalid value for <tsewma> attribute 'halflife': '" +
+                                       a.at("halflife") + "' (expected > 0)");
+                m->halflife = FloatParameter(v);
+            } else {
+                const float v = opt_float(a, "tsewma", "span", 20.0f);
+                if (!(v >= 1.0f))
+                    throw CompileError("Invalid value for <tsewma> attribute 'span': '" +
+                                       a.at("span") + "' (expected >= 1)");
+                m->span = FloatParameter(v);
+            }
+            m->adjust = IntParameter(opt_bool(a, "tsewma", "adjust", true) ? 1 : 0);
+            const int mc = opt_int(a, "tsewma", "min_count", 1);
+            if (mc < 1)
+                throw CompileError("Invalid value for <tsewma> attribute 'min_count': '" +
+                                   a.at("min_count") + "' (expected >= 1)");
+            m->min_count = IntParameter(mc);
+            return m;
+        });
+
+        r.register_module("truncate", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"max", "side", "post"}, "truncate");
+            auto it = a.find("max");
+            if (it == a.end())
+                throw CompileError("<truncate> requires attribute 'max'");
+            const float mx = module_attributes::parse_float(it->second, "truncate", "max");
+            if (!(mx > 0.0f && mx <= 1.0f))
+                throw CompileError("Invalid value for <truncate> attribute 'max': '" +
+                                   it->second + "' (expected 0 < max <= 1)");
+            auto m = std::make_unique<MTruncate>();
+            m->panel = panel;
+            m->maxw = FloatParameter(mx);
+            m->side = IntParameter(get_bounded_int(a, "truncate", "side", 0, 0, 1));
+            m->post = IntParameter(opt_bool(a, "truncate", "post", true) ? 1 : 0);
             return m;
         });
 
@@ -523,6 +809,8 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
             if (it == attribs.end())
                 throw CompileError("<signal> tag missing 'id' attribute");
             const std::string& sig_id = it->second;
+            if (cache_registry.count(sig_id))
+                throw CompileError("Duplicate signal id '" + sig_id + "'");
 
             auto save = std::make_unique<MSignalSave>();
             save->label = sig_id;
@@ -631,6 +919,13 @@ std::vector<CompiledAlpha> compile_xml(const std::string& xml, const DataPanel* 
                 if (auto* m = dynamic_cast<MRank*>(module.get())) m->universe = universe;
                 else if (auto* m = dynamic_cast<MZscore*>(module.get())) m->universe = universe;
                 else if (auto* m = dynamic_cast<MNeutralize*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MWinsorize*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MNormalize*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MHump*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MGroupBase*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MTruncate*>(module.get())) m->universe = universe;
+                else if (auto* m = dynamic_cast<MPcaResid*>(module.get())) m->universe = universe;
+                else bind_discovered_universe(*module, universe);
             }
         result.push_back(std::move(compiled));
     }

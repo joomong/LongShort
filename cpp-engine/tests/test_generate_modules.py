@@ -106,6 +106,55 @@ struct MCustomScale : Module {
         self.assertTrue(module.bind_panel)
         self.assertIn('module->panel = panel;', generator.render([module]))
 
+    def test_optional_universe_binding(self):
+        module = self.parse('''struct MCustomUniverse : Module {
+    const std::vector<uint8_t>* universe = nullptr;
+    void calculate(unsigned, SignalVector&) { int universe = 0; (void)universe; }
+    void reset(int universe);
+};''')
+        self.assertTrue(module.bind_universe)
+        self.assertFalse(module.bind_panel)
+        text = generator.render([module])
+        self.assertIn('dynamic_cast<::MCustomUniverse*>(&module)', text)
+        self.assertIn('bound->universe = universe;', text)
+        unbound = self.parse('struct MCustomScale : Module { FloatParameter factor{1}; };')
+        self.assertFalse(unbound.bind_universe)
+        self.assertNotIn('dynamic_cast', generator.render([unbound]))
+
+    def test_malformed_universe_binding_is_rejected(self):
+        for declaration, message in [
+                ('private: const std::vector<uint8_t>* universe = nullptr;', 'must be public'),
+                ('std::vector<uint8_t>* universe = nullptr;', 'universe must be declared'),
+                ('const std::vector<float>* universe = nullptr;', 'universe must be declared'),
+                ('const std::vector<uint8_t> universe;', 'universe must be declared'),
+                ('static const std::vector<uint8_t>* universe;', 'universe must be declared'),
+                ('const std::vector<uint8_t>* universe[2];', 'universe must be declared'),
+                ('const std::vector<uint8_t>* universe, *other;', 'universe must be declared')]:
+            with self.subTest(declaration=declaration):
+                with self.assertRaisesRegex(generator.DiscoveryError, message):
+                    self.parse('struct MCustomScale : Module {'+declaration+'};')
+
+    def test_group_parameter(self):
+        module = self.parse('''struct MCustomGroup : Module {
+    GroupParameter group{""};
+    IntParameter window{5};
+};''')
+        self.assertEqual([(p.name, p.kind) for p in module.parameters],
+                         [('group', 'GroupParameter'), ('window', 'IntParameter')])
+        text = generator.render([module])
+        self.assertIn('= GroupParameter(validate_group_attribute(attrs, "scale", panel, "group"))', text)
+        self.assertIn('decltype(module->group), ::GroupParameter', text)
+        for declaration in ['private: GroupParameter group;', 'static GroupParameter group;',
+                            'GroupParameter& group;']:
+            with self.subTest(declaration=declaration):
+                with self.assertRaises(generator.DiscoveryError):
+                    self.parse('struct MCustomScale : Module {'+declaration+'};')
+
+    def test_non_sdk_types_are_not_xml_parameters(self):
+        module = self.parse('struct MCustomScale : Module { std::string group{"sector"}; double factor{1}; };')
+        self.assertEqual(module.parameters, ())
+        self.assertIn('validate_keys(attrs, {}, "scale")', generator.render([module]))
+
     def test_private_const_static_and_reference_parameters_are_rejected(self):
         for declaration in ['private: IntParameter count;', 'static IntParameter count;',
                             'const FloatParameter factor{1};', 'volatile IntParameter flag;',
@@ -212,7 +261,7 @@ class ReservedTagsMatchEngineRegistry(unittest.TestCase):
         modules = set(re.findall(r'register_module\("(\w+)"', source))
         # Element-wise arithmetic tags are registered through the local `unary("<tag>", ...)` helper.
         unary = set(re.findall(r'unary\("(\w+)"', source))
-        self.assertEqual(len(unary), 10)
+        self.assertEqual(len(unary), 11)
         modules |= unary
         self.assertTrue(modules)
         # Structural tags handled in compile_pipeline (data, signal, event, meta, ew), expansion (choice)

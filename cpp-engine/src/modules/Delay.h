@@ -12,14 +12,6 @@ struct MDelay : public Module {
         for (unsigned ii = 0; ii < numAssets; ++ii)
             output[ii] = delayed[ii];
     }
-    void checkpoint(boost::archive::binary_iarchive &ar)
-    {
-        ar & input;
-    }
-    void checkpoint(boost::archive::binary_oarchive &ar)
-    {
-        ar & input;
-    }
 
     ModuleInput input;
     IntParameter days;

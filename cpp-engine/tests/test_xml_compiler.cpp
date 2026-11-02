@@ -20,6 +20,29 @@
 #include "modules/MetaSource.h"
 #include "modules/Unary.h"
 #include "signal_vector.h"
+#include "modules/Affine.h"
+
+TEST(XmlFormatting, FormatsFragmentsAndNestedChoicesWithoutChangingExpressions) {
+    const std::string xml = "<!-- keep me --><data expr=\"close &lt; open &amp;&amp; volume &gt; 0\"/>"
+                            "<choice><rank/><zscore/></choice>";
+    const std::string formatted = format_xml(xml);
+    EXPECT_EQ(formatted, "<!-- keep me -->\n"
+                         "<data expr=\"close &lt; open &amp;&amp; volume > 0\" />\n"
+                         "<choice>\n  <rank />\n  <zscore />\n</choice>\n");
+    EXPECT_EQ(format_xml(formatted), formatted);
+    const auto before = parse_xml(xml);
+    const auto after = parse_xml(formatted);
+    ASSERT_EQ(after.size(), before.size());
+    EXPECT_EQ(after[0].attribs, before[0].attribs);
+    ASSERT_EQ(after[1].children.size(), 2u);
+    EXPECT_EQ(after[1].children[0].tag, "rank");
+    EXPECT_EQ(after[1].children[1].tag, "zscore");
+}
+
+TEST(XmlFormatting, PreservesTextAndRejectsMalformedXml) {
+    EXPECT_EQ(format_xml("<choice>5|10</choice>"), "<choice>5|10</choice>\n");
+    EXPECT_THROW(format_xml("<choice><rank/></wrong>"), std::runtime_error);
+}
 
 // ---------------------------------------------------------------------------
 // Minimal DataPanel for compiler tests
@@ -1198,6 +1221,7 @@ TEST(XmlCompiler, UnaryTagsCompile) {
     };
     EXPECT_NE(find_unary<unary_ops::Abs>(one("<abs/>")[0]), nullptr);
     EXPECT_NE(find_unary<unary_ops::Log>(one("<log/>")[0]), nullptr);
+    EXPECT_NE(find_unary<unary_ops::Exp>(one("<exp/>")[0]), nullptr);
     EXPECT_NE(find_unary<unary_ops::Sqrt>(one("<sqrt/>")[0]), nullptr);
     EXPECT_NE(find_unary<unary_ops::Sign>(one("<sign/>")[0]), nullptr);
     EXPECT_NE(find_unary<unary_ops::Inverse>(one("<inverse/>")[0]), nullptr);
@@ -1231,6 +1255,7 @@ TEST(XmlCompiler, UnaryTagErrors) {
     expect_compile_error_contains(R"(<data expr="close"/><power exp="x"/>)", dp, {"power", "exp"});
     expect_compile_error_contains(R"(<data expr="close"/><max value="inf"/>)", dp, {"max", "value"});
     expect_compile_error_contains(R"(<data expr="close"/><abs foo="1"/>)", dp, {"Unknown attribute 'foo' for <abs>"});
+    expect_compile_error_contains(R"(<data expr="close"/><exp value="1"/>)", dp, {"Unknown attribute 'value' for <exp>"});
     expect_compile_error_contains(R"(<data expr="close"/><power exp="2" value="1"/>)", dp,
                                   {"Unknown attribute 'value' for <power>"});
 }
@@ -1290,6 +1315,8 @@ TEST(XmlCompiler, ExprFunctionEqualsChainTag) {
     const std::vector<std::pair<std::string, std::string>> cases = {
         {"abs(close)", "<abs/>"},
         {"log(close)", "<log/>"},
+        {"exp(close)", "<exp/>"},
+        {"exp(close * 0.01)", "<exp/>"},
         {"sqrt(close)", "<sqrt/>"},
         {"sign(close)", "<sign/>"},
         {"power(close, 2)", R"(<power exp="2"/>)"},
@@ -1299,7 +1326,56 @@ TEST(XmlCompiler, ExprFunctionEqualsChainTag) {
         {"signedpower(close, 0.5)", R"(<signedpower exp="0.5"/>)"},
         {"signedpower(close, -1)", R"(<signedpower exp="-1"/>)"},
     };
-    for (const auto& c : cases)
+    for (const auto& c : cases) {
+        const std::string inner = c.first.rfind("exp(close * ", 0) == 0 ? "close * 0.01" : "close";
         expect_same_rows("<data expr=\"" + c.first + "\" delay=\"1\"/>",
-                         "<data expr=\"close\" delay=\"1\"/>" + c.second, dp);
+                         "<data expr=\"" + inner + "\" delay=\"1\"/>" + c.second, dp);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate <signal id> in one pipeline is a compile error
+// ---------------------------------------------------------------------------
+TEST(XmlCompiler, DuplicateSignalIdIsError) {
+    auto dp = make_panel(30, 3);
+    expect_compile_error_contains(R"(<data expr="close"/><signal id="x"/><data expr="volume"/><signal id="x"/>)",
+                                  dp, {"Duplicate signal id 'x'"});
+    expect_compile_error_contains(R"(<data expr="close"/><signal id="x"/><rank/><signal id="x"/>)",
+                                  dp, {"Duplicate signal id 'x'"});
+}
+
+TEST(XmlCompiler, DistinctSignalIdsAndExpansionAreNotDuplicates) {
+    auto dp = make_panel(30, 3);
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><signal id="x"/><data expr="volume"/><signal id="y"/>
+                             <rank input="x"/>)", &dp).size(), 1u);
+    // Each expanded pipeline compiles separately: one <signal id="a"/> per alpha.
+    auto pipe = compile_xml(R"(<data expr="close"/><tsmean days="2|3"/><signal id="a"/><rank input="a"/>)", &dp);
+    EXPECT_EQ(pipe.size(), 2u);
+    auto choice = compile_xml(R"(<data expr="close"/><choice><rank/><zscore/></choice><signal id="a"/>)", &dp);
+    EXPECT_EQ(choice.size(), 2u);
+    // Event referencing still resolves both ids.
+    EXPECT_EQ(compile_xml(R"(<data expr="close"/><signal id="sig"/><data expr="volume"/><signal id="trig"/>
+                             <event signal="sig" trigger="trig"/>)", &dp).size(), 1u);
+}
+
+TEST(XmlCompiler, AffineDefaultsExplicitAttributesAndErrors) {
+    auto dp = make_panel();
+    auto dflt = compile_xml(R"(<data expr="close"/><affine/>)", &dp);
+    ASSERT_EQ(dflt.size(), 1u);
+    auto* d = dynamic_cast<MAffine*>(dflt[0].output);
+    ASSERT_NE(d, nullptr);
+    EXPECT_FLOAT_EQ(static_cast<float>(d->factor), 1.0f);
+    EXPECT_FLOAT_EQ(static_cast<float>(d->offset), 0.0f);
+
+    auto set = compile_xml(R"(<data expr="close"/><affine factor="-1" offset="2.5"/>)", &dp);
+    ASSERT_EQ(set.size(), 1u);
+    auto* m = dynamic_cast<MAffine*>(set[0].output);
+    ASSERT_NE(m, nullptr);
+    EXPECT_FLOAT_EQ(static_cast<float>(m->factor), -1.0f);
+    EXPECT_FLOAT_EQ(static_cast<float>(m->offset), 2.5f);
+
+    expect_compile_error_contains(R"(<data expr="close"/><affine fac="1"/>)", dp,
+                                  {"Unknown attribute 'fac' for <affine>"});
+    expect_compile_error_contains(R"(<data expr="close"/><affine factor="x"/>)", dp,
+                                  {"Invalid value for <affine> attribute 'factor'"});
 }
