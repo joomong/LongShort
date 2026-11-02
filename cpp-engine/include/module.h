@@ -3,9 +3,8 @@
 #include <vector>
 #include <limits>
 #include <cmath>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/serialization/vector.hpp>
+#include <string>
+#include <utility>
 #include "signal_vector.h"
 #include "star_vector.h"
 
@@ -27,12 +26,21 @@ struct FloatParameter {
     operator float() const { return value; }
 };
 
+// Group name (sector|industry) validated like built-in group=; empty = no group.
+// The module looks the panel field up itself (the name is the field name).
+struct GroupParameter {
+    std::string value;
+    GroupParameter() = default;
+    explicit GroupParameter(std::string v) : value(std::move(v)) {}
+    operator const std::string&() const { return value; }
+    const std::string& name() const { return value; }
+};
+
 // ---------------------------------------------------------------------------
 // ModuleInput: ring buffer giving lookback access to pushed SignalVectors
 // ---------------------------------------------------------------------------
 
 class ModuleInput {
-    friend class boost::serialization::access;
 public:
     struct RowView {
         const float* ptr = nullptr;
@@ -109,35 +117,6 @@ private:
     unsigned                         push_count_;
     std::vector<float>               ring_flat_;
     std::vector<float>               nan_buf_;
-
-    template<class Archive>
-    void serialize(Archive& ar, const unsigned int /*version*/) {
-        ar & num_assets_;
-        ar & maxLookBack;
-        ar & head_;
-        ar & push_count_;
-        std::vector<std::vector<float>> legacy_ring;
-        if constexpr (Archive::is_saving::value) {
-            const size_t cap = ring_capacity();
-            legacy_ring.assign(cap, std::vector<float>(num_assets_, std::numeric_limits<float>::quiet_NaN()));
-            for (size_t r = 0; r < cap; ++r) {
-                for (unsigned c = 0; c < num_assets_; ++c)
-                    legacy_ring[r][c] = ring_flat_[r * num_assets_ + c];
-            }
-        }
-        ar & legacy_ring;
-        ar & nan_buf_;
-        if constexpr (Archive::is_loading::value) {
-            const size_t cap = legacy_ring.size();
-            ring_flat_.assign(cap * num_assets_, std::numeric_limits<float>::quiet_NaN());
-            for (size_t r = 0; r < cap; ++r) {
-                for (unsigned c = 0; c < num_assets_; ++c) {
-                    if (c < legacy_ring[r].size())
-                        ring_flat_[r * num_assets_ + c] = legacy_ring[r][c];
-                }
-            }
-        }
-    }
 };
 
 // ---------------------------------------------------------------------------
@@ -153,9 +132,6 @@ struct Module {
 
     void setting_output_to_nan_is_not_necessary() { skip_nan_init_ = true; }
     bool skips_nan_init() const { return skip_nan_init_; }
-
-    virtual void checkpoint(boost::archive::binary_iarchive& /*ar*/) {}
-    virtual void checkpoint(boost::archive::binary_oarchive& /*ar*/) {}
 
 private:
     bool skip_nan_init_ = false;
