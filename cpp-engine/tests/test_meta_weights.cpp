@@ -9,11 +9,10 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "api/meta_returns.h"
-#include "api/meta_weights.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
+#include "meta.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 
 namespace {
 

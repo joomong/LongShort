@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MNeutralize: cross-sectional group demean (stateless).
 // `column_name` names the panel field holding the group codes; `group` keeps the

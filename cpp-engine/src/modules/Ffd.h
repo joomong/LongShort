@@ -35,22 +35,24 @@ struct MFfd : public Module {
         input.push(SignalVector{filled.data(), numAssets});
 
         // Partial sum j takes the weights k = j mod 8 of the first 8*(L/8) weights; the tail goes to sum 0.
-        for (auto& a : acc) std::fill(a.begin(), a.end(), 0.0);
-        const unsigned main = L / 8 * 8;
-        for (unsigned k = 0; k < L; ++k) {
-            const double w = weights[k];
-            const float* row = input(L - 1 - k).data();
-            double* a = acc[k < main ? k % 8 : 0].data();
-            for (unsigned ii = 0; ii < numAssets; ++ii) a[ii] += w * row[ii];
-        }
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            if (!std::isfinite(output[ii]) || seen[ii] < L) {
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-                continue;
+        parallel_for_assets(numAssets, L, [&](unsigned begin, unsigned end) {
+            for (auto& a : acc) std::fill(a.begin() + begin, a.begin() + end, 0.0);
+            const unsigned main = L / 8 * 8;
+            for (unsigned k = 0; k < L; ++k) {
+                const double w = weights[k];
+                const float* row = input(L - 1 - k).data();
+                double* a = acc[k < main ? k % 8 : 0].data();
+                for (unsigned ii = begin; ii < end; ++ii) a[ii] += w * row[ii];
             }
-            output[ii] = static_cast<float>(((acc[0][ii] + acc[1][ii]) + (acc[2][ii] + acc[3][ii])) +
-                                            ((acc[4][ii] + acc[5][ii]) + (acc[6][ii] + acc[7][ii])));
-        }
+            for (unsigned ii = begin; ii < end; ++ii) {
+                if (!std::isfinite(output[ii]) || seen[ii] < L) {
+                    output[ii] = std::numeric_limits<float>::quiet_NaN();
+                    continue;
+                }
+                output[ii] = static_cast<float>(((acc[0][ii] + acc[1][ii]) + (acc[2][ii] + acc[3][ii])) +
+                                                ((acc[4][ii] + acc[5][ii]) + (acc[6][ii] + acc[7][ii])));
+            }
+        });
     }
 
     std::vector<double> weights;    // oldest-first, as getWeights_FFD

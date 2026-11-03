@@ -2,7 +2,7 @@
 #include <cmath>
 #include <vector>
 #include <limits>
-#include "metrics/yearly_metrics.h"
+#include "simulator_engine.h"
 
 TEST(YearlyMetrics, SingleYear) {
     // 5 bars in 2024, timestamps in epoch_ms

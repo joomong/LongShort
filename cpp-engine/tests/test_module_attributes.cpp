@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "compiler/module_attributes.h"
+#include "module_registration.h"
 
 #include <charconv>
 #include <cmath>

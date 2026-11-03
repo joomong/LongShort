@@ -26,44 +26,46 @@ struct MTsArgExtreme : public Module {
         const unsigned bar = bar_count++;
         const unsigned slot = bar % w;
 
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            unsigned* qb = dq_bar.data() + (size_t)ii * w;
-            float* qv = dq_val.data() + (size_t)ii * w;
-            unsigned& head = dq_head[ii];
-            unsigned& size = dq_size[ii];
-            char& flag = finite_flag[(size_t)ii * w + slot];  // holds the bar leaving the window
+        parallel_for_assets(numAssets, std::min(64u, 3u * w), [&](unsigned begin, unsigned end) {
+            for (unsigned ii = begin; ii < end; ++ii) {
+                unsigned* qb = dq_bar.data() + (size_t)ii * w;
+                float* qv = dq_val.data() + (size_t)ii * w;
+                unsigned& head = dq_head[ii];
+                unsigned& size = dq_size[ii];
+                char& flag = finite_flag[(size_t)ii * w + slot];  // holds the bar leaving the window
 
-            if (bar >= w && flag)
-                running_count[ii] -= 1;
-            // Expire the front entry that left the window (at most one per bar).
-            if (size > 0 && qb[head] + w <= bar) {
-                head = (head + 1) % w;
-                --size;
-            }
-
-            float v = output[ii];
-            flag = std::isfinite(v) ? 1 : 0;
-            if (flag) {
-                running_count[ii] += 1;
-                // Pop dominated entries; ties are popped so the most recent survives.
-                while (size > 0) {
-                    float back = qv[(head + size - 1) % w];
-                    if (IsMax ? (back <= v) : (back >= v))
-                        --size;
-                    else
-                        break;
+                if (bar >= w && flag)
+                    running_count[ii] -= 1;
+                // Expire the front entry that left the window (at most one per bar).
+                if (size > 0 && qb[head] + w <= bar) {
+                    head = (head + 1) % w;
+                    --size;
                 }
-                unsigned pos = (head + size) % w;
-                qb[pos] = bar;
-                qv[pos] = v;
-                ++size;
-            }
 
-            if (running_count[ii] < min_count || size == 0)
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-            else
-                output[ii] = Value ? qv[head] : (float)(bar - qb[head]);
-        }
+                float v = output[ii];
+                flag = std::isfinite(v) ? 1 : 0;
+                if (flag) {
+                    running_count[ii] += 1;
+                    // Pop dominated entries; ties are popped so the most recent survives.
+                    while (size > 0) {
+                        float back = qv[(head + size - 1) % w];
+                        if (IsMax ? (back <= v) : (back >= v))
+                            --size;
+                        else
+                            break;
+                    }
+                    unsigned pos = (head + size) % w;
+                    qb[pos] = bar;
+                    qv[pos] = v;
+                    ++size;
+                }
+
+                if (running_count[ii] < min_count || size == 0)
+                    output[ii] = std::numeric_limits<float>::quiet_NaN();
+                else
+                    output[ii] = Value ? qv[head] : (float)(bar - qb[head]);
+            }
+        });
     }
 
     std::vector<unsigned> dq_bar;

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "data/data_panel.h"
-#include "data/config_loader.h"
+#include "simulation_data.h"
+#include "loader.h"
 
 TEST(DataPanel, AtAndRow) {
     DataPanel dp;

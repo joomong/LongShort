@@ -8,11 +8,8 @@
 #include <cstring>
 #include <limits>
 #include "module.h"
-#include "compiler/xml_parser.h"
-#include "compiler/expansion.h"
-#include "compiler/dag_builder.h"
-#include "compiler/range_parser.h"
-#include "data/data_panel.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
 #include "modules/Neutralize.h"
 #include "modules/Delay.h"
 #include "modules/Rank.h"

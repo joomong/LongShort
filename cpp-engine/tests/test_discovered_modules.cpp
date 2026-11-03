@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
 #include "modules/Rank.h"
 #include "UniverseGroup.h"
 
@@ -86,4 +86,50 @@ TEST(DiscoveredModules, GroupParameterIsValidatedLikeBuiltInGroups) {
                  "universegroup group 'industry' needs data field 'industry' (add base: {cache, groups} to the config)");
     expect_error(R"(<data expr="close"/><universegroup grp="sector"/>)", dp,
                  "Unknown attribute 'grp' for <universegroup>");
+}
+
+namespace {
+struct MNumericFixture : Module {
+    IntParameter days{7};
+    FloatParameter factor{0.5f};
+    void init() override {}
+    void calculate(unsigned, SignalVector&) override {}
+};
+struct MEmptyFixture : Module {
+    void init() override {}
+    void calculate(unsigned, SignalVector&) override {}
+};
+}
+REGISTER_MODULE(EmptyFixture, MEmptyFixture, "empty_fixture")
+
+TEST(DiscoveredModules, CppParametersRetainDefaultsAndValidateValues) {
+    ModuleRegistry registry;
+    register_type<MNumericFixture>(registry, "numeric")
+        .parameter("days", &MNumericFixture::days)
+        .parameter("factor", &MNumericFixture::factor);
+    auto plain = registry.create("numeric", {}, nullptr);
+    auto* defaults = dynamic_cast<MNumericFixture*>(plain.get());
+    ASSERT_NE(defaults, nullptr);
+    EXPECT_EQ(static_cast<int>(defaults->days), 7);
+    EXPECT_FLOAT_EQ(static_cast<float>(defaults->factor), 0.5f);
+    auto configured = registry.create("numeric", {{"days", " 4 "}, {"factor", "-1.25"}}, nullptr);
+    auto* values = dynamic_cast<MNumericFixture*>(configured.get());
+    EXPECT_EQ(static_cast<int>(values->days), 4);
+    EXPECT_FLOAT_EQ(static_cast<float>(values->factor), -1.25f);
+    EXPECT_THROW(registry.create("numeric", {{"days", "1.5"}}, nullptr), CompileError);
+    EXPECT_THROW(registry.create("numeric", {{"factor", "nan"}}, nullptr), CompileError);
+    EXPECT_THROW(registry.create("numeric", {{"factor", "1e100"}}, nullptr), CompileError);
+    EXPECT_THROW(registry.create("numeric", {{"typo", "1"}}, nullptr), CompileError);
+    EXPECT_THROW(register_type<MNumericFixture>(registry, "numeric"), CompileError);
+    EXPECT_THROW(register_type<MNumericFixture>(registry, "data"), CompileError);
+    EXPECT_THROW(register_type<MNumericFixture>(ModuleRegistry::default_registry(), "rank"), CompileError);
+    EXPECT_THROW(register_type<MNumericFixture>(registry, "duplicate_parameter")
+        .parameter("days", &MNumericFixture::days).parameter("days", &MNumericFixture::days), CompileError);
+}
+
+TEST(DiscoveredModules, RegistrationMacroSupportsNoParameters) {
+    ModuleRegistry registry;
+    register_EmptyFixture(registry);
+    EXPECT_NE(registry.create("empty_fixture", {}, nullptr), nullptr);
+    EXPECT_THROW(registry.create("empty_fixture", {{"unexpected", "1"}}, nullptr), CompileError);
 }

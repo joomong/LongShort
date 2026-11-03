@@ -7,10 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
-#include "metrics/metrics_engine.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 
 namespace {
 

@@ -1,6 +1,6 @@
 // ModulePrelude.h — force-included before every translation unit.
 // Provides all types/headers that STAR-style module headers depend on.
-// Module .h files must NOT contain any #include (only #pragma once).
+// Module headers may use these shared types without repeating their includes.
 #pragma once
 
 #include <vector>
@@ -13,8 +13,8 @@
 #include "signal_vector.h"
 #include "star_vector.h"
 #include "module.h"
-#include "data/data_panel.h"
-#include "simd/m_decay_avx2.h"
+#include "simulation_data.h"
+#include "module_registration.h"
 
 using std::isfinite;
 using std::isnan;

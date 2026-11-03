@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
-#include "ga/search_space.h"
-#include "ga/ga_engine.h"
-#include "ga/parallel_evaluator.h"
+#include "alpha_search.h"
+#include "parallel_executor.h"
 
 // ---------------------------------------------------------------------------
 // Single vs multi-thread determinism

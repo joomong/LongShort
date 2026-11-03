@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MNormalize: subtract the masked cross-sectional mean (stateless); with
 // usestd divide by the sample sd (row NaN when count < 2 or sd < 1e-12);

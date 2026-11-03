@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include "modules/Data.h"
 #include <cmath>
 #include <limits>

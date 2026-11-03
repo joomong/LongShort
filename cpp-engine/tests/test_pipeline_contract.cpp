@@ -8,11 +8,10 @@
 
 #include <json/json.h>
 
-#include "api/json_serializer.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
-#include "metrics/metrics_engine.h"
+#include "http_server.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 
 namespace {
 

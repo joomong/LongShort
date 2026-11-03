@@ -1,19 +1,22 @@
 import { mockRun } from '../helpers/mockRun';
 import { test, expect } from '@playwright/test';
-import fixture from '../../__tests__/fixtures/cpp_multi.json';
-import captured from '../../__tests__/fixtures/capture.json';
+import fixture from '../unit/fixtures/cpp_multi.json';
+import captured from '../unit/fixtures/capture.json';
 
-test('row and batch circles only select; saving stores the editor XML and run rows', async ({ page }) => {
+test('row and batch circles only select; saving stores the editor XML and run rows', async ({
+  page,
+}) => {
   const saved: Record<string, unknown>[] = [];
-  await page.route('**/api/config', route => route.fulfill({ json: captured.config }));
-  await mockRun(page, route => route.fulfill({ json: fixture }));
-  await page.route('**/api/alphas', route => {
+  await page.route('**/api/config', (route) => route.fulfill({ json: captured.config }));
+  await mockRun(page, (route) => route.fulfill({ json: fixture }));
+  await page.route('**/api/alphas', (route) => {
     if (route.request().method() === 'POST') saved.push(route.request().postDataJSON());
     return route.fulfill({ json: { saved: true } });
   });
   await page.goto('/');
   await page.getByLabel('Run Backtest (Shift+Enter)').click();
   const batch = page.getByRole('button', { name: 'View combined alpha', exact: true });
+  await batch.click();
   await expect(batch).toHaveAttribute('aria-expanded', 'true');
   await expect(batch.locator('td').first()).toHaveText('batch');
   await expect(page.getByLabel('Save alpha', { exact: true })).toBeEnabled();
@@ -35,5 +38,7 @@ test('row and batch circles only select; saving stores the editor XML and run ro
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => saved.length).toBe(2);
   expect(saved[1]).toMatchObject({ name: 'full', level: 'results', xml: saved[0].xml });
-  expect((saved[1].rows as { xml: string }[]).map(row => row.xml)).toEqual(fixture.batches.map(alpha => alpha.xml));
+  expect((saved[1].rows as { xml: string }[]).map((row) => row.xml)).toEqual(
+    fixture.alphas.map((alpha) => alpha.xml),
+  );
 });

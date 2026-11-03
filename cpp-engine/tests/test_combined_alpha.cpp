@@ -4,13 +4,12 @@
 #include <atomic>
 #include <future>
 #include <thread>
-#include "api/combined_signals.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
-#include "metrics/metrics_engine.h"
+#include "meta.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include "modules/Data.h"
 #include "modules/Rank.h"
-#include "compiler/dag_builder.h"
+#include "xml_compiler.h"
 
 // Helper: build a small DataPanel for tests
 static DataPanel make_test_panel(unsigned T, unsigned N) {

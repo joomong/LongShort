@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "api/alpha_pool.h"
+#include "pool_correlation.h"
 
 namespace fs = std::filesystem;
 using alpha_pool::Cache;

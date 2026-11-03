@@ -1,0 +1,49 @@
+{
+  "config": {
+    "N": 6,
+    "T": 1818,
+    "barsPerYear": 252,
+    "columns": [
+      "close",
+      "high",
+      "low",
+      "open",
+      "volume"
+    ],
+    "feeRate": 0.0005,
+    "loadedDataBytes": 218160,
+    "loadedFields": 5,
+    "simEnd": "2025-12-31",
+    "simStart": "2020-01-01",
+    "symbols": [
+      "AAA",
+      "BBB",
+      "CCC",
+      "DDD",
+      "EEE",
+      "FFF"
+    ],
+    "executionPrice": "close",
+    "executionPrices": [
+      "close",
+      "ohlc4",
+      "vwap"
+    ],
+    "universes": [],
+    "defaultUniverse": "",
+    "reportNotional": 20000000
+  },
+  "settings": {
+    "simStart": "2025-09-03",
+    "isStart": "2025-09-03",
+    "osStart": "2025-11-01",
+    "threads": 1,
+    "signalPlotMaxCells": 60,
+    "simEnd": "2025-12-31",
+    "universe": "",
+    "executionPrice": "close",
+    "output": "full"
+  },
+  "singleXml": "<data expr=\"close\" delay=\"0\"/><zscore/>",
+  "multiXml": "<data expr=\"close\" delay=\"0\"/><tsmean days=\"2|3\"/><zscore/>"
+}

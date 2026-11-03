@@ -1,8 +1,8 @@
 // Test-only CLI: reads member returns as CSV on stdin (header = member names, one row per bar,
 // `nan` allowed) and prints compute_combine_weights as CSV plus
 // "fallback_bars=N first_estimated_bar=M".
-#include "api/meta_weights.h"
-#include "compiler/module_attributes.h"
+#include "meta.h"
+#include "module_registration.h"
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>

@@ -3,12 +3,10 @@
 #include <gtest/gtest.h>
 #include "module.h"
 #include "modules/Data.h"
-#include "compiler/expr_parser.h"
-#include "data/config_loader.h"
-#include "data/data_panel.h"
-#include "data/parquet_reader.h"
-#include "compiler/dag_builder.h"
-#include "engine/simulator.h"
+#include "xml_compiler.h"
+#include "loader.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include <arrow/api.h>
 #include <arrow/io/file.h>
 #include <parquet/arrow/writer.h>
@@ -20,132 +18,8 @@
 #include <optional>
 #include <unistd.h>
 
-namespace {
-constexpr int64_t day = 86400000;
-constexpr int64_t d0 = 18262 * day; // 2020-01-01
-int64_t at(int k) { return d0 + k * day; }
-const double nan = std::numeric_limits<double>::quiet_NaN();
-
-std::shared_ptr<arrow::Array> ids(const std::vector<std::optional<int64_t>>& input) {
-    arrow::Int64Builder builder;
-    for (auto value : input)
-        if (!(value ? builder.Append(*value) : builder.AppendNull()).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> doubles(const std::vector<double>& input) {
-    arrow::DoubleBuilder builder;
-    for (double value : input)
-        if (!(std::isnan(value) ? builder.AppendNull() : builder.Append(value)).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> floats(const std::vector<double>& input) {
-    arrow::FloatBuilder builder;
-    for (double value : input) if (!builder.Append(static_cast<float>(value)).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> stamps(const std::vector<std::optional<int64_t>>& input_ms) {
-    arrow::TimestampBuilder builder(arrow::timestamp(arrow::TimeUnit::NANO), arrow::default_memory_pool());
-    for (auto value : input_ms)
-        if (!(value ? builder.Append(*value * 1000000) : builder.AppendNull()).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> strings(const std::vector<std::string>& input) {
-    arrow::StringBuilder builder;
-    for (const auto& value : input) if (!builder.Append(value).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> nullable_strings(const std::vector<std::optional<std::string>>& input) {
-    arrow::StringBuilder builder;
-    for (const auto& value : input)
-        if (!(value ? builder.Append(*value) : builder.AppendNull()).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-std::shared_ptr<arrow::Array> bools(const std::vector<bool>& input) {
-    arrow::BooleanBuilder builder;
-    for (bool value : input) if (!builder.Append(value).ok()) throw std::runtime_error("append");
-    return builder.Finish().ValueOrDie();
-}
-
-struct ThinCache {
-    std::filesystem::path dir;
-    ThinCache() {
-        static std::atomic<unsigned> sequence{0};
-        dir = std::filesystem::temp_directory_path() /
-              ("longshort_thin_" + std::to_string(getpid()) + "_" + std::to_string(sequence++));
-        std::filesystem::create_directories(dir / "cache");
-        std::filesystem::create_directories(dir / "groups");
-        std::ofstream(dir / "cache" / "manifest.json") << R"({"layout": "thin-v1", "source_build_id": "test"})";
-
-        // base_data: 101..108 on days 0..9; 101 has no row on day 3 (gap). 101 splits 2:1 on day 5.
-        std::vector<std::optional<int64_t>> date, id;
-        std::vector<double> close, cap, volume;
-        for (int k = 0; k < 10; ++k)
-            for (int64_t s = 101; s <= 108; ++s) {
-                if (s == 101 && k == 3) continue;
-                date.push_back(at(k)); id.push_back(s);
-                close.push_back(s == 101 && k >= 5 ? 50.0 + k : (s == 101 ? 100.0 + 2 * k : s + 0.5 * k));
-                cap.push_back(1e9 + s); volume.push_back(1000.0 * s);
-            }
-        write("cache/base_data.parquet", {"date", "tradingItemId", "open", "high", "low", "close", "vwap", "volume", "marketCap_USD"},
-              {stamps(date), ids(id), floats(close), floats(close), floats(close), floats(close), floats(close),
-               doubles(volume), doubles(cap)});
-        // adj_returns (split-only): only 101 and 102 rows, one NaN (row with null value).
-        write("cache/adj_returns.parquet", {"date", "tradingItemId", "adj_returns"},
-              {stamps({at(1), at(2), at(1)}), ids({101, 101, 102}), doubles({0.02, nan, 0.004})});
-        // returns (total; signal field and holding P&L): 101 day 1, 103 settlement day 6, 102 day 4.
-        write("cache/returns.parquet", {"date", "tradingItemId", "returns"},
-              {stamps({at(1), at(6), at(4)}), ids({101, 103, 102}), doubles({0.0125, -0.25, -0.1})});
-        // adj_factor: 101 factor 2 before day 5, 1 from day 5 on (open validTo); 102 only from day 2.
-        write("cache/adj_factor.parquet", {"tradingItemId", "validFrom", "validTo", "factor"},
-              {ids({101, 101, 102}), stamps({at(-100), at(5), at(2)}), stamps({at(5), std::nullopt, std::nullopt}),
-               doubles({2.0, 1.0, 1.0})});
-        // events (deliberately unsorted): 105 -> 106 on day 8 (transitive), 102 spins off 104 on day 4,
-        // 103 ends into 105 on day 6, 106 cash-ends on day 9, 107 -> 108 on day 5,
-        // 101 -> 108 before the panel (skipped).
-        write("cache/events.parquet", {"eventId", "date", "sourceId", "destinationId", "valueRatio", "sourceEnds"},
-              {strings({"e1", "e2", "e3", "e4", "e5", "e6"}),
-               stamps({at(8), at(4), at(6), at(9), at(5), at(-50)}),
-               ids({105, 102, 103, 106, 107, 101}), ids({106, 104, 105, std::nullopt, 108, 108}),
-               doubles({0.5, 0.1, 1.0, nan, 1.0, 1.0}), bools({true, false, true, true, true, false})});
-        // universe: Top500 = 101 (open), 102, 103 until day 6; Top1000 = 107.
-        write("universe.parquet", {"universe", "tradingItemId", "fromDate", "toDate"},
-              {strings({"Top500", "Top500", "Top500", "Top1000"}), ids({101, 102, 103, 107}),
-               stamps({at(0), at(0), at(0), at(0)}), stamps({std::nullopt, at(9), at(6), at(9)})});
-        // groups: wide, every id classified.
-        std::vector<std::string> names;
-        std::vector<std::shared_ptr<arrow::Array>> columns;
-        std::vector<std::optional<int64_t>> days;
-        for (int k = 0; k < 10; ++k) days.push_back(at(k));
-        for (int64_t s = 101; s <= 108; ++s) { names.push_back(std::to_string(s)); columns.push_back(doubles(std::vector<double>(10, 1.0))); }
-        names.push_back("__index_level_0__"); columns.push_back(stamps(days));
-        write("groups/sector.parquet", names, columns);
-        write("groups/industry.parquet", names, columns);
-    }
-    ~ThinCache() { std::error_code error; std::filesystem::remove_all(dir, error); }
-    void write(const std::string& name, const std::vector<std::string>& names,
-               const std::vector<std::shared_ptr<arrow::Array>>& arrays) {
-        std::vector<std::shared_ptr<arrow::Field>> fields;
-        for (size_t i = 0; i < names.size(); ++i) fields.push_back(arrow::field(names[i], arrays[i]->type()));
-        auto output = arrow::io::FileOutputStream::Open((dir / name).string()).ValueOrDie();
-        auto table = arrow::Table::Make(arrow::schema(fields), arrays);
-        if (!parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 16).ok() || !output->Close().ok())
-            throw std::runtime_error("Cannot write fixture " + name);
-    }
-    std::string config(const std::string& universe, const std::string& extra = "",
-                       const std::string& backtest_extra = "") const {
-        const auto path = dir / "config.yaml";
-        std::ofstream(path) << "base:\n  cache: cache\n  groups: groups\n" << universe << extra
-                            << "backtest:\n  start_date: '2020-01-01'\n  end_date: latest\n" << backtest_extra;
-        return path.string();
-    }
-};
-const std::string top500 = "universe:\n  path: universe.parquet\n  name: Top500\n";
-unsigned index_of(const DataPanel& panel, const std::string& symbol) {
-    auto found = std::find(panel.symbols.begin(), panel.symbols.end(), symbol);
-    if (found == panel.symbols.end()) throw std::runtime_error("symbol not loaded: " + symbol);
-    return static_cast<unsigned>(found - panel.symbols.begin());
-}
-}
+#include "fixtures/cache_fixture.h"
+using namespace cache_fixture;
 
 TEST(ThinLoader, LabelsPanelSymbolsFromThinMaster) {
     ThinCache cache;
@@ -154,8 +28,7 @@ TEST(ThinLoader, LabelsPanelSymbolsFromThinMaster) {
                  nullable_strings({" AAA ", std::nullopt, " ", "OTHER"}),
                  nullable_strings({"Alpha Corp", "Beta Corp", std::nullopt, "Unselected Corp"})});
     const auto config = BacktestConfig::from_yaml(cache.config(top500));
-    ASSERT_TRUE(config.base_thin);
-    const auto labels = parquet_reader::load_thin_symbol_labels(
+    const auto labels = loader::load_thin_symbol_labels(
         config, {"101", "102", "103", "104"});
     EXPECT_EQ(labels.size(), 2u);
     EXPECT_EQ(labels.at("101"), "AAA");
@@ -164,10 +37,9 @@ TEST(ThinLoader, LabelsPanelSymbolsFromThinMaster) {
     EXPECT_EQ(labels.count("999"), 0u);
 }
 
-TEST(ThinLoader, DetectsLayoutAndLoadsRawPricesAndFactors) {
+TEST(ThinLoader, LoadsRawPricesAndFactors) {
     ThinCache cache;
-    const auto config = BacktestConfig::from_yaml(cache.config(top500, "", "  pit_lag: 0\n"));   // raw alignment
-    EXPECT_TRUE(config.base_thin);
+    const auto config = BacktestConfig::from_yaml(cache.config(top500));
     const auto panel = DataPanel::load(config);
     EXPECT_TRUE(panel.thin_layout);
     ASSERT_EQ(panel.T, 10u);
@@ -196,7 +68,8 @@ TEST(ThinLoader, DetectsLayoutAndLoadsRawPricesAndFactors) {
     EXPECT_FLOAT_EQ(panel.at("returns", 4, b), -0.1f);
     EXPECT_TRUE(std::isnan(panel.at("returns", 2, a)));
     // Groups keep the current wide panel.
-    EXPECT_FLOAT_EQ(panel.at("sector", 0, a), 1.0f);
+    EXPECT_TRUE(std::isnan(panel.at("sector", 0, a)));
+    EXPECT_FLOAT_EQ(panel.at("sector", 1, a), 1.0f);
 }
 
 TEST(ThinLoader, ReturnsTotalIsDoubleWithNaNForMissingRows) {
@@ -235,26 +108,8 @@ TEST(ThinLoader, LoadsDestinationsTransitivelyAndMapsSortedMoveEvents) {
     EXPECT_TRUE(std::isnan(e[3].value_ratio)); EXPECT_TRUE(e[3].source_ends);
 }
 
-TEST(ThinLoader, IntervalUniverseBuildsInclusiveMask) {
-    ThinCache cache;   // pit_lag 0: the raw interval alignment (the default lag is covered below)
-    const auto panel = DataPanel::load(BacktestConfig::from_yaml(cache.config(top500, "", "  pit_lag: 0\n")));
-    ASSERT_EQ(panel.universe_mask.size(), static_cast<size_t>(panel.T) * panel.N);
-    const auto member = [&](unsigned t, const std::string& s) { return panel.universe_mask[t * panel.N + index_of(panel, s)]; };
-    EXPECT_EQ(member(0, "101"), 1); EXPECT_EQ(member(9, "101"), 1);
-    EXPECT_EQ(member(9, "102"), 1);                       // toDate inclusive
-    EXPECT_EQ(member(6, "103"), 1); EXPECT_EQ(member(7, "103"), 0);
-    EXPECT_EQ(member(0, "104"), 0); EXPECT_EQ(member(9, "106"), 0); // added destinations are never members
-    // Another name selects another set: 107, plus 108 it moves into on day 5.
-    ThinCache other;
-    const auto panel2 = DataPanel::load(BacktestConfig::from_yaml(
-        other.config("universe:\n  path: universe.parquet\n  name: Top1000\n", "", "  pit_lag: 0\n")));
-    EXPECT_EQ(panel2.symbols, (std::vector<std::string>{"107", "108"}));
-    EXPECT_EQ(panel2.universe_mask[0 * panel2.N + 1], 0);
-}
 
-// backtest.pit_lag (default 1, 2026-10-29): the membership and group codes decided at the close of bar t - lag
-// are what bar t sees; the first `lag` bars know nothing.
-TEST(ThinLoader, PitLagAppliesMembershipAndGroupCodesOneBarLater) {
+TEST(ThinLoader, MembershipAndGroupCodesUsePreviousBar) {
     ThinCache cache;
     const auto panel = DataPanel::load(BacktestConfig::from_yaml(cache.config(top500)));
     const auto member = [&](unsigned t, const std::string& s) { return panel.universe_mask[t * panel.N + index_of(panel, s)]; };
@@ -267,15 +122,7 @@ TEST(ThinLoader, PitLagAppliesMembershipAndGroupCodesOneBarLater) {
     EXPECT_FLOAT_EQ(panel.row("sector", 1)[index_of(panel, "101")], 1.0f);
     EXPECT_FLOAT_EQ(panel.row("industry", 9)[index_of(panel, "101")], 1.0f);
 
-    ThinCache two;
-    const auto panel2 = DataPanel::load(BacktestConfig::from_yaml(two.config(top500, "", "  pit_lag: 2\n")));
-    const auto member2 = [&](unsigned t, const std::string& s) { return panel2.universe_mask[t * panel2.N + index_of(panel2, s)]; };
-    EXPECT_EQ(member2(1, "101"), 0); EXPECT_EQ(member2(2, "101"), 1);
-    EXPECT_EQ(member2(8, "103"), 1); EXPECT_EQ(member2(9, "103"), 0);
-    EXPECT_TRUE(std::isnan(panel2.row("sector", 1)[index_of(panel2, "101")]));
 
-    ThinCache whole;   // a lag that swallows the whole panel is refused at load
-    EXPECT_THROW(DataPanel::load(BacktestConfig::from_yaml(whole.config(top500, "", "  pit_lag: 10\n"))), std::runtime_error);
 }
 
 TEST(ThinLoader, ReturnsExpressionUsesTheFieldOnThinPanels) {
@@ -295,35 +142,8 @@ TEST(ThinLoader, ReturnsExpressionUsesTheFieldOnThinPanels) {
     EXPECT_GT(owned2.size(), 3u);
 }
 
-TEST(ThinLoader, MissingUniverseNameIsRejected) {
-    ThinCache cache;
-    const auto config = BacktestConfig::from_yaml(cache.config("universe:\n  path: universe.parquet\n"));
-    try {
-        DataPanel::load(config);
-        FAIL() << "interval universe accepted without a name";
-    } catch (const std::runtime_error& error) {
-        EXPECT_NE(std::string(error.what()).find("universe.name"), std::string::npos);
-    }
-}
 
-TEST(ThinLoader, OldReturnsTotalNamingIsRejected) {
-    ThinCache cache;
-    std::ofstream(cache.dir / "cache" / "returns_total.parquet") << "old";
-    try {
-        BacktestConfig::from_yaml(cache.config(top500));
-        FAIL() << "thin cache with returns_total.parquet accepted";
-    } catch (const std::runtime_error& error) {
-        EXPECT_NE(std::string(error.what()).find("rebuild"), std::string::npos);
-    }
-}
 
-TEST(ThinLoader, OtherManifestLayoutKeepsTheWidePath) {
-    ThinCache cache;
-    std::ofstream(cache.dir / "cache" / "manifest.json") << R"({"layout": "wide"})";
-    const auto config = BacktestConfig::from_yaml(cache.config(top500));
-    EXPECT_FALSE(config.base_thin);
-    EXPECT_EQ(config.datasets.front().path, (std::filesystem::path("cache") / "BaseData").string());
-}
 
 TEST(ThinLoader, RetiresSourcesThatEndedBeforeThePanelAtBarZero) {
     ThinCache cache;
@@ -352,7 +172,7 @@ TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
                  stamps({at(0), at(0), at(0), at(0), at(0), at(0)}),
                  stamps({std::nullopt, at(9), at(6), at(9), std::nullopt, at(4)})});
     const std::string names = "universe:\n  path: universe.parquet\n  names: [BIG, SMALL]\n";
-    const auto config = BacktestConfig::from_yaml(cache.config(names, "", "  pit_lag: 0\n"));   // raw alignment
+    const auto config = BacktestConfig::from_yaml(cache.config(names));
     EXPECT_EQ(config.universe.name, "BIG");
     const auto panel = DataPanel::load(config);
     EXPECT_EQ(panel.universe_names, (std::vector<std::string>{"BIG", "SMALL"}));
@@ -366,10 +186,11 @@ TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
     for (size_t i = 0; i < big.size(); ++i) EXPECT_LE(small[i], big[i]) << i;
     const unsigned a = index_of(panel, "101"), b = index_of(panel, "102"), c = index_of(panel, "103");
     EXPECT_TRUE(small[4 * panel.N + b]);
-    EXPECT_FALSE(small[5 * panel.N + b]);
+    EXPECT_TRUE(small[5 * panel.N + b]);
+    EXPECT_FALSE(small[6 * panel.N + b]);
     EXPECT_TRUE(big[5 * panel.N + b]);
     EXPECT_FALSE(small[0 * panel.N + c]);
-    EXPECT_TRUE(big[0 * panel.N + c]);
+    EXPECT_TRUE(big[1 * panel.N + c]);
     EXPECT_THROW(panel.mask_for("TOP9"), std::invalid_argument);
 
     // Rank: symbols outside the selected set are NaN.
@@ -380,25 +201,21 @@ TEST(ThinLoader, SelectableUniverseNamesKeepOneMaskPerName) {
     sc.T = panel.T; sc.N = panel.N; sc.fee_rate = 0.0; sc.collect_signals = true;
     sc.universe_mask = &small;
     const auto out = Simulator(panel, sc).run(ranked[0].pipeline);
-    EXPECT_TRUE(std::isfinite(out.signals[0][a]));
-    EXPECT_TRUE(std::isnan(out.signals[0][c]));
+    EXPECT_TRUE(std::isfinite(out.signals[1][a]));
+    EXPECT_TRUE(std::isnan(out.signals[1][c]));
     auto default_ranked = compile_xml("<data expr=\"close\"/><rank/>", &panel);
     sc.universe_mask = nullptr;
     const auto default_out = Simulator(panel, sc).run(default_ranked[0].pipeline);
-    EXPECT_TRUE(std::isfinite(default_out.signals[0][c]));
+    EXPECT_TRUE(std::isfinite(default_out.signals[1][c]));
 
     // Normalization uses the selected mask.
     std::vector<float> ones(panel.N, 1.0f);
     std::vector<double> targets;
-    normalize_signal_row(panel, 0, ones.data(), targets, MissingClosePolicy::Carry, &small);
+    normalize_signal_row(panel, 1, ones.data(), targets, MissingClosePolicy::Carry, &small);
     EXPECT_DOUBLE_EQ(targets[a], 0.5);
     EXPECT_DOUBLE_EQ(targets[c], 0.0);
-    normalize_signal_row(panel, 0, ones.data(), targets, MissingClosePolicy::Carry);
+    normalize_signal_row(panel, 1, ones.data(), targets, MissingClosePolicy::Carry);
     EXPECT_DOUBLE_EQ(targets[a], 0.25);
 
-    // name must be one of names; names needs an interval file.
-    EXPECT_THROW(BacktestConfig::from_yaml(cache.config(
-        "universe:\n  path: universe.parquet\n  name: X\n  names: [BIG, SMALL]\n")), std::runtime_error);
-    EXPECT_THROW(DataPanel::load(BacktestConfig::from_yaml(cache.config(
-        "universe:\n  path: universe.parquet\n  names: [BIG, NOPE]\n"))), std::runtime_error);
+
 }

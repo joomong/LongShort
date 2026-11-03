@@ -218,9 +218,6 @@ reports/test-runs/
 # Data
 Data/
 data/
-!cpp-engine/src/data/
-!cpp-engine/src/data/*.h
-!cpp-engine/src/data/*.cpp
 
 # Claude Code / OMC
 .omc/
@@ -272,3 +269,12 @@ nohup.out
 # Keys
 *.pem
 *.key
+
+# Frontend dependencies and generated output
+frontend/node_modules/
+frontend/.next*/
+frontend/next-env.d.ts
+frontend/public/monaco/
+frontend/tests/.artifacts/
+frontend/.env*
+!frontend/.env.example

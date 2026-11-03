@@ -13,3 +13,7 @@ struct MUniverseGroup : public Module {
     void calculate(unsigned, SignalVector&) {}
 };
 }
+
+REGISTER_MODULE(UniverseGroup, discovered_fixture::MUniverseGroup, "universegroup",
+    MODULE_PARAMETER(discovered_fixture::MUniverseGroup, group),
+    MODULE_PARAMETER(discovered_fixture::MUniverseGroup, window))

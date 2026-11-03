@@ -1,7 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <vector>
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MTruncate: cap each name's weight at `max` of its set (stateless, cross-sectional).
 // Universe mask first (excluded/non-finite -> NaN). side=0: one set of |x|; side=1: longs and shorts

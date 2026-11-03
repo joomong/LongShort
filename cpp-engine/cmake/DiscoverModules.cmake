@@ -1,8 +1,5 @@
-# Each engine build has its own generated registry and external module sources.
-# The generator writes its output only when content changes, so checking for new
-# modules on every build does not recompile an unchanged engine.
-function(longshort_discover_modules target_name modules_dir generator_script)
-    find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+# Collect filenames only; module types and XML bindings are declared in C++.
+function(longshort_discover_modules target_name modules_dir)
     get_filename_component(module_path "${modules_dir}" ABSOLUTE)
     if(EXISTS "${module_path}" AND NOT IS_DIRECTORY "${module_path}")
         message(FATAL_ERROR "LONGSHORT_MODULE_DIR is not a directory: ${module_path}")
@@ -22,7 +19,7 @@ function(longshort_discover_modules target_name modules_dir generator_script)
     file(GLOB_RECURSE module_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
         "${module_path}/*.cpp" "${module_path}/*.cc" "${module_path}/*.cxx")
 
-    # Match the generator: hidden path components disable a module and its sources.
+    # Hidden path components disable a module and its sources.
     foreach(module_list module_headers module_sources)
         set(visible_files)
         foreach(module_file IN LISTS ${module_list})
@@ -34,15 +31,27 @@ function(longshort_discover_modules target_name modules_dir generator_script)
         set(${module_list} "${visible_files}")
     endforeach()
 
+    list(SORT module_headers)
+    set(module_includes "")
+    set(module_calls "")
+    set(module_names "")
+    foreach(header IN LISTS module_headers)
+        get_filename_component(name "${header}" NAME_WE)
+        if(NOT name MATCHES "^[A-Za-z_][A-Za-z_0-9]*$")
+            message(FATAL_ERROR "Module header needs a C++ identifier filename: ${header}")
+        endif()
+        if(name IN_LIST module_names)
+            message(FATAL_ERROR "Duplicate module header basename: ${name}")
+        endif()
+        if(header MATCHES "[\"\\\\]")
+            message(FATAL_ERROR "Unsupported quote/backslash in module path: ${header}")
+        endif()
+        list(APPEND module_names "${name}")
+        string(APPEND module_includes "#include \"${header}\"\n")
+        string(APPEND module_calls "    register_${name}(registry);\n")
+    endforeach()
     set(registry_source "${CMAKE_CURRENT_BINARY_DIR}/generated/${target_name}_discovered_modules.cpp")
-    add_custom_target(${target_name}_discover_modules
-        COMMAND "${Python3_EXECUTABLE}" "${generator_script}"
-            --modules-dir "${module_path}" --output "${registry_source}"
-        BYPRODUCTS "${registry_source}"
-        DEPENDS "${generator_script}" ${module_headers} ${module_sources}
-        COMMENT "Discovering modules in ${module_path}"
-        VERBATIM)
-    add_dependencies(${target_name} ${target_name}_discover_modules)
+    configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ModuleRegistry.cpp.in" "${registry_source}" @ONLY)
     target_sources(${target_name} PRIVATE "${registry_source}" ${module_sources})
     target_include_directories(${target_name} PRIVATE "${module_path}")
     message(STATUS "LongShort module directory: ${module_path}")

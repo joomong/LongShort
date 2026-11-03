@@ -8,8 +8,8 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "data/data_panel.h"
-#include "engine/simulator.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include "modules/Data.h"
 #include "modules/Rank.h"
 #include "modules/Delay.h"

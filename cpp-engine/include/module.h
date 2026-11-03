@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include "signal_vector.h"
+#include "parallel_executor.h"
 #include "star_vector.h"
 
 // ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ if(DEFINED ENV{CONDA_PREFIX})
     list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
 endif()
 include(cmake/ArrowDependencies.cmake)
-find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
 set(LONGSHORT_MODULE_DIR "" CACHE PATH
     "Directory containing additional user module headers and sources (empty: built-in modules only)")
@@ -86,74 +85,43 @@ endif()
 # Engine library
 # ---------------------------------------------------------------------------
 add_library(engine STATIC
-    # Phase 0: Data
-    src/data/data_panel.cpp
-    src/data/config_loader.cpp
-    src/data/parquet_reader.cpp
-
-    # Phase 1: Core
-    src/core/signal_vector.cpp
-
-    # Phase 2: Compiler
-    src/compiler/xml_parser.cpp
-    src/compiler/expansion.cpp
-    src/compiler/expr_parser.cpp
-    src/compiler/dag_builder.cpp
-
-    # Phase 4: Simulator
-    src/engine/simulator.cpp
-
-    # Phase 5: Metrics
-    src/metrics/summary_metrics.cpp
-    src/metrics/yearly_metrics.cpp
-    src/metrics/timeseries_output.cpp
-    src/metrics/metrics_engine.cpp
-
-    # Phase 6: SIMD
-    src/simd/simd_utils.cpp
-    src/simd/m_decay_avx2.cpp
-
-    # Phase 7: GA Multithread
-    src/ga/search_space.cpp
-    src/ga/ga_engine.cpp
-    src/ga/parallel_evaluator.cpp
-
-    # Phase 8: API
-    src/api/json_serializer.cpp
-    src/api/alpha_storage.cpp
-    src/api/meta_dir.cpp
-    src/api/meta_sets.cpp
-    src/api/meta_weights.cpp
-    src/api/meta_returns.cpp
-    src/api/alpha_pool.cpp
+    src/loader.cpp
+    src/parallel_executor.cpp
+    src/xml_compiler.cpp
+    src/simulator_engine.cpp
+    src/alpha_search.cpp
+    src/meta.cpp
+    src/alpha_storage.cpp
+    src/pool_correlation.cpp
+    src/modules/decay_kernel.cpp
 )
 
 include(cmake/DiscoverModules.cmake)
 if(LONGSHORT_MODULE_DIR STREQUAL "")
     set(LONGSHORT_MODULE_DIR "${CMAKE_BINARY_DIR}/no_user_modules")  # empty: built-in modules only
 endif()
-longshort_discover_modules(engine "${LONGSHORT_MODULE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_modules.py")
+longshort_discover_modules(engine "${LONGSHORT_MODULE_DIR}")
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$")
-    if (MSVC)
-        set_source_files_properties(
-            src/simd/m_decay_avx2.cpp
-            PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+option(LONGSHORT_ENABLE_AVX2 "Build for AVX2-capable CPUs (OFF: scalar kernels)" ON)
+if(LONGSHORT_ENABLE_AVX2)
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$")
+        message(FATAL_ERROR "AVX2 needs x86; configure with -DLONGSHORT_ENABLE_AVX2=OFF")
+    endif()
+    if(MSVC)
+        target_compile_options(engine PUBLIC /arch:AVX2)
     else()
-        check_cxx_compiler_flag("-mavx2" CPP_ENGINE_HAS_MAVX2_FLAG)
-        if (CPP_ENGINE_HAS_MAVX2_FLAG)
-            set_source_files_properties(
-                src/simd/m_decay_avx2.cpp
-                PROPERTIES COMPILE_OPTIONS "-mavx2")
+        check_cxx_compiler_flag("-mavx2" LONGSHORT_HAS_MAVX2_FLAG)
+        if(NOT LONGSHORT_HAS_MAVX2_FLAG)
+            message(FATAL_ERROR "Compiler does not support -mavx2; set LONGSHORT_ENABLE_AVX2=OFF")
         endif()
+        target_compile_options(engine PUBLIC -mavx2)
     endif()
 endif()
 
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+target_include_directories(engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_include_directories(engine SYSTEM PUBLIC ${eigen_SOURCE_DIR})
 
@@ -162,7 +130,9 @@ target_compile_options(engine PUBLIC
     "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/include/ModulePrelude.h\">"
 )
 
+find_package(Threads REQUIRED)
 target_link_libraries(engine PUBLIC
+    Threads::Threads
     Arrow::arrow_shared
     Parquet::parquet_shared
     pugixml
@@ -173,8 +143,11 @@ target_link_libraries(engine PUBLIC
 # ---------------------------------------------------------------------------
 # Server executable
 # ---------------------------------------------------------------------------
+add_library(http_server STATIC src/http_server.cpp)
+target_link_libraries(http_server PUBLIC engine drogon)
+target_include_directories(http_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_executable(longshort-server src/main.cpp)
-target_link_libraries(longshort-server PRIVATE engine drogon)
+target_link_libraries(longshort-server PRIVATE http_server)
 # Stable executable location for the launcher and HTTP tests, also with multi-config generators.
 set_target_properties(longshort-server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}>")
@@ -183,11 +156,13 @@ set_target_properties(longshort-server PROPERTIES
 # Tests
 # ---------------------------------------------------------------------------
 if(LONGSHORT_BUILD_TESTS)
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 enable_testing()
 
 function(add_engine_test name source)
     add_executable(${name} ${source})
     target_link_libraries(${name} PRIVATE engine GTest::gtest_main)
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME ${name} COMMAND ${name})
     if(NOT name STREQUAL "test_http_contract")
         set_tests_properties(${name} PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -198,6 +173,8 @@ add_engine_test(test_data_loader      tests/test_data_loader.cpp)
 add_engine_test(test_config_loader    tests/test_config_loader.cpp)
 add_engine_test(test_parquet_loader   tests/test_parquet_loader.cpp)
 add_engine_test(test_modules          tests/test_modules.cpp)
+add_engine_test(test_module_parallelism tests/test_module_parallelism.cpp)
+set_tests_properties(test_module_parallelism PROPERTIES TIMEOUT 30)
 add_engine_test(test_simulator        tests/test_simulator.cpp)
 add_engine_test(test_thin_loader      tests/test_thin_loader.cpp)
 add_engine_test(test_thin_moves       tests/test_thin_moves.cpp)
@@ -205,7 +182,9 @@ add_engine_test(test_summary_metrics  tests/test_summary_metrics.cpp)
 add_engine_test(test_module_oracles   tests/test_module_oracles.cpp)
 add_engine_test(test_metrics_oracle   tests/test_metrics_oracle.cpp)
 add_engine_test(test_pipeline_contract tests/test_pipeline_contract.cpp)
+target_link_libraries(test_pipeline_contract PRIVATE http_server)
 add_engine_test(test_http_contract    tests/test_http_contract.cpp)
+add_dependencies(test_http_contract longshort-server)
 add_engine_test(test_extreme_alpha_stress tests/test_extreme_alpha_stress.cpp)
 add_engine_test(test_yearly_metrics   tests/test_yearly_metrics.cpp)
 add_engine_test(test_simd_parity      tests/test_simd_parity.cpp)
@@ -215,6 +194,7 @@ add_engine_test(test_xml_compiler     tests/test_xml_compiler.cpp)
 add_engine_test(test_golden_crossval  tests/test_golden_crossval.cpp)
 add_engine_test(test_combined_alpha   tests/test_combined_alpha.cpp)
 add_engine_test(test_json_serializer tests/test_json_serializer.cpp)
+target_link_libraries(test_json_serializer PRIVATE http_server)
 add_engine_test(test_alpha_storage    tests/test_alpha_storage.cpp)
 add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
 add_engine_test(test_alpha_pool       tests/test_alpha_pool.cpp)
@@ -229,14 +209,14 @@ add_engine_test(test_ffd_pcaresid     tests/test_ffd_pcaresid.cpp)
 # Test-only CLI for the Python oracle of the combination weights.
 add_executable(meta_weights_probe tests/meta_weights_probe.cpp)
 target_link_libraries(meta_weights_probe PRIVATE engine)
+target_include_directories(meta_weights_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_engine_test(test_module_attributes tests/test_module_attributes.cpp)
 add_engine_test(test_execution_price  tests/test_execution_price.cpp)
 add_engine_test(test_discovered_modules tests/test_discovered_modules.cpp)
 longshort_discover_modules(test_discovered_modules
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/discovered_modules"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_modules.py")
-foreach(tool_test test_generate_modules test_run_engine test_module_build)
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/discovered_modules")
+foreach(tool_test test_longshort_launcher test_module_build)
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
 endforeach()

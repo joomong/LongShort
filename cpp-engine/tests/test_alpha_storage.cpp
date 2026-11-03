@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "api/alpha_storage.h"
+#include "alpha_storage.h"
 
 #include <arrow/api.h>
 #include <arrow/io/file.h>
@@ -59,24 +59,27 @@ TEST(AlphaStorage, NamesRejectTraversalAndHiddenDirectories) {
     EXPECT_FALSE(alpha_storage::is_valid_name(std::string(201, 'a')));
 }
 
-TEST(AlphaStorage, MetadataYamlHasExactlyTheSevenKeysInOrderAndRoundTrips) {
+TEST(AlphaStorage, MetadataYamlPreservesRunSettingsInOrderAndRoundTrips) {
     TempDir temp;
-    const auto metadata = sample_metadata();
+    auto metadata = sample_metadata();
+    metadata.threads = 7;
     const std::string text = alpha_storage::metadata_yaml(metadata);
     EXPECT_EQ(text, "level: xml\nsimStart: 2016-01-04\nsimEnd: 2026-09-15\nisStart: 2016-01-04\n"
-                    "osStart: 2024-01-01\nuniverse: TOP3000\nexecutionPrice: vwap\n");
+                    "osStart: 2024-01-01\nuniverse: TOP3000\nexecutionPrice: vwap\nthreads: 7\n");
     std::ofstream(temp.dir / "metadata.yml") << text;
     alpha_storage::Metadata read;
     ASSERT_TRUE(alpha_storage::read_metadata(temp.dir / "metadata.yml", &read));
     EXPECT_EQ(read.sim_end, metadata.sim_end);
     EXPECT_EQ(read.universe, metadata.universe);
     EXPECT_EQ(read.execution_price, metadata.execution_price);
+    EXPECT_EQ(read.threads, 7u);
 
     auto empty_universe = metadata;
     empty_universe.universe = "";
     std::ofstream(temp.dir / "empty.yml") << alpha_storage::metadata_yaml(empty_universe);
     ASSERT_TRUE(alpha_storage::read_metadata(temp.dir / "empty.yml", &read));
     EXPECT_EQ(read.universe, "");
+    EXPECT_EQ(read.threads, 7u);
 }
 
 TEST(AlphaStorage, DiscardedSaveLeavesNoStagingOrFinalDirectory) {

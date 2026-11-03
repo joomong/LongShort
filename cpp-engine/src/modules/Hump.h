@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MHump: BRAIN hump turnover limiter (stateful per instrument). limit =
 // hump * sum|x| over today's finite masked inputs. Changes with |x - prev| <=

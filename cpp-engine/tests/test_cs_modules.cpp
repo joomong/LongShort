@@ -2,9 +2,7 @@
 // group_mean, group_zscore, rank_sharp, truncate. Oracles are plain per-row/per-group loops.
 #include <gtest/gtest.h>
 #include <algorithm>
-#include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -12,8 +10,8 @@
 #include <string>
 #include <vector>
 #include "module.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
 #include "modules/Rank.h"
 #include "modules/Neutralize.h"
 #include "modules/Winsorize.h"
@@ -857,47 +855,4 @@ TEST(CsCompile, UniverseInjectionReachesEveryModule)
     EXPECT_EQ(find_module<MGroupZscore>(a[0])->universe, &uni);
     EXPECT_EQ(find_module<MRankSharp>(a[0])->universe, &uni);
     EXPECT_EQ(find_module<MTruncate>(a[0])->universe, &uni);
-}
-
-// ---------------------------------------------------------------- benchmark
-// Printout only; enable with LONGSHORT_CS_BENCH=1 (Release build).
-TEST(CsBench, Print)
-{
-    if (!std::getenv("LONGSHORT_CS_BENCH")) GTEST_SKIP() << "set LONGSHORT_CS_BENCH=1";
-    const unsigned T = 3000, N = 6000;
-    std::mt19937 rng(11);
-    std::normal_distribution<float> nd;
-    DataPanel dp; dp.T = T; dp.N = N;
-    auto& sec = dp.arrays["sector"]; sec.resize(static_cast<size_t>(T) * N);
-    for (auto& c : sec) c = static_cast<float>(rng() % 11);
-    std::vector<float> data(static_cast<size_t>(T) * N);
-    for (auto& v : data) v = nd(rng);
-    auto bench = [&](const char* name, Module& m) {
-        m.numAssets = N; m.init();
-        Row buf(N);
-        auto t0 = std::chrono::steady_clock::now();
-        for (unsigned t = 0; t < T; ++t) {
-            std::copy(data.begin() + static_cast<size_t>(t) * N,
-                      data.begin() + static_cast<size_t>(t + 1) * N, buf.begin());
-            SignalVector sv{buf.data(), N};
-            m.calculate(t, sv);
-        }
-        const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        std::printf("BENCH %-12s T=%u N=%u %.3f s\n", name, T, N, s);
-    };
-    MRank rk; bench("rank", rk);
-    MWinsorize w; bench("winsorize", w);
-    MNormalize no; no.usestd = IntParameter(1); no.limit = FloatParameter(3.0f); bench("normalize", no);
-    MHump h; bench("hump", h);
-    MGroupRank gr; gr.panel = &dp; gr.column_name = "sector"; bench("group_rank", gr);
-    MGroupMean gm; gm.panel = &dp; gm.column_name = "sector"; bench("group_mean", gm);
-    MGroupZscore gz; gz.panel = &dp; gz.column_name = "sector"; bench("group_zscore", gz);
-    MNeutralize ne; ne.panel = &dp; ne.column_name = "sector"; bench("neutralize", ne);
-    MRankSharp rs; bench("rank_sharp", rs);
-    for (int side : {0, 1})
-        for (int post : {0, 1}) {
-            MTruncate tr; tr.maxw = FloatParameter(0.01f); tr.side = IntParameter(side); tr.post = IntParameter(post);
-            const std::string name = "truncate s" + std::to_string(side) + "p" + std::to_string(post);
-            bench(name.c_str(), tr);
-        }
 }

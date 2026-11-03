@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // Group cross-sectional modules (stateless): group_rank, group_mean,
 // group_zscore. Membership matches MNeutralize: universe-masked, finite value,

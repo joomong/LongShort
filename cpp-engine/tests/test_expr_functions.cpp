@@ -8,8 +8,8 @@
 #include <vector>
 #include "module.h"
 #include "signal_vector.h"
-#include "data/data_panel.h"
-#include "compiler/expr_parser.h"
+#include "simulation_data.h"
+#include "xml_compiler.h"
 #include "modules/Data.h"
 #include "modules/Unary.h"
 

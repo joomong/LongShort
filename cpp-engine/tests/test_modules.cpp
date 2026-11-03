@@ -5,7 +5,7 @@
 #include <limits>
 #include "signal_vector.h"
 #include "module.h"
-#include "data/data_panel.h"
+#include "simulation_data.h"
 #include "modules/Data.h"
 #include "modules/Delay.h"
 #include "modules/TsMean.h"

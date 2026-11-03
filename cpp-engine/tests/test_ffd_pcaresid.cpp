@@ -14,8 +14,8 @@
 
 #include "module.h"
 #include "signal_vector.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
 #include "modules/Ffd.h"
 #include "modules/PcaResid.h"
 

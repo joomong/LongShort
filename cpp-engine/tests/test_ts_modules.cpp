@@ -3,10 +3,8 @@
 // Expectations are recomputed by brute force from the stored input history.
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <random>
@@ -16,9 +14,9 @@
 
 #include "module.h"
 #include "signal_vector.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include "modules/Delay.h"
 #include "modules/TsDelta.h"
 #include "modules/TsSum.h"
@@ -638,41 +636,4 @@ TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsFillHoldsBlocks) {
     for (unsigned t = 21; t < 33; ++t) EXPECT_TRUE(std::isnan(fill[t][4])) << t;
     EXPECT_TRUE(std::isfinite(raw[31][4]));
     EXPECT_TRUE(std::isfinite(fill[33][4]));
-}
-
-// ---------------------------------------------------------------------------
-// Micro-benchmark (printout only; enable with LONGSHORT_TS_BENCH=1)
-// ---------------------------------------------------------------------------
-TEST(TsModules, MicroBenchmark) {
-    if (!std::getenv("LONGSHORT_TS_BENCH")) GTEST_SKIP() << "set LONGSHORT_TS_BENCH=1";
-    const unsigned T = 3000, N = 6000;
-    std::mt19937 rng(11);
-    std::uniform_real_distribution<float> u(-1.0f, 1.0f);
-    std::vector<float> data((size_t)T * N);
-    for (auto& v : data) v = u(rng);
-    auto bench = [&](const char* name, Module& m, int days) {
-        m.numAssets = N; m.init();
-        std::vector<float> buf(N);
-        auto t0 = std::chrono::steady_clock::now();
-        for (unsigned t = 0; t < T; ++t) {
-            std::copy(data.begin() + (size_t)t * N, data.begin() + (size_t)(t + 1) * N, buf.begin());
-            SignalVector sv{buf.data(), N};
-            m.calculate(t, sv);
-        }
-        double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        std::printf("BENCH %-9s days=%3d  %.3f s\n", name, days, s);
-    };
-    for (int days : {20, 252}) {
-        MTsDelta a; a.days = IntParameter(days); bench("tsdelta", a, days);
-        MTsSum b; b.days = IntParameter(days); bench("tssum", b, days);
-        MTsStdDev c; c.days = IntParameter(days); bench("tsstddev", c, days);
-        MTsArgMax d; d.days = IntParameter(days); bench("tsargmax", d, days);
-        MTsArgMin e; e.days = IntParameter(days); bench("tsargmin", e, days);
-        MTsFill f; f.days = IntParameter(days); bench("tsfill", f, days);
-        MTsMax g; g.days = IntParameter(days); bench("tsmax", g, days);
-        MTsMin i; i.days = IntParameter(days); bench("tsmin", i, days);
-    }
-    {
-        MTsEwma e; bench("tsewma", e, 0);
-    }
 }

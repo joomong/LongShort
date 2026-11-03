@@ -36,15 +36,16 @@ HTTP 요청 처리용 임시 파일은 `.longshort/uploads/`에 둔다.
 ```
 
 - `init`은 cmake·c++·python3·node가 있는지 확인하고, 공용 빌드 의존성 `LONGSHORT_DEPS`(기본 `/home/base/longshort_deps`)가 없으면 만든다. 이 서버에는 Arrow C++와 jsoncpp·uuid 개발 헤더가 설치돼 있지 않아서(root 없음) `venv/`에 pip로 PyArrow 18.1.0을 넣어 `libarrow`·`libparquet`를 얻고, `prefix/`에 Ubuntu 패키지 `libjsoncpp-dev libjsoncpp25 uuid-dev libuuid1`을 `apt-get download`로 받아 풀어 둔다. 한 번 만들면 모든 사용자가 같이 쓰고, 이미 있으면 건너뛴다. 끝으로 자기 복사본의 `frontend/`에 `npm ci`를 한다.
-- `start`는 `~/longshort_workspace/`에 `config.yaml`이 없으면 [설정 예제](config.example.yaml)를 복사하고 `alphas/ meta/ modules/ research/`를 만든다. 데이터·AFL·유니버스 경로는 공용 캐시라 사용자별로 다를 것이 없고, 사용자마다 달라야 하는 값은 포트 두 개뿐이다. deps가 없고 빌드 캐시도 없으면 `init`을 안내하고 멈춘다.
+- `start`는 `~/longshort_workspace/`에 `config.yaml`이 없으면 [설정 예제](config.example.yaml)로 설정을 만들고 `alpha_pool`에 플랫폼 내부 풀의 절대 경로를 기록한다. `alphas/ meta/ modules/ research/`도 만든다. 데이터·AFL·유니버스 경로는 공용 캐시라 사용자별로 다를 것이 없고, 사용자마다 달라야 하는 값은 포트 두 개뿐이다. deps가 없고 빌드 캐시도 없으면 `init`을 안내하고 멈춘다.
 - 빌드 경로는 `.longshort/build/`, pid·로그·포트는 `.longshort/`와 `.longshort/logs/`에 둔다. 포트가 이미 쓰이고 있으면 기동하지 않고, `stop`은 자기가 띄운 pid만 내리므로 다른 사용자나 공용 엔진을 건드리지 않는다.
 - 브라우저가 접속하는 주소는 `LONGSHORT_HOST`(기본: 서버의 첫 IP)로 바꿀 수 있고, workspace 위치는 `LONGSHORT_WORKSPACE`로 바꿀 수 있다. 자세한 것은 [빌드 안내](docs/build_and_validation.md).
-- config에 `alpha_pool: /home/base/alpha_pool`을 두면 엔진이 켜질 때 풀의 `alpha.xml`을 풀 기준 설정(`alpha_pool_universe`, 북은 `TOP500_CAP`; 체결은 config 기본; 전체 기간)으로 한 번씩 병렬로 돌려 비용 후 일별 손익을 기억해 두고, 결과표 OS 오른쪽 `Corr` 열에 현재 알파와 풀 동일가중(그날 활동 중인 알파의 평균) 손익의 상관을 시뮬 구간 전체(IS+OS)로 보여준다. 풀에 알파가 추가되면 다음 요청 때 새것만 돌린다. 엔진은 풀에 쓰지 않는다.
+- config의 `alpha_pool`이 플랫폼의 `alpha_pool/`을 가리키면 엔진이 켜질 때 풀의 `alpha.xml`을 풀 기준 설정(`alpha_pool_universe`, 북은 `TOP500_CAP`; 체결은 config 기본; 전체 기간)으로 한 번씩 병렬로 돌려 비용 후 일별 손익을 기억해 두고, 결과표 OS 오른쪽 `Corr` 열에 현재 알파와 풀 동일가중(그날 활동 중인 알파의 평균) 손익의 상관을 시뮬 구간 전체(IS+OS)로 보여준다. 풀에 알파가 추가되면 다음 요청 때 새것만 돌린다. 엔진은 풀에 쓰지 않는다.
 
-스크립트가 실제로 실행하는 것은 아래 두 명령이다. 직접 돌릴 때도 같다. YAML의 상대 데이터·카탈로그 경로는 YAML이 있는 폴더 기준이며, AFL 카탈로그는 캐시와 함께 발행되는 `/home/base/cache/cache_v2_cash_1d/afl_catalog.json`을 절대경로로 가리킨다.
+엔진을 수동으로 실행하려면 먼저 빌드하고 실행파일에 설정을 전달한다. 화면은 별도 명령으로 실행할 수 있다. YAML의 상대 데이터·카탈로그 경로는 YAML이 있는 폴더 기준이며, AFL 카탈로그는 캐시와 함께 발행되는 `/home/base/cache/cache_v2_cash_1d/afl_catalog.json`을 절대경로로 가리킨다.
 
 ```bash
-python3 ~/longshort_platform/cpp-engine/tools/run_engine.py --config ~/longshort_workspace/config.yaml --port 50017
+~/longshort_platform/longshort start --build-only
+LONGSHORT_PORT=50017 ~/longshort_workspace/.longshort/build/longshort-server ~/longshort_workspace/config.yaml
 cd ~/longshort_platform/frontend && NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:50017" npm run dev -- --port 50016
 ```
 
@@ -56,20 +57,18 @@ cd ~/longshort_platform/frontend && NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:5
 
 ## 데이터와 계산
 
-- 기존 long Parquet 및 필드별 wide Parquet을 C++이 직접 읽는다. [설정 YAML과 데이터 연결](docs/config.md)는 날짜별 유니버스와 필요한 AFL 필드만 읽는 방법을 설명한다. AFL 필드는 XML에서 `AFL.<이름>`(예: `AFL.EPSNumRevFY1C`)으로 쓴다.
-- `base:` 블록(가격 캐시 + 그룹 패널 디렉토리)을 주면 기본 필드 `open high low close volume vwap cap sector industry`가 설정에 나열하지 않아도 시작 시 전부 읽힌다. 파일이 하나라도 없거나 그룹 패널이 가격 달력을 덮지 못하면 기동을 거부한다.
-- 일반 설정의 `backtest.execution_price` 기본값은 `close`이고, 설정 예제 `config.example.yaml`은 운영 workspace와 같은 `vwap`(2000-01-01 시작, warmup 0)으로 둔다. 화면의 Execution에서 Close/OHLC4/VWAP를 실행별로 선택할 수 있다. VWAP는 raw 당일 `vwap`으로 체결하며, `(close / VWAP - 1)` 매매 손익과 결측·범위 불일치·오류 규칙은 OHLC4와 같고 exact `vwap/high/low`가 필요하다(vwap이나 종가가 [low, high] 밖이면 미체결). BRAIN Delay-1 손익은 종가 보유 손익 + VWAP 매매 leg로 재현된다. OHLC4는 raw `(open + high + low + close) / 4`이며 원본 가격을 바꾸지 않는다. Interval/실행 mode와 엔진의 자동 하루 지연은 제거했다. 지연은 XML의 `delay="1"`로 명시하며 추가로 지연하지 않는다. 편도 비용 1.5bp와 목표 명목금액 규칙은 유지된다. 기본 연환산은 365이며 주식 예제는 252다. `/api/config`의 `executionPrice`와 화면의 Execution 선택창에서 체결 기준을 고른다.
-- 손익 모델은 원래 팀의 고정 명목금액 근사(fixed-notional approximation)이며 정확한 주식 수 원장은 아니다. OHLC4에서는 기존 보유 손익에 실제 시장 매매 비중 × `(close / OHLC4 - 1)`을 더한다. 기업행동 position 이동 자체는 이 매매 손익이나 수수료를 만들지 않는다.
-- OHLC4의 `open/high/low/close`는 exact 정렬 원천이 필수이며, 필드 선택을 제한하거나 lazy로 선언해도 로드한다. 필드·파일·컬럼 부재 또는 asof 가격 원천은 오류이며 종가 체결로 대체하지 않는다. 개별 OHLC 셀 결측에서 `carry`는 매매를 막고 기존 노출을 동결·예약하되 관측 종가와 보유 수익률은 정상 반영한다. `error`는 필요한 매매를 실행할 수 없으면 실패한다. 시가·종가가 고가·저가 범위를 벗어난 경우에도 `carry`는 주문을 보류하며, 0 이하나 무한대 가격은 오류로 거부한다.
-- 유니버스는 가격과 별도 마스크다. 신호 날짜에 적용하고 실행 모드의 지연을 함께 받는다.
+- `loader`는 캐시의 가격·수익률·이벤트·유니버스·그룹 패널과 AFL을 읽어 실행 입력을 준비한다. 설정은 `base: {cache, groups}`, 선택적인 `afl: {path, catalog}`, `universe`로 구성한다. 경로와 필드는 [설정 YAML과 데이터 연결](docs/config.md)을 따른다.
+- 기본 필드는 `open high low close volume vwap cap sector industry returns adj_returns adj_factor`다. `returns`는 총수익률이며 보유 손익에도 사용하고, `adj_returns`는 분할조정 가격수익률이다. AFL은 `AFL.<이름>`(예: `AFL.EPSNumRevFY1C`)으로 등록하며 처음 사용하는 필드만 읽는다.
+- sector·industry·모든 universe 마스크는 입력 준비 시 이전 거래일 기준으로 구성한다. XML `delay`는 알파 입력의 별도 지연이다. 가격·수익률·기업행동 이벤트는 원래 발생 날짜로 유지한다.
+- 체결은 Close/OHLC4/VWAP 중 실행별로 선택한다. OHLC4는 raw `(open + high + low + close) / 4`, VWAP는 raw 당일 `vwap`을 사용한다. 설정 예제는 `vwap`, 편도 비용은 1.5bp, 주식 연환산은 252다.
+- 손익은 고정 명목금액 근사다. 기존 보유 손익에 실제 시장 매매 비중 × `(close / fill - 1)`을 더하고 turnover 비용을 뺀다. 기업행동 position 이동 자체는 매매 손익이나 수수료를 만들지 않는다.
+- 체결할 수 없는 관측에서 `missing_close_policy: carry`는 해당 주문을 보류하고 기존 노출을 동결·예약한다. `error`는 필요한 거래를 수행할 수 없으면 실행을 실패시킨다. 정확한 체결·결측 규칙은 [계산 계약](docs/math_contract.md)을 따른다.
 - Sim period의 From/To는 실행별 거래 범위다(To 당일 포함, 휴장일이면 그 이전 마지막 데이터 bar까지). 시작 전 워밍업은 유지하며 종료일 뒤 계산은 멈춘다. 단일·combined·GA, 연도표·차트·상세 신호 조회가 같은 범위를 사용한다. To 미지정은 로드된 데이터 끝까지이고, 선택한 종료일에 강제청산을 추가하지 않는다.
-- 현재 thin-v1 캐시는 `base.cache/manifest.json`으로 판별한다. `close`는 조정 전 가격, `returns.parquet`의 `returns`는 총수익률로 기본 신호와 보유 손익에 쓰며, `adj_returns`는 분할조정 가격 수익률이다. `events.parquet`은 position 이동을 처리한다. 옛 `returns_total.parquet`이 남은 thin 캐시는 다시 빌드해야 한다. `universe.name`으로 구간형 유니버스를 고른다. 멤버십과 그룹 코드는 `backtest.pit_lag`(기본 1) bar 전 종가 기준으로 쓴다(2026-10-29). thin 설정에서는 최상위 `events:`와 `backtest.corporate_actions:`를 쓰지 않는다. [설정 YAML과 데이터 연결](docs/config.md)를 본다.
-- 일반 nonthin long/wide 데이터 설정도 계속 읽는다. 이 경로의 XML `returns`는 종가 변화율에서 파생된다. 기업행동 손익을 포함한 thin 총수익률은 제공되지 않으며, 기존 최상위 `events:`·`backtest.corporate_actions:` 설정은 현재 로더가 거부한다. 결측 종가는 `backtest.missing_close_policy`(기본 `carry`)가 동결하고 시세 재개 시 누적 움직임을 인식한다. 자세한 규칙은 [설정 YAML과 데이터 연결](docs/config.md)에 있다.
-- `avgBet`은 평균 보유 종목 수, `minBet`은 기간 중 최소 보유 종목 수다. 누적 손익과 drawdown은 단리(additive) 기준이다. 성과 지표(요약·연도별·drawdown·IS Sharpe 정렬·GA 적합도)는 수수료 차감 전 gross 수익률 기준이고, 차트의 PnL은 gross 실선·net 점선으로 함께 보여준다.
-- 목표 포지션은 `Σ|weight| = 1` 기준이다. 균형 롱숏은 long 0.5 / short 0.5이며 수익률을 추가로 2로 나누지 않는다. 화면의 $20M book은 이 전체 gross 명목금액이다. 여기서 gross 노출과 수수료 차감 전 gross 손익은 서로 다른 개념이다.
-- 연도표 `sharpe[ir]`의 IR은 해당 연도 일별 gross 수익률의 평균 ÷ 표본 표준편차(ddof=1)이며 연환산하지 않는다. 유효 수익률이 2개 미만이거나 표준편차가 0이면 0이다. `quality = Sharpe × √|1 − 최대 순노출| × (1 − 최대 단일종목 비중)`이며, 최대 순노출은 IS/OS 각각에서 `max|long − absolute short|`, 비중은 0~1 단위다. GA는 quality 대신 IS Sharpe를 최적화한다.
-- 연도표 margin 오른쪽의 `fitness = Sharpe × √(|ann.ret / 100| / max(daily turnover, 0.125))`다. [참고 수식](https://github.com/Xiaoyu-hub/worldquant/blob/main/raw/articles/worldquant-alpha-mining-strategies.md)을 사용하되 Returns는 현재 표와 같은 전체 gross book·레버리지 1 기준이며 2배로 바꾸지 않는다. Turnover는 일별 소수 비율(20%=0.2)이고 최소 분모 0.125는 12.5%다.
-- combined는 각 알파의 시그널 행을 gross 1 비중으로 바꾼 뒤 더하고 최종 포트폴리오를 다시 정규화한다(알파별 동일 예산). 옛 `combined_mode: raw`(시그널 값 합산)는 2026-10-15에 삭제했다.
+- 평균·최소 보유 종목 수는 `avgPositionCount`, `minPositionCount`다. 누적 손익과 drawdown은 단리(additive) 기준이다. 성과 지표와 GA 적합도는 수수료 차감 전 gross 수익률 기준이고, 차트의 PnL은 gross 실선·net 점선으로 함께 보여준다.
+- 목표 포지션은 `Σ|weight| = 1` 기준이다. 균형 롱숏은 long 0.5 / short 0.5이며 수익률을 추가로 2로 나누지 않는다. 결과의 `context.reportNotional`은 $20M 전체 gross 명목금액이며, 설정의 `initial_capital`과 별개다.
+- 연도표 `sharpe[ir]`의 IR은 해당 연도 일별 gross 수익률의 평균 ÷ 표본 표준편차(ddof=1)이며 연환산하지 않는다. `quality = Sharpe × √|1 − 최대 순노출| × (1 − 최대 단일종목 비중)`이다. GA는 IS Sharpe를 최적화한다.
+- 연도별 `fitness = Sharpe × √(|annualReturn| / max(turnover, 0.125))`다. API의 수익률·비중·turnover·drawdown은 소수 비율로 전달하며 퍼센트 변환은 화면 표시에서만 한다. 계산식의 상세한 단위는 [계산 계약](docs/math_contract.md)에 있다.
+- combined는 각 알파의 시그널 행을 gross 1 비중으로 바꾼 뒤 더하고 최종 포트폴리오를 다시 정규화한다.
 
 ```xml
 <data expr="returns" delay="1"/>
@@ -82,11 +81,41 @@ cd ~/longshort_platform/frontend && NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:5
 
 산술 체인 태그 `<abs/> <log/> <sqrt/> <sign/> <inverse/> <reverse/> <power exp="2"/> <signedpower exp="0.5"/> <max value="0"/> <min value="3"/> <affine factor="1" offset="0"/>`는 앞 단계 출력에 원소별로 적용된다. `<data expr>` 안에서는 `abs(close - open) / close`, `log(volume)`, `signedpower(returns, 0.5)`처럼 `abs log sqrt sign power signedpower`를 함수로 쓴다(지수는 숫자만). 입력이나 결과가 NaN·무한대면 NaN이다.
 
-시계열 태그 `<tsdelta/> <tssum/> <tsstddev/> <tsargmax/> <tsargmin/> <tsfill/>`(속성 `days`, 일부 `min_count`·`ddof`)와 횡단면·그룹 태그 `<winsorize std/> <normalize usestd limit/> <hump hump/> <group_rank group/> <group_mean group weight="equal|cap" mean="arithmetic|harmonic"/> <group_zscore group/> <rank_sharp exp/>`, 그리고 `<tsewma span|halflife|alpha/> <tsmax days/> <tsmin days/> <exp/>`(expr `exp(x)`도 가능), 종목당 비중 상한 `<truncate max side post/>`, 그리고 북 MR 알파의 `<ffd d thres/>`(분수 차분)와 `<pcaresid group train refit k var/>`(그룹별 롤링 PCA 잔차)가 있다. 정확한 규칙은 [수학 계약](cpp-engine/docs/math_contract.md) Module Contracts를 따른다.
+시계열 태그 `<tsdelta/> <tssum/> <tsstddev/> <tsargmax/> <tsargmin/> <tsfill/>`(속성 `days`, 일부 `min_count`·`ddof`)와 횡단면·그룹 태그 `<winsorize std/> <normalize usestd limit/> <hump hump/> <group_rank group/> <group_mean group weight="equal|cap" mean="arithmetic|harmonic"/> <group_zscore group/> <rank_sharp exp/>`, 그리고 `<tsewma span|halflife|alpha/> <tsmax days/> <tsmin days/> <exp/>`(expr `exp(x)`도 가능), 종목당 비중 상한 `<truncate max side post/>`, 그리고 북 MR 알파의 `<ffd d thres/>`(분수 차분)와 `<pcaresid group train refit k var/>`(그룹별 롤링 PCA 잔차)가 있다. 정확한 규칙은 [수학 계약](docs/math_contract.md) Module Contracts를 따른다.
 
 [사용자 모듈 규약](docs/modules.md) · [자동 빌드 설계](docs/build_and_validation.md) · [문서 목록](docs/README.md)
 
+## 실행 결과와 화면
+
+엔진은 `{context, alphas, combined}` 형태의 `SimulationResponse`를 반환한다. 각 `AlphaResult` 안에 요약 지표, 연도별 지표, 성과 시계열, 신호가 목적별로 담긴다. 실행 요청의 `output`은 `performance`, `signals`, `signalSeries`, `full` 중 선택한다.
+
+성과 시계열은 엔진이 `max(simStart, isStart)`부터 누적손익과 gross drawdown을 계산하며 OS는 IS를 이어간다. 화면은 이 값을 차트로 전달하고 단위·색상·툴팁을 표시한다. 시계열 날짜는 epoch milliseconds 숫자이고 실행 설정 날짜는 `YYYY-MM-DD`다. 신호 히트맵은 엔진이 제공한 날짜별 중심·스케일을 사용한다.
+
+결과의 `context`는 실행 당시 기간·유니버스·체결가·비용·표시 명목금액을 보존한다. 설정창을 바꾸거나 저장 결과를 불러와도 기존 결과의 기준을 바꾸지 않는다. 상세 조회는 해당 결과의 원래 context를 사용한다.
+
+## C++ 구성
+
+`cpp-engine/src/`에는 실행 기능별 구현을 두고 계산 모듈만 `modules/`로 구분한다. 내부 헤더는 구현 옆에, 사용자 모듈용 공개 헤더는 `cpp-engine/include/`에 둔다.
+
+| 구현 | 역할 |
+|---|---|
+| `loader` | 설정·캐시 읽기와 실행 입력 준비 |
+| `xml_compiler` | XML·수식 해석, 모듈 등록과 계산 연결 |
+| `simulator_engine` | 날짜별 신호·포지션 실행과 성과 지표 |
+| `alpha_search` | 후보 생성·평가와 GA 탐색 |
+| `meta` | 메타 구성원 실행과 결합 가중치 |
+| `alpha_storage` | 알파 정의·실행 결과·목표 비중 저장 |
+| `pool_correlation` | 승인 알파 풀과 수익률 상관관계 비교 |
+| `http_server` | HTTP 요청과 JSON 응답 |
+| `parallel_executor` | 공통 병렬 실행과 취소 |
+
+## 화면 구성
+
+`frontend/src/`의 `api.ts`와 `types.ts`가 엔진 계약을 사용하고, `runStore.ts`가 설정·실행 결과·화면 선택 상태를 보관한다. `useAlphaSearch.ts`는 후보 스트림을, `useResultData.ts`는 선택 결과의 성과·신호 조회를 처리한다. `chart.ts`, `chartStyle.ts`, `format.ts`, `theme.ts`는 차트 동작·표시·테마를 맡는다. 화면 컴포넌트는 `frontend/src/components/`, Next.js 진입점은 `frontend/src/app/`에 둔다.
+
 ## 검증
+
+프런트엔드 구현은 `frontend/src/`, 단위 검사는 `frontend/tests/unit/`, 브라우저 검사는 `frontend/tests/e2e/`에 둔다. 테스트 설정과 공통 초기화도 `tests/`에 모은다. ESLint·PostCSS 설정은 `package.json`에서 관리한다. 루트의 `next.config.mjs`, `tsconfig.json`, `tailwind.config.ts`는 각각 Next.js 실행, TypeScript 경로·타입, 화면 스타일 생성을 담당한다.
 
 프론트는 `frontend/`에서 `npm test`, `npm run build`, `npm run lint`로 검사한다. 브라우저 검사는 `npm run test:e2e`이며 실제 엔진 통합에는 `PLAYWRIGHT_ENGINE_URL`을 지정한다.
 

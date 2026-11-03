@@ -1,4 +1,5 @@
 #pragma once
+#include "decay_kernel.h"
 
 // MDecay: linear decay weighted average (O(1) incremental per instrument).
 // out[ii] = (in[di]*days + in[di-1]*(days-1) + ... + in[di-days+1]*1) / weighted_cnt
@@ -15,7 +16,7 @@ struct MDecay : public Module
         div.resize(n, 0.0);
         for (int i = 1; i < n; ++i)
             div[i] = 1.0/(double)i;
-        use_avx2_kernel = mdecay_runtime_avx2_enabled();
+        use_avx2_kernel = mdecay_avx2_enabled();
         setting_output_to_nan_is_not_necessary();
     }
     void calculate(unsigned /*di*/, SignalVector &output)

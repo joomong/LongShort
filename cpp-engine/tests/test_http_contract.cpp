@@ -3,10 +3,12 @@
 #include <arrow/api.h>
 #include <arrow/io/file.h>
 #include <parquet/arrow/reader.h>
-#include "api/meta_weights.h"
+#include "meta.h"
+#include "loader.h"
 
 #include <algorithm>
 #include <cctype>
+#include <ctime>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -36,6 +38,13 @@
 namespace fs = std::filesystem;
 
 namespace {
+std::string date_string(int64_t epoch_ms) {
+    const time_t seconds = epoch_ms / 1000;
+    std::tm date{}; gmtime_r(&seconds, &date);
+    char text[11]; std::strftime(text, sizeof text, "%Y-%m-%d", &date);
+    return text;
+}
+
 
 std::string shell_quote(const std::string& s)
 {
@@ -433,18 +442,18 @@ TEST_F(HttpContractTest, ExecutionPriceIsValidatedAndScopedToEachRequest) {
         EXPECT_EQ(response.status, 200) << response.body;
         Json::Value body;
         EXPECT_TRUE(parse_json(response.body, &body));
-        EXPECT_EQ(body["executionPrice"].asString(), price);
+        EXPECT_EQ(body["context"]["executionPrice"].asString(), price);
         return body;
     };
     const auto close = call("close");
     const auto ohlc4 = call("ohlc4");
     const auto vwap = call("vwap");
     const auto close_again = call("close");
-    EXPECT_EQ(close["timeseries"], close_again["timeseries"]);
-    EXPECT_EQ(close["timeseries"]["turnover"], ohlc4["timeseries"]["turnover"]);
-    EXPECT_NE(close["timeseries"]["cumPnl"], ohlc4["timeseries"]["cumPnl"]);
-    EXPECT_EQ(close["timeseries"]["turnover"], vwap["timeseries"]["turnover"]);
-    EXPECT_NE(close["timeseries"]["cumPnl"], vwap["timeseries"]["cumPnl"]);
+    EXPECT_EQ(close["alphas"][0]["performance"], close_again["alphas"][0]["performance"]);
+    EXPECT_EQ(close["alphas"][0]["performance"]["turnover"], ohlc4["alphas"][0]["performance"]["turnover"]);
+    EXPECT_NE(close["alphas"][0]["performance"]["cumulativeNet"], ohlc4["alphas"][0]["performance"]["cumulativeNet"]);
+    EXPECT_EQ(close["alphas"][0]["performance"]["turnover"], vwap["alphas"][0]["performance"]["turnover"]);
+    EXPECT_NE(close["alphas"][0]["performance"]["cumulativeNet"], vwap["alphas"][0]["performance"]["cumulativeNet"]);
     for (const auto& value : {Json::Value("typo"), Json::Value("VWAP"), Json::Value(1), Json::Value(false), Json::Value()}) {
         request["executionPrice"] = value;
         EXPECT_EQ(simulate(request).status, 400);
@@ -456,6 +465,38 @@ TEST_F(HttpContractTest, ExecutionPriceIsValidatedAndScopedToEachRequest) {
     EXPECT_EQ(cfg["executionPrices"][0].asString(), "close");
     EXPECT_EQ(cfg["executionPrices"][1].asString(), "ohlc4");
     EXPECT_EQ(cfg["executionPrices"][2].asString(), "vwap");
+}
+
+TEST_F(HttpContractTest, ExplicitDefaultUniverseWorksWithoutASelectableUniverseList) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto config_response = http_get(server_->port(), "/api/config");
+    ASSERT_EQ(config_response.status, 200) << config_response.body;
+    Json::Value config;
+    ASSERT_TRUE(parse_json(config_response.body, &config));
+    ASSERT_EQ(config["defaultUniverse"].asString(), "ALL");
+    ASSERT_TRUE(config["universes"].empty());
+
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/>";
+    request["simStart"] = "2024-01-01";
+    request["isStart"] = "2024-01-01";
+    request["osStart"] = "2025-01-01";
+    request["output"] = "performance";
+    const auto implicit_response = simulate(request);
+    ASSERT_EQ(implicit_response.status, 200) << implicit_response.body;
+    Json::Value implicit_result;
+    ASSERT_TRUE(parse_json(implicit_response.body, &implicit_result));
+    EXPECT_EQ(implicit_result["context"]["universe"], config["defaultUniverse"]);
+
+    request["universe"] = config["defaultUniverse"];
+    const auto explicit_response = simulate(request);
+    ASSERT_EQ(explicit_response.status, 200) << explicit_response.body;
+    Json::Value explicit_result;
+    ASSERT_TRUE(parse_json(explicit_response.body, &explicit_result));
+    EXPECT_EQ(explicit_result, implicit_result);
+
+    request["universe"] = "UNKNOWN_UNIVERSE";
+    EXPECT_EQ(simulate(request).status, 400);
 }
 
 TEST_F(HttpContractTest, ConfigListsMetaDirAndSortedMetaNames) {
@@ -485,60 +526,57 @@ TEST_F(HttpContractTest, SimEndIsInclusiveAndCapsAllOutputsWithoutChangingShared
     const auto full = call();
     req["simEnd"] = "2023-06-30";
     const auto capped = call();
-    EXPECT_EQ(capped["simEnd"].asString(), "2023-06-30");
-    const auto& times = capped["timeseries"]["timestamps"];
+    EXPECT_EQ(capped["context"]["simEnd"].asString(), "2023-06-30");
+    const auto& times = capped["alphas"][0]["performance"]["timestamps"];
     ASSERT_GT(times.size(), 0u);
-    EXPECT_EQ(times[times.size()-1].asString(), "2023-06-30");
-    for (const char* key : {"timestamps", "cumPnl", "cumPnlGross", "turnover"})
+    EXPECT_EQ(times[times.size()-1].asInt64(), config_date_ms("2023-06-30"));
+    for (const char* key : {"timestamps", "cumulativeNet", "cumulativeGross", "turnover"})
         for (Json::ArrayIndex i=0; i<times.size(); ++i)
-            EXPECT_EQ(capped["timeseries"][key][i], full["timeseries"][key][i]);
-    ASSERT_EQ(capped["yearly"].size(), 1u);
-    EXPECT_EQ(capped["yearly"][0]["year"].asInt(), 2023);
-    for (const auto& date : capped["signalPlot"]["timestamps"])
-        EXPECT_LE(date.asString(), "2023-06-30");
-    EXPECT_DOUBLE_EQ(capped["batches"][0]["summary"]["os"]["pnl"].asDouble(), 0.0);
+            EXPECT_EQ(capped["alphas"][0]["performance"][key][i], full["alphas"][0]["performance"][key][i]);
+    ASSERT_EQ(capped["alphas"][0]["yearly"].size(), 1u);
+    EXPECT_EQ(capped["alphas"][0]["yearly"][0]["year"].asInt(), 2023);
+    for (const auto& date : capped["alphas"][0]["signals"]["plot"]["timestamps"])
+        EXPECT_LE(date.asInt64(), config_date_ms("2023-06-30"));
+    EXPECT_DOUBLE_EQ(capped["alphas"][0]["summary"]["os"]["pnl"].asDouble(), 0.0);
     req.removeMember("simEnd");
-    EXPECT_EQ(call()["timeseries"], full["timeseries"]);
+    EXPECT_EQ(call()["alphas"][0]["performance"], full["alphas"][0]["performance"]);
     for (const auto& end : {Json::Value("bad"), Json::Value("2023-02-30"), Json::Value("2023-01-01"), Json::Value(1), Json::Value()}) {
         req["simEnd"] = end;
         EXPECT_EQ(simulate(req).status, 400);
     }
     Json::Value config;
     ASSERT_TRUE(parse_json(http_get(server_->port(), "/api/config").body, &config));
-    EXPECT_TRUE(config["supportsSimEnd"].asBool());
     EXPECT_GT(config["simEnd"].asString(), "2023-06-30");
 }
 
-TEST_F(HttpContractTest, SimEndAlsoCapsCombinedSignalsAndGa) {
+TEST_F(HttpContractTest, SimEndAlsoCapsCombinedSignalsAndSearchContext) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value req;
     req["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3\"/>";
     req["simStart"] = "2023-01-02"; req["simEnd"] = "2023-06-30";
     req["isStart"] = "2023-01-02"; req["osStart"] = "2023-05-01";
-    req["collectSignals"] = true; req["signalPlotMaxCells"] = 10000;
-    auto response = simulate(req); ASSERT_EQ(response.status, 200) << response.body;
+    const auto response = simulate(req); ASSERT_EQ(response.status, 200) << response.body;
     Json::Value body; ASSERT_TRUE(parse_json(response.body, &body));
-    for (const auto& batch : body["batches"])
-        for (const auto& date : batch["timeseries"]["timestamps"])
-            EXPECT_LE(date.asString(), "2023-06-30");
-    for (const auto& date : body["combined"]["signalPlot"]["timestamps"])
-        EXPECT_LE(date.asString(), "2023-06-30");
-    req["popSize"] = 2; req["generations"] = 1;
-    const auto ga = http_post_json(server_->port(), "/api/ga/stream", req);
-    ASSERT_EQ(ga.status, 200) << ga.body;
-    std::istringstream stream(ga.body); std::string line; bool completed=false;
+    for (const auto& alpha : body["alphas"])
+        for (const auto& time : alpha["performance"]["timestamps"])
+            EXPECT_LE(time.asInt64(), config_date_ms("2023-06-30"));
+    for (const auto& time : body["combined"]["signals"]["plot"]["timestamps"])
+        EXPECT_LE(time.asInt64(), config_date_ms("2023-06-30"));
+    req["firstSearch"] = 2; req["stopRound"] = 1;
+    const auto search = http_post_json(server_->port(), "/api/ga/stream", req);
+    ASSERT_EQ(search.status, 200) << search.body;
+    std::istringstream stream(search.body); std::string line; bool started=false, completed=false;
+    unsigned candidates=0;
     while (std::getline(stream,line)) {
-        if (line.rfind("data:",0) == 0) line = line.substr(5);
-        Json::Value event;
-        if (!parse_json(line, &event) || event["type"].asString() != "complete") continue;
-        completed=true;
-        EXPECT_EQ(event["simEnd"].asString(), "2023-06-30");
-        for (const auto& date : event["timeseries"]["timestamps"])
-            EXPECT_LE(date.asString(), "2023-06-30");
-        for (const auto& date : event["signalPlot"]["timestamps"])
-            EXPECT_LE(date.asString(), "2023-06-30");
+        if (line.empty()) continue;
+        Json::Value event; ASSERT_TRUE(parse_json(line,&event));
+        const auto type=event["type"].asString();
+        ASSERT_NE(type,"error") << line;
+        if(type=="search_start") { started=true; EXPECT_EQ(event["context"]["simEnd"].asString(),"2023-06-30"); }
+        if(type=="candidate") { ++candidates; EXPECT_TRUE(event["candidate"]["summary"].isObject()); EXPECT_FALSE(event["candidate"].isMember("performance")); }
+        if(type=="search_complete") completed=true;
     }
-    EXPECT_TRUE(completed) << ga.body.substr(0, 1000);
+    EXPECT_TRUE(started); EXPECT_TRUE(completed); EXPECT_EQ(candidates,2u);
 }
 
 TEST_F(HttpContractTest, MultiAlphaBatchesContainPerAlphaXml)
@@ -556,15 +594,15 @@ TEST_F(HttpContractTest, MultiAlphaBatchesContainPerAlphaXml)
 
     Json::Value body;
     ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
-    ASSERT_TRUE(body.isMember("batches"));
-    ASSERT_TRUE(body["batches"].isArray());
-    ASSERT_EQ(body["batches"].size(), 2u);
+    ASSERT_TRUE(body.isMember("alphas"));
+    ASSERT_TRUE(body["alphas"].isArray());
+    ASSERT_EQ(body["alphas"].size(), 2u);
 
     std::set<std::string> xmls;
     bool has_days_2 = false;
     bool has_days_3 = false;
-    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
-        const Json::Value& b = body["batches"][i];
+    for (Json::ArrayIndex i = 0; i < body["alphas"].size(); ++i) {
+        const Json::Value& b = body["alphas"][i];
         ASSERT_TRUE(b.isMember("xml"));
         const std::string x = b["xml"].asString();
         EXPECT_EQ(x.find('|'), std::string::npos);
@@ -594,53 +632,20 @@ TEST_F(HttpContractTest, MultiAlphaDefaultDoesNotIncludeSignalPlot)
 
     Json::Value body;
     ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
-    ASSERT_TRUE(body.isMember("batches"));
-    ASSERT_TRUE(body["batches"].isArray());
-    ASSERT_EQ(body["batches"].size(), 2u);
+    ASSERT_TRUE(body.isMember("alphas"));
+    ASSERT_TRUE(body["alphas"].isArray());
+    ASSERT_EQ(body["alphas"].size(), 2u);
 
-    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
-        const Json::Value& b = body["batches"][i];
-        EXPECT_FALSE(b.isMember("signalPlot"));
-        EXPECT_FALSE(b.isMember("signalRange"));
-        EXPECT_FALSE(b.isMember("distribution"));
-        EXPECT_FALSE(b.isMember("signalDistributionLog"));
+    for (Json::ArrayIndex i = 0; i < body["alphas"].size(); ++i) {
+        const Json::Value& b = body["alphas"][i];
+        EXPECT_FALSE(b["signals"].isMember("plot"));
+        EXPECT_FALSE(b["signals"].isMember("range"));
+        EXPECT_FALSE(b["signals"].isMember("distribution"));
+        EXPECT_FALSE(b["signals"].isMember("logDistribution"));
     }
 }
 
-TEST_F(HttpContractTest, MultiAlphaCollectSignalsTopKControlsPayloadCount)
-{
-    if (!available_)
-        GTEST_SKIP() << skip_reason_;
 
-    Json::Value req;
-    req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/>";
-    req["isStart"] = "2000-01-01";
-    req["osStart"] = "2100-01-01";
-    req["collectSignals"] = true;
-    req["collectSignalsTopK"] = 1;
-
-    const HttpResult res = simulate(req);
-    ASSERT_EQ(res.status, 200) << res.body;
-
-    Json::Value body;
-    ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
-    ASSERT_TRUE(body.isMember("batches"));
-    ASSERT_TRUE(body["batches"].isArray());
-    ASSERT_EQ(body["batches"].size(), 3u);
-
-    int batches_with_signal = 0;
-    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
-        const Json::Value& b = body["batches"][i];
-        if (b.isMember("signalPlot")) {
-            ++batches_with_signal;
-            ASSERT_TRUE(b["signalPlot"].isObject());
-            ASSERT_TRUE(b.isMember("signalRange"));
-            ASSERT_TRUE(b.isMember("distribution"));
-            ASSERT_TRUE(b["signalDistributionLog"].isObject());
-        }
-    }
-    EXPECT_EQ(batches_with_signal, 1);
-}
 
 TEST_F(HttpContractTest, MultiAlphaBatchesSortedByIsSharpeDesc)
 {
@@ -657,20 +662,20 @@ TEST_F(HttpContractTest, MultiAlphaBatchesSortedByIsSharpeDesc)
 
     Json::Value body;
     ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
-    ASSERT_TRUE(body.isMember("batches"));
-    ASSERT_TRUE(body["batches"].isArray());
-    ASSERT_EQ(body["batches"].size(), 4u);
+    ASSERT_TRUE(body.isMember("alphas"));
+    ASSERT_TRUE(body["alphas"].isArray());
+    ASSERT_EQ(body["alphas"].size(), 4u);
 
     std::set<int> indices;
     double prev = std::numeric_limits<double>::infinity();
-    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i) {
-        const Json::Value& b = body["batches"][i];
-        ASSERT_TRUE(b.isMember("index"));
+    for (Json::ArrayIndex i = 0; i < body["alphas"].size(); ++i) {
+        const Json::Value& b = body["alphas"][i];
+        ASSERT_TRUE(b.isMember("id"));
         ASSERT_TRUE(b.isMember("summary"));
         ASSERT_TRUE(b["summary"].isMember("is"));
         ASSERT_TRUE(b["summary"]["is"].isMember("sharpe"));
 
-        const int idx = b["index"].asInt();
+        const int idx = b["id"].asInt();
         indices.insert(idx);
 
         const double s = b["summary"]["is"]["sharpe"].asDouble();
@@ -703,11 +708,11 @@ TEST_F(HttpContractTest, MultiAlphaCombinedDeterministicAcrossRepeatedThreadedCa
         ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
         ASSERT_TRUE(body.isMember("combined"));
         ASSERT_TRUE(body["combined"].isObject());
-        ASSERT_TRUE(body.isMember("timeseries"));
-        ASSERT_TRUE(body["timeseries"].isObject());
+        EXPECT_FALSE(body.isMember("performance"));
+        ASSERT_TRUE(body["combined"]["performance"].isObject());
 
         const std::string combined_compact = compact_json(body["combined"]);
-        const std::string top_level_compact = compact_json(body["timeseries"]);
+        const std::string top_level_compact = compact_json(body["combined"]["performance"]);
         if (attempt == 0) {
             baseline_combined = combined_compact;
             baseline_top_level = top_level_compact;
@@ -733,10 +738,10 @@ TEST_F(HttpContractTest, SingleAlphaIncludesSignalPlotWithValues)
 
     Json::Value body;
     ASSERT_TRUE(parse_json(res.body, &body)) << res.body;
-    ASSERT_TRUE(body.isMember("signalPlot"));
-    ASSERT_TRUE(body["signalPlot"].isObject());
+    ASSERT_TRUE(body["alphas"][0]["signals"].isMember("plot"));
+    ASSERT_TRUE(body["alphas"][0]["signals"]["plot"].isObject());
 
-    const Json::Value& signal_plot = body["signalPlot"];
+    const Json::Value& signal_plot = body["alphas"][0]["signals"]["plot"];
     ASSERT_TRUE(signal_plot.isMember("values"));
     ASSERT_TRUE(signal_plot.isMember("timestamps"));
     ASSERT_TRUE(signal_plot.isMember("symbols"));
@@ -810,42 +815,41 @@ TEST_F(HttpContractTest, SimStartBeginsWithAnUnfundedBookAndFirstEntryFee) {
     ASSERT_EQ(baseline.status, 200) << baseline.body;
     Json::Value original;
     ASSERT_TRUE(parse_json(baseline.body, &original));
-    ASSERT_GT(original["timeseries"]["timestamps"].size(), 3u);
-    request["simStart"] = original["timeseries"]["timestamps"][3];
+    ASSERT_GT(original["alphas"][0]["performance"]["timestamps"].size(), 3u);
+    request["simStart"] = date_string(original["alphas"][0]["performance"]["timestamps"][3].asInt64());
     const auto response = simulate(request);
     ASSERT_EQ(response.status, 200) << response.body;
     Json::Value body;
     ASSERT_TRUE(parse_json(response.body, &body));
-    EXPECT_EQ(body["timeseries"]["timestamps"][0], request["simStart"]);
-    EXPECT_EQ(body["signalPlot"]["timestamps"][0], request["simStart"]);
-    EXPECT_EQ(body["isStartIndex"].asUInt(), 0u);
+    EXPECT_EQ(body["alphas"][0]["performance"]["timestamps"][0], config_date_ms(request["simStart"].asString()));
+    EXPECT_EQ(body["alphas"][0]["signals"]["plot"]["timestamps"][0], config_date_ms(request["simStart"].asString()));
     const auto config_response = http_get(server_->port(), "/api/config");
     Json::Value config;
     ASSERT_EQ(config_response.status, 200);
     ASSERT_TRUE(parse_json(config_response.body, &config));
     const double fee = config["feeRate"].asDouble();
-    EXPECT_NEAR(body["timeseries"]["cumPnl"][0].asDouble(), -fee, 1e-12);
-    EXPECT_NEAR(body["timeseries"]["cumPnlGross"][0].asDouble(), 0.0, 1e-12);
+    EXPECT_NEAR(body["alphas"][0]["performance"]["cumulativeNet"][0].asDouble(), -fee, 1e-12);
+    EXPECT_NEAR(body["alphas"][0]["performance"]["cumulativeGross"][0].asDouble(), 0.0, 1e-12);
     // Gross minus net over the whole span is exactly the turnover fee.
-    const Json::Value& timeseries = body["timeseries"];
+    const Json::Value& timeseries = body["alphas"][0]["performance"];
     double fee_sum = 0.0;
-    for (const auto& turnover : timeseries["turnover"]) fee_sum += turnover.asDouble() / 100.0 * fee;
-    const Json::ArrayIndex last = timeseries["cumPnl"].size() - 1;
-    EXPECT_NEAR(timeseries["cumPnlGross"][last].asDouble() - timeseries["cumPnl"][last].asDouble(),
+    for (const auto& turnover : timeseries["turnover"]) fee_sum += turnover.asDouble() * fee;
+    const Json::ArrayIndex last = timeseries["cumulativeNet"].size() - 1;
+    EXPECT_NEAR(timeseries["cumulativeGross"][last].asDouble() - timeseries["cumulativeNet"][last].asDouble(),
                 fee_sum, 1e-9);
     // Performance metrics are gross: IS spans the whole trading period here.
     ASSERT_GT(fee_sum, 1e-9);
-    EXPECT_NEAR(body["batches"][0]["summary"]["is"]["pnl"].asDouble(),
-                timeseries["cumPnlGross"][last].asDouble() * 100.0, 1e-7);
-    EXPECT_GT(std::fabs(body["batches"][0]["summary"]["is"]["pnl"].asDouble() -
-                        timeseries["cumPnl"][last].asDouble() * 100.0), 1e-7);
+    EXPECT_NEAR(body["alphas"][0]["summary"]["is"]["pnl"].asDouble(),
+                timeseries["cumulativeGross"][last].asDouble(), 1e-7);
+    EXPECT_GT(std::fabs(body["alphas"][0]["summary"]["is"]["pnl"].asDouble() -
+                        timeseries["cumulativeNet"][last].asDouble()), 1e-7);
     double peak = 0.0, gross_mdd = 0.0;
     for (Json::ArrayIndex i = 0; i <= last; ++i) {
-        const double cum = timeseries["cumPnlGross"][i].asDouble();
+        const double cum = timeseries["cumulativeGross"][i].asDouble();
         peak = std::max(peak, cum);
         gross_mdd = std::min(gross_mdd, cum - peak);
     }
-    EXPECT_NEAR(body["batches"][0]["summary"]["is"]["mdd"].asDouble(), gross_mdd * 100.0, 1e-7);
+    EXPECT_NEAR(body["alphas"][0]["summary"]["is"]["maxDrawdown"].asDouble(), gross_mdd, 1e-7);
 }
 
 TEST_F(HttpContractTest, SingleSignalPlotHonorsCellBudgetAndRejectsInvalidStart) {
@@ -859,27 +863,27 @@ TEST_F(HttpContractTest, SingleSignalPlotHonorsCellBudgetAndRejectsInvalidStart)
     ASSERT_EQ(response.status, 200) << response.body;
     Json::Value body;
     ASSERT_TRUE(parse_json(response.body, &body));
-    const auto& plot = body["signalPlot"];
+    const auto& plot = body["alphas"][0]["signals"]["plot"];
     EXPECT_LE(plot["values"].size() * plot["symbols"].size(), 8u);
     EXPECT_EQ(plot["timestamps"].size(), plot["values"].size());
     EXPECT_TRUE(plot.isMember("rowStride"));
     EXPECT_TRUE(plot.isMember("originalRows"));
-    ASSERT_TRUE(body["signalDistributionLog"].isObject());
-    const auto& log_histogram = body["signalDistributionLog"];
+    ASSERT_TRUE(body["alphas"][0]["signals"]["logDistribution"].isObject());
+    const auto& log_histogram = body["alphas"][0]["signals"]["logDistribution"];
     ASSERT_TRUE(log_histogram["counts"].isArray());
     ASSERT_GT(log_histogram["counts"].size(), 0u);
     EXPECT_EQ(log_histogram["counts"].size(), log_histogram["bins"].size());
     ASSERT_EQ(log_histogram["edges"].size(), log_histogram["counts"].size() + 1);
     EXPECT_EQ(log_histogram["scale"].asString(), "log");
     Json::UInt64 linear_count = 0, log_count = 0;
-    for (const auto& count : body["distribution"]["counts"]) linear_count += count.asUInt64();
+    for (const auto& count : body["alphas"][0]["signals"]["distribution"]["counts"]) linear_count += count.asUInt64();
     for (const auto& count : log_histogram["counts"]) log_count += count.asUInt64();
     EXPECT_EQ(log_count, linear_count);
     EXPECT_EQ(log_histogram["totalCount"].asUInt64(), log_count);
     // The histogram pools full signals, not the eight-cell display sample.
     EXPECT_GT(log_count, 8u);
-    EXPECT_EQ(log_histogram["min"], body["distribution"]["min"]);
-    EXPECT_EQ(log_histogram["max"], body["distribution"]["max"]);
+    EXPECT_EQ(log_histogram["min"], body["alphas"][0]["signals"]["distribution"]["min"]);
+    EXPECT_EQ(log_histogram["max"], body["alphas"][0]["signals"]["distribution"]["max"]);
     EXPECT_EQ(log_histogram["edges"][0], log_histogram["min"]);
     EXPECT_EQ(log_histogram["edges"][log_histogram["edges"].size() - 1], log_histogram["max"]);
     request["simStart"] = "not-a-date";
@@ -888,62 +892,23 @@ TEST_F(HttpContractTest, SingleSignalPlotHonorsCellBudgetAndRejectsInvalidStart)
     EXPECT_EQ(simulate(request).status, 400);
 }
 
-TEST_F(HttpContractTest, CombinedAndTopSignalPayloadsAreExplicit) {
+TEST_F(HttpContractTest, ResultPayloadsHaveOneCanonicalOwner) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
-    request["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3|4\"/>";
-    request["isStart"] = "2000-01-01";
-    request["osStart"] = "2100-01-01";
-    request["collectSignals"] = true;
-    request["collectSignalsTopK"] = 1;
-    request["signalPlotMaxCells"] = 12;
-    const auto response = simulate(request);
-    ASSERT_EQ(response.status, 200) << response.body;
-    Json::Value body;
-    ASSERT_TRUE(parse_json(response.body, &body));
-    EXPECT_FALSE(body.isMember("combinedMode"));
-    EXPECT_TRUE(body["combined"].isMember("signalPlot"));
-    EXPECT_EQ(body["signalPlot"], body["combined"]["signalPlot"]);
-    ASSERT_TRUE(body["signalDistributionLog"].isObject());
-    EXPECT_EQ(body["signalDistributionLog"], body["combined"]["signalDistributionLog"]);
-    ASSERT_EQ(body["batches"].size(), 3u);
-    EXPECT_TRUE(body["batches"][0].isMember("signalPlot"));
-    EXPECT_FALSE(body["batches"][1].isMember("signalPlot"));
-    EXPECT_TRUE(body["batches"][0]["signalDistributionLog"].isObject());
-    EXPECT_FALSE(body["batches"][1].isMember("signalDistributionLog"));
-    EXPECT_LE(body["batches"][0]["signalPlot"]["values"].size() *
-              body["batches"][0]["signalPlot"]["symbols"].size(), 12u);
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/>";
+    request["isStart"]="2000-01-01";request["osStart"]="2100-01-01";
+    request["signalPlotMaxCells"]=12;
+    const auto response=simulate(request);ASSERT_EQ(response.status,200)<<response.body;
+    Json::Value body;ASSERT_TRUE(parse_json(response.body,&body));
+    ASSERT_EQ(body["alphas"].size(),3u);
+    ASSERT_TRUE(body["combined"]["signals"]["plot"].isObject());
+    for(const char* key:{"summary","yearly","performance","signals","signalPlot","timeseries"}) EXPECT_FALSE(body.isMember(key))<<key;
+    for(const auto& alpha:body["alphas"]) { EXPECT_TRUE(alpha["performance"].isObject()); EXPECT_FALSE(alpha.isMember("signals")); }
+    const auto& plot=body["combined"]["signals"]["plot"];
+    EXPECT_LE(plot["values"].size()*plot["symbols"].size(),12u);
 }
 
-TEST_F(HttpContractTest, GaCompleteContainsBoundedBestAlphaSignals) {
-    if (!available_) GTEST_SKIP() << skip_reason_;
-    Json::Value request;
-    request["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3\"/>";
-    request["isStart"] = "2000-01-01";
-    request["osStart"] = "2100-01-01";
-    request["popSize"] = 2;
-    request["generations"] = 1;
-    request["signalPlotMaxCells"] = 12;
-    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
-    ASSERT_EQ(response.status, 200) << response.body;
-    std::istringstream lines(response.body);
-    std::string line;
-    Json::Value complete;
-    while (std::getline(lines, line)) {
-        if (line.empty()) continue;
-        Json::Value event;
-        ASSERT_TRUE(parse_json(line, &event)) << line;
-        ASSERT_NE(event["type"].asString(), "error") << line;
-        if (event["type"].asString() == "complete") complete = event;
-    }
-    ASSERT_EQ(complete["type"].asString(), "complete") << response.body;
-    EXPECT_TRUE(complete.isMember("signalRange"));
-    EXPECT_TRUE(complete.isMember("distribution"));
-    EXPECT_TRUE(complete["signalDistributionLog"].isObject());
-    EXPECT_EQ(complete["signalDistributionLog"], complete["batches"][0]["signalDistributionLog"]);
-    EXPECT_EQ(complete["signalPlot"], complete["batches"][0]["signalPlot"]);
-    EXPECT_LE(complete["signalPlot"]["values"].size() * complete["signalPlot"]["symbols"].size(), 12u);
-}
+
 
 
 TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
@@ -960,17 +925,17 @@ TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
         return body;
     };
     const auto initial = call(request);
-    ASSERT_GT(initial["timeseries"]["timestamps"].size(), 3u);
-    request["simStart"] = initial["timeseries"]["timestamps"][3];
+    ASSERT_GT(initial["alphas"][0]["performance"]["timestamps"].size(), 3u);
+    request["simStart"] = date_string(initial["alphas"][0]["performance"]["timestamps"][3].asInt64());
     const auto delayed = call(request);
     double gross = 0.0, maximum = 0.0;
-    for (const auto& value : delayed["signalPlot"]["values"][0]) {
+    for (const auto& value : delayed["alphas"][0]["signals"]["plot"]["values"][0]) {
         if (value.isNull()) continue;
         const double absolute = std::fabs(value.asDouble());
         gross += absolute;
         maximum = std::max(maximum, absolute);
     }
-    EXPECT_NEAR(delayed["timeseries"]["maxWeight"][0].asDouble(), 100.0 * maximum / gross, 1e-8);
+    EXPECT_NEAR(delayed["alphas"][0]["performance"]["maxWeight"][0].asDouble(), maximum / gross, 1e-8);
 }
 
 
@@ -995,17 +960,16 @@ TEST_F(HttpContractTest, SimulateReportsMissingQuoteTotalsAndFrozenSeries) {
     ASSERT_EQ(response.status, 200) << response.body;
     Json::Value body;
     ASSERT_TRUE(parse_json(response.body, &body)) << response.body;
-    ASSERT_TRUE(body.isMember("missingData"));
-    ASSERT_TRUE(body["batches"][0].isMember("missingData"));
-    EXPECT_EQ(compact_json(body["missingData"]), compact_json(body["batches"][0]["missingData"]));
-    const Json::Value& totals = body["missingData"];
+    EXPECT_FALSE(body.isMember("missingData"));
+    ASSERT_TRUE(body["alphas"][0].isMember("missingData"));
+    const Json::Value& totals = body["alphas"][0]["missingData"];
     for (const char* key : {"missingHeldBars", "blockedOrders", "blockedTradeWeight",
                             "missingEntries", "resumedHoldings", "terminalFrozenGross", "frozenGrossSum"}) {
         ASSERT_TRUE(totals.isMember(key)) << key;
         EXPECT_TRUE(totals[key].isNumeric()) << key;
     }
     EXPECT_LE(totals["missingEntries"].asUInt64(), totals["blockedOrders"].asUInt64());
-    const Json::Value& timeseries = body["timeseries"];
+    const Json::Value& timeseries = body["alphas"][0]["performance"];
     ASSERT_TRUE(timeseries.isMember("frozenGross"));
     ASSERT_EQ(timeseries["frozenGross"].size(), timeseries["timestamps"].size());
     double frozen_sum = 0.0;
@@ -1031,11 +995,10 @@ TEST_F(HttpContractTest, CombinedAndGaShareMissingClosePolicy) {
     Json::Value body;
     ASSERT_TRUE(parse_json(response.body, &body)) << response.body;
     ASSERT_TRUE(body["combined"].isMember("missingData"));
-    EXPECT_EQ(compact_json(body["missingData"]), compact_json(body["combined"]["missingData"]));
-    for (Json::ArrayIndex i = 0; i < body["batches"].size(); ++i)
-        EXPECT_TRUE(body["batches"][i].isMember("missingData"));
+    for (Json::ArrayIndex i = 0; i < body["alphas"].size(); ++i)
+        EXPECT_TRUE(body["alphas"][i].isMember("missingData"));
 
-    const Json::Value& totals = body["missingData"];
+    const Json::Value& totals = body["combined"]["missingData"];
     const bool quiet = totals["missingHeldBars"].asUInt64() == 0 &&
                        totals["blockedOrders"].asUInt64() == 0 &&
                        totals["missingEntries"].asUInt64() == 0;
@@ -1045,31 +1008,25 @@ TEST_F(HttpContractTest, CombinedAndGaShareMissingClosePolicy) {
         ASSERT_EQ(strict.status, 200) << strict.body;
         Json::Value strict_body;
         ASSERT_TRUE(parse_json(strict.body, &strict_body));
-        EXPECT_EQ(compact_json(strict_body["combined"]["timeseries"]),
-                  compact_json(body["combined"]["timeseries"]));
+        EXPECT_EQ(compact_json(strict_body["combined"]["performance"]),
+                  compact_json(body["combined"]["performance"]));
     } else {
         EXPECT_TRUE(strict.status == 200 || strict.status == 400) << strict.body;
     }
 
     Json::Value ga = request;
-    ga["missingClose"] = "carry";
-    ga["popSize"] = 2;
-    ga["generations"] = 1;
-    const auto ga_response = http_post_json(server_->port(), "/api/ga/stream", ga);
-    ASSERT_EQ(ga_response.status, 200) << ga_response.body;
-    std::istringstream lines(ga_response.body);
-    std::string line;
-    Json::Value complete;
-    while (std::getline(lines, line)) {
-        if (line.empty()) continue;
-        Json::Value event;
-        ASSERT_TRUE(parse_json(line, &event)) << line;
-        ASSERT_NE(event["type"].asString(), "error") << line;
-        if (event["type"].asString() == "complete") complete = event;
+    ga["missingClose"] = "carry"; ga["firstSearch"] = 2; ga["stopRound"] = 1;
+    const auto response_ga = http_post_json(server_->port(), "/api/ga/stream", ga);
+    ASSERT_EQ(response_ga.status, 200) << response_ga.body;
+    std::istringstream lines(response_ga.body); std::string line; unsigned candidates=0; bool complete=false;
+    while(std::getline(lines,line)) {
+        if(line.empty()) continue;
+        Json::Value event; ASSERT_TRUE(parse_json(line,&event));
+        ASSERT_NE(event["type"].asString(),"error") << line;
+        if(event["type"].asString()=="candidate") { ++candidates; EXPECT_TRUE(event["candidate"]["missingData"].isObject()); }
+        if(event["type"].asString()=="search_complete") complete=true;
     }
-    ASSERT_EQ(complete["type"].asString(), "complete") << ga_response.body;
-    ASSERT_TRUE(complete.isMember("missingData"));
-    EXPECT_TRUE(complete["batches"][0].isMember("missingData"));
+    EXPECT_EQ(candidates,2u); EXPECT_TRUE(complete);
 }
 
 TEST_F(HttpContractTest, InvalidMissingClosePolicyIsRejected) {
@@ -1081,7 +1038,7 @@ TEST_F(HttpContractTest, InvalidMissingClosePolicyIsRejected) {
     Json::Value bad = request;
     bad["missingClose"] = "forward-fill";
     EXPECT_EQ(simulate(bad).status, 400);
-    for (const char* key : {"threads", "signalPlotMaxCells", "collectSignalsTopK"}) {
+    for (const char* key : {"threads", "signalPlotMaxCells"}) {
         bad = request;
         bad[key] = static_cast<Json::Int64>(5000000000LL);
         const auto response = simulate(bad);
@@ -1091,39 +1048,7 @@ TEST_F(HttpContractTest, InvalidMissingClosePolicyIsRejected) {
     }
 }
 
-TEST_F(HttpContractTest, RemovedSettlementRequestOptionsAreRejected) {
-    if (!available_) GTEST_SKIP() << skip_reason_;
-    Json::Value request;
-    request["xml"] = "<data expr=\"close\"/>";
-    request["isStart"] = "2021-01-01";
-    request["osStart"] = "2024-01-01";
-    for (const char* key : {"defaultDelistingReturn", "staleQuoteSettleBars",
-                            "settlementLog", "distributionLog"}) {
-        Json::Value bad = request;
-        bad[key] = (std::string(key).find("Log") != std::string::npos)
-            ? Json::Value(true) : Json::Value(0);
-        const auto response = simulate(bad);
-        EXPECT_EQ(response.status, 400) << key << ": " << response.body;
-        EXPECT_NE(response.body.find(key), std::string::npos) << response.body;
-    }
-    {
-        Json::Value bad = request;
-        bad["combinedMode"] = "raw";
-        const auto response = simulate(bad);
-        EXPECT_EQ(response.status, 400) << response.body;
-        EXPECT_NE(response.body.find("combinedMode was removed"), std::string::npos) << response.body;
-    }
-    const auto normal = simulate(request);
-    ASSERT_EQ(normal.status, 200) << normal.body;
-    Json::Value body;
-    ASSERT_TRUE(parse_json(normal.body, &body));
-    for (const char* key : {"settlementLog", "distributionLog",
-                            "corporateActions", "pnlUnconfirmed"}) {
-        EXPECT_FALSE(body.isMember(key)) << key;
-        if (body["batches"].isArray() && !body["batches"].empty())
-            EXPECT_FALSE(body["batches"][0].isMember(key)) << key;
-    }
-}
+
 
 // `base:` publishes the two group panels as ordinary panel columns, which is what
 // <neutralize group="..."/> compiles against (docs/data_contract.md 4.4 f).
@@ -1152,17 +1077,17 @@ TEST_F(HttpContractTest, NeutralizeRunsPerGroupAndExpandsThePipe) {
     ASSERT_EQ(single.status, 200) << single.body;
     Json::Value body;
     ASSERT_TRUE(parse_json(single.body, &body)) << single.body;
-    ASSERT_EQ(body["batches"].size(), 1u);
-    EXPECT_NE(body["batches"][0]["xml"].asString().find("group=\"sector\""), std::string::npos);
+    ASSERT_EQ(body["alphas"].size(), 1u);
+    EXPECT_NE(body["alphas"][0]["xml"].asString().find("group=\"sector\""), std::string::npos);
 
     request["xml"] = "<data expr=\"close\"/><rank/><neutralize group=\"sector|industry\"/>";
     const auto piped = simulate(request);
     ASSERT_EQ(piped.status, 200) << piped.body;
     Json::Value expanded;
     ASSERT_TRUE(parse_json(piped.body, &expanded)) << piped.body;
-    ASSERT_EQ(expanded["batches"].size(), 2u);
+    ASSERT_EQ(expanded["alphas"].size(), 2u);
     std::set<std::string> groups;
-    for (const Json::Value& batch : expanded["batches"]) {
+    for (const Json::Value& batch : expanded["alphas"]) {
         const std::string xml = batch["xml"].asString();
         EXPECT_EQ(xml.find('|'), std::string::npos) << xml;
         if (xml.find("group=\"sector\"") != std::string::npos) groups.insert("sector");
@@ -1190,7 +1115,7 @@ TEST_F(HttpContractTest, GaStreamsEveryUniqueCandidateBetweenRoundBoundaries) {
     request["xml"] = "<data expr=\"close\"/><tsmean days=\"1...48\"/>";
     request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
     request["firstSearch"] = 200; request["stopRound"] = 40; request["stopAlphas"] = 400;
-    request["threads"] = 20; request["streamCandidates"] = true;
+    request["threads"] = 20;
     for (int scenario = 0; scenario < 2; ++scenario) {
         if (scenario) { request["firstSearch"] = 4; request["roundSize"] = 3; request["stopAlphas"] = 10; }
         const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
@@ -1212,7 +1137,7 @@ TEST_F(HttpContractTest, GaStreamsEveryUniqueCandidateBetweenRoundBoundaries) {
                 EXPECT_TRUE(candidates.insert(candidate["xml"].asString()).second);
                 EXPECT_EQ(candidate["status"].asString(),"completed") << line;
                 EXPECT_TRUE(candidate["summary"].isObject());
-                EXPECT_FALSE(candidate.isMember("timeseries")); EXPECT_FALSE(candidate.isMember("signalPlot"));
+                EXPECT_FALSE(candidate.isMember("performance")); EXPECT_FALSE(candidate["signals"].isMember("plot"));
             }
             if (type == "round_end") ended.insert(event["round"].asUInt());
             if (type == "search_complete") complete = event;
@@ -1224,31 +1149,41 @@ TEST_F(HttpContractTest, GaStreamsEveryUniqueCandidateBetweenRoundBoundaries) {
     }
 }
 
-TEST_F(HttpContractTest, LightweightDetailsAndSymbolSeriesKeepTheSameAccounting) {
+TEST_F(HttpContractTest, OutputScopesOmitUnrelatedAccountingAndKeepSelectedRawSignals) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
-    request["xml"] = "<data expr=\"close\"/>";
-    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
-    request["collectSignals"] = true;
-    const auto full = simulate(request); ASSERT_EQ(full.status,200) << full.body;
-    Json::Value baseline; ASSERT_TRUE(parse_json(full.body,&baseline));
-    request["metricsOnly"] = true;
-    const auto lean = simulate(request); ASSERT_EQ(lean.status,200) << lean.body;
-    Json::Value details; ASSERT_TRUE(parse_json(lean.body,&details));
-    EXPECT_EQ(details["timeseries"],baseline["timeseries"]); EXPECT_EQ(details["yearly"],baseline["yearly"]);
-    EXPECT_FALSE(details.isMember("signalPlot")); EXPECT_FALSE(details.isMember("distribution"));
-    request.removeMember("metricsOnly"); request["signalSeriesOnly"] = true;
+    request["xml"]="<data expr=\"close\"/><rank/>";
+    request["isStart"]="2000-01-01";request["osStart"]="2100-01-01";
+    request["output"]="full";
+    const auto full=simulate(request);ASSERT_EQ(full.status,200)<<full.body;
+    Json::Value baseline;ASSERT_TRUE(parse_json(full.body,&baseline));
+    const auto& alpha=baseline["alphas"][0];
+    ASSERT_TRUE(alpha["signals"]["plot"].isObject());
+    request["output"]="performance";
+    const auto lean=simulate(request);ASSERT_EQ(lean.status,200)<<lean.body;
+    Json::Value details;ASSERT_TRUE(parse_json(lean.body,&details));
+    EXPECT_EQ(details["alphas"][0]["performance"],alpha["performance"]);
+    EXPECT_EQ(details["alphas"][0]["summary"],alpha["summary"]);
+    EXPECT_FALSE(details["alphas"][0].isMember("signals"));
+    request["output"]="signals";
+    const auto signals_response=simulate(request);ASSERT_EQ(signals_response.status,200)<<signals_response.body;
+    Json::Value signals;ASSERT_TRUE(parse_json(signals_response.body,&signals));
+    EXPECT_EQ(signals["alphas"][0]["signals"],alpha["signals"]);
+    for(const char* key:{"performance","summary","yearly","missingData","poolCorrelation"}) EXPECT_FALSE(signals["alphas"][0].isMember(key))<<key;
+    request["output"]="signalSeries";
     EXPECT_EQ(simulate(request).status,400);
-    request["signalPlotSymbols"] = Json::Value(Json::arrayValue);
-    request["signalPlotSymbols"].append(baseline["signalPlot"]["symbols"][0]);
-    const auto series_response = simulate(request); ASSERT_EQ(series_response.status,200) << series_response.body;
-    Json::Value series; ASSERT_TRUE(parse_json(series_response.body,&series));
-    EXPECT_EQ(series["timeseries"],baseline["timeseries"]);
-    EXPECT_EQ(series["signalPlot"]["symbols"].size(),1u);
-    ASSERT_EQ(series["signalPlot"]["values"].size(),baseline["signalPlot"]["values"].size());
-    for (Json::ArrayIndex row=0;row<series["signalPlot"]["values"].size();++row)
-        EXPECT_EQ(series["signalPlot"]["values"][row][0],baseline["signalPlot"]["values"][row][0]);
-    EXPECT_FALSE(series.isMember("distribution")); EXPECT_FALSE(series.isMember("signalDistributionLog"));
+    request["signalPlotSymbols"].append(alpha["signals"]["plot"]["symbols"][0]);
+    const auto series_response=simulate(request);ASSERT_EQ(series_response.status,200)<<series_response.body;
+    Json::Value series;ASSERT_TRUE(parse_json(series_response.body,&series));
+    const auto& series_alpha=series["alphas"][0];
+    const auto& plot=series_alpha["signals"]["plot"];
+    ASSERT_EQ(plot["symbols"].size(),1u);
+    ASSERT_EQ(plot["values"].size(),alpha["signals"]["plot"]["values"].size());
+    for(Json::ArrayIndex row=0;row<plot["values"].size();++row) EXPECT_EQ(plot["values"][row][0],alpha["signals"]["plot"]["values"][row][0]);
+    for(const char* key:{"performance","summary","yearly","missingData","poolCorrelation"}) EXPECT_FALSE(series_alpha.isMember(key))<<key;
+    EXPECT_FALSE(series_alpha["signals"].isMember("distribution"));
+    EXPECT_FALSE(series_alpha["signals"].isMember("logDistribution"));
+    request["output"]="unknown"; EXPECT_EQ(simulate(request).status,400);
 }
 
 TEST_F(HttpContractTest, ConcreteCandidateAggregateMatchesOrdinaryCombinedPortfolio) {
@@ -1257,23 +1192,23 @@ TEST_F(HttpContractTest, ConcreteCandidateAggregateMatchesOrdinaryCombinedPortfo
     request["xml"] = "<data expr=\"close\" delay=\"0\"/><tsmean days=\"2|3|4\"/><rank/>";
     request["simStart"] = "2023-03-01"; request["simEnd"] = "2023-09-29";
     request["isStart"] = "2023-03-01"; request["osStart"] = "2023-06-01";
-    request["metricsOnly"] = true;
+    request["output"] = "performance";
     request["threads"] = 1;
     const auto baseline = simulate(request); ASSERT_EQ(baseline.status, 200) << baseline.body;
     Json::Value normal; ASSERT_TRUE(parse_json(baseline.body, &normal));
     // Sort by original expansion index, independent of performance order.
     std::vector<std::pair<int, std::string>> entries;
-    for (const auto& entry : normal["batches"]) entries.emplace_back(entry["index"].asInt(), entry["xml"].asString());
+    for (const auto& entry : normal["alphas"]) entries.emplace_back(entry["id"].asInt(), entry["xml"].asString());
     std::sort(entries.begin(), entries.end());
     request["xmls"] = Json::Value(Json::arrayValue);
     for (const auto& entry : entries) request["xmls"].append(entry.second);
     request["combinedOnly"] = true; request["threads"] = 20;
     const auto combined_response = simulate(request); ASSERT_EQ(combined_response.status, 200) << combined_response.body;
     Json::Value combined; ASSERT_TRUE(parse_json(combined_response.body, &combined));
-    EXPECT_TRUE(combined["batches"].empty());
+    EXPECT_TRUE(combined["alphas"].empty());
     EXPECT_EQ(combined["combined"], normal["combined"]);
-    EXPECT_EQ(combined["timeseries"], normal["timeseries"]);
-    EXPECT_EQ(combined["yearly"], normal["yearly"]);
+    EXPECT_EQ(combined["combined"]["performance"], normal["combined"]["performance"]);
+    EXPECT_EQ(combined["combined"]["yearly"], normal["combined"]["yearly"]);
     request["xmls"] = Json::Value(Json::arrayValue);
     EXPECT_EQ(simulate(request).status, 400);
     request["xmls"].append(request["xml"]); // An expanded template is not one concrete candidate.
@@ -1305,6 +1240,7 @@ Json::Value alpha_metadata(const std::string& execution = "close")
     metadata["osStart"] = "2024-07-01";
     metadata["universe"] = "";
     metadata["executionPrice"] = execution;
+    metadata["threads"] = 7;
     return metadata;
 }
 
@@ -1387,7 +1323,7 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresFormattedXmlAndToolbarMetadataOnly) {
     EXPECT_EQ(read_text(dir / "alpha.xml"), formatted);
     EXPECT_EQ(read_text(dir / "metadata.yml"),
               "level: xml\nsimStart: 2024-01-01\nsimEnd: 2024-12-31\nisStart: 2024-01-01\n"
-              "osStart: 2024-07-01\nuniverse: \"\"\nexecutionPrice: vwap\n");
+              "osStart: 2024-07-01\nuniverse: \"\"\nexecutionPrice: vwap\nthreads: 7\n");
     std::set<std::string> files;
     for (const auto& entry : fs::directory_iterator(dir)) files.insert(entry.path().filename().string());
     EXPECT_EQ(files, (std::set<std::string>{"alpha.xml", "metadata.yml"}));
@@ -1445,6 +1381,8 @@ TEST_F(AlphaStorageHttpTest, InvalidNamesMetadataAndRowsAreRejectedWithoutFiles)
     variant("malformed xml", [](Json::Value& r) { r["level"] = "xml"; r["xml"] = "<choice><rank/></wrong>"; });
     variant("bad level", [](Json::Value& r) { r["level"] = "signals"; });
     variant("no metadata", [](Json::Value& r) { r.removeMember("metadata"); });
+    variant("missing threads", [](Json::Value& r) { r["metadata"].removeMember("threads"); });
+    variant("bad threads", [](Json::Value& r) { r["metadata"]["threads"] = 0; });
     variant("missing osStart", [](Json::Value& r) { r["metadata"].removeMember("osStart"); });
     variant("empty simEnd", [](Json::Value& r) { r["metadata"]["simEnd"] = ""; });
     variant("bad date", [](Json::Value& r) { r["metadata"]["simStart"] = "2024-02-30"; });
@@ -1501,6 +1439,7 @@ TEST_F(AlphaStorageHttpTest, ResultFilesEqualLiveSimulateBodies) {
     Json::Value index;
     ASSERT_TRUE(parse_json(index_response.body, &index));
     EXPECT_TRUE(index["hasBatch"].asBool());
+    EXPECT_EQ(index["context"]["threads"].asUInt(), 7u);
     ASSERT_EQ(index["rows"].size(), rows.size());
     Json::Value batch_request;
     batch_request["xmls"] = Json::Value(Json::arrayValue);
@@ -1508,7 +1447,7 @@ TEST_F(AlphaStorageHttpTest, ResultFilesEqualLiveSimulateBodies) {
         const auto& [id, xml] = rows[i];
         Json::Value live_request;
         live_request["xml"] = xml;
-        live_request["metricsOnly"] = true;
+        live_request["output"] = "performance";
         const auto live = simulate(with_metadata(live_request, metadata));
         ASSERT_EQ(live.status, 200) << live.body;
         Json::Value expected, stored;
@@ -1517,19 +1456,23 @@ TEST_F(AlphaStorageHttpTest, ResultFilesEqualLiveSimulateBodies) {
         ASSERT_EQ(file.status, 200) << file.body;
         EXPECT_EQ(file.body, read_text(dir / "results" / "rows" / (std::to_string(id) + ".json")));
         ASSERT_TRUE(parse_json(file.body, &stored));
+        EXPECT_EQ(stored["context"]["threads"].asUInt(), 7u);
+        expected["alphas"][0]["id"] = id;
+        expected["alphas"][0]["round"] = id == 17 ? 1 : 2;
+        expected["alphas"][0]["origin"] = "saved";
         EXPECT_EQ(stored, expected) << "row " << id;
         const auto& entry = index["rows"][static_cast<Json::ArrayIndex>(i)];
-        EXPECT_EQ(entry["index"].asInt(), id);
+        EXPECT_EQ(entry["id"].asInt(), id);
         EXPECT_EQ(entry["round"].asInt(), id == 17 ? 1 : 2);
         EXPECT_EQ(entry["xml"].asString(), xml);
         EXPECT_EQ(entry["origin"].asString(), "saved");
         EXPECT_EQ(entry["status"].asString(), "completed");
-        EXPECT_EQ(entry["summary"], expected["batches"][0]["summary"]);
-        EXPECT_EQ(entry["yearly"], expected["yearly"]);
+        EXPECT_EQ(entry["summary"], expected["alphas"][0]["summary"]);
+        EXPECT_EQ(entry["yearly"], expected["alphas"][0]["yearly"]);
         batch_request["xmls"].append(xml);
     }
     batch_request["combinedOnly"] = true;
-    batch_request["metricsOnly"] = true;
+    batch_request["output"] = "performance";
     const auto live_batch = simulate(with_metadata(batch_request, metadata));
     ASSERT_EQ(live_batch.status, 200) << live_batch.body;
     const auto stored_batch = http_get(server_->port(), "/api/alphas/" + name + "/results/batch");
@@ -1537,6 +1480,7 @@ TEST_F(AlphaStorageHttpTest, ResultFilesEqualLiveSimulateBodies) {
     Json::Value expected_batch, batch;
     ASSERT_TRUE(parse_json(live_batch.body, &expected_batch));
     ASSERT_TRUE(parse_json(stored_batch.body, &batch));
+    EXPECT_EQ(batch["context"]["threads"].asUInt(), 7u);
     EXPECT_EQ(batch, expected_batch);
     EXPECT_EQ(http_get(server_->port(), "/api/alphas/" + name + "/results/rows/4").status, 404);
 
@@ -1606,7 +1550,7 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         }
         const std::string id = ids->GetString(i);
         ASSERT_EQ(id.size(), 1u);
-        book[dates->Value(i)][id[0] - 'A'] = w;
+        book[dates->Value(i)][std::stoi(id) - 1] = w;
     }
     EXPECT_EQ(book.size(), static_cast<std::size_t>(last_day - first_day + 1));
     for (const auto& [day, positions] : book) {
@@ -1615,11 +1559,11 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         EXPECT_NEAR(gross, 1.0, 1e-12) << day;
     }
 
-    // Close execution, no missing quotes, ordinary panel (simulator value_holdings + execute):
+    // Close execution with cached total returns and no missing quotes:
     // gross_ret[t+1] = sum_i w[t,i] * (close[t+1,i] / close[t,i] - 1).
     Json::Value row_file;
     ASSERT_TRUE(parse_json(read_text(dir / "results" / "rows" / "5.json"), &row_file));
-    const Json::Value& cum = row_file["timeseries"]["cumPnlGross"];
+    const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
     ASSERT_EQ(cum.size(), static_cast<Json::ArrayIndex>(last_day - first_day + 1));
     double previous = cum[0].asDouble();
     EXPECT_EQ(previous, 0.0);  // nothing is held into the first trading bar
@@ -1717,7 +1661,7 @@ TEST_F(AlphaStorageHttpTest, RowRoundDefaultsToZeroAndIdsAreJavaScriptSafe) {
     ASSERT_EQ(index["rows"].size(), 1u);
     EXPECT_TRUE(index["rows"][0]["round"].isIntegral());
     EXPECT_EQ(index["rows"][0]["round"].asInt(), 0);
-    EXPECT_EQ(index["rows"][0]["index"].asUInt64(), max_id);
+    EXPECT_EQ(index["rows"][0]["id"].asUInt64(), max_id);
     EXPECT_EQ(http_get(server_->port(), "/api/alphas/" + name + "/results/rows/" + std::to_string(max_id)).status, 200);
     EXPECT_EQ(http_get(server_->port(), "/api/alphas/" + name + "/results/rows/" + std::to_string(max_id + 1)).status, 400);
     EXPECT_EQ(save(Json::Value(request)).status, 409);
@@ -1731,7 +1675,7 @@ TEST_F(HttpContractTest, SimulateRejectsThreadsOutside1To32) {
     Json::Value request;
     request["xml"] = "<data expr=\"close\"/><tsmean days=\"5\"/>";
     request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
-    request["metricsOnly"] = true;
+    request["output"] = "performance";
     const auto omitted = simulate(request);
     ASSERT_EQ(omitted.status, 200) << omitted.body;
     for (const int threads : {0, 33}) {
@@ -1747,8 +1691,8 @@ TEST_F(HttpContractTest, SimulateRejectsThreadsOutside1To32) {
     Json::Value body, omitted_body;
     ASSERT_TRUE(parse_json(accepted.body, &body)) << accepted.body;
     ASSERT_TRUE(parse_json(omitted.body, &omitted_body));
-    EXPECT_EQ(body["batches"].size(), 1u);
-    EXPECT_EQ(compact_json(body["batches"]), compact_json(omitted_body["batches"]));
+    EXPECT_EQ(body["alphas"].size(), 1u);
+    EXPECT_EQ(compact_json(body["alphas"]), compact_json(omitted_body["alphas"]));
 
     Json::Value ga;
     ga["xml"] = "<data expr=\"close\"/><tsmean days=\"1...4\"/>";
@@ -1847,19 +1791,19 @@ TEST_F(HttpContractTest, MetaEqualsCombinedBatch) {
     combined_request["xmls"] = Json::Value(Json::arrayValue);
     for (const auto& xml : kSampleMembers) combined_request["xmls"].append(xml);
     combined_request["combinedOnly"] = true;
-    combined_request["metricsOnly"] = true;
+    combined_request["output"] = "performance";
     const auto combined = simulate(combined_request);
     ASSERT_EQ(combined.status, 200) << combined.body;
     Json::Value meta_body, combined_body;
     ASSERT_TRUE(parse_json(meta.body, &meta_body));
     ASSERT_TRUE(parse_json(combined.body, &combined_body));
-    const auto& batch = meta_body["batches"][0];
+    const auto& batch = meta_body["alphas"][0];
     const auto& expected = combined_body["combined"];
     EXPECT_EQ(batch["meta"], sample_meta_list());
-    for (const char* key : {"summary", "yearly", "timeseries", "missingData", "isStartIndex", "osStartIndex"})
+    for (const char* key : {"summary", "yearly", "performance", "missingData"})
         EXPECT_EQ(batch[key], expected[key]) << key;
-    EXPECT_EQ(meta_body["timeseries"], combined_body["timeseries"]);
-    EXPECT_TRUE(meta_body.isMember("signalPlot"));
+    EXPECT_EQ(meta_body["alphas"][0]["performance"], combined_body["combined"]["performance"]);
+    EXPECT_TRUE(meta_body["alphas"][0]["signals"].isMember("plot"));
 }
 
 TEST_F(HttpContractTest, MetaWithPostModule) {
@@ -1871,13 +1815,13 @@ TEST_F(HttpContractTest, MetaWithPostModule) {
     Json::Value a, b;
     ASSERT_TRUE(parse_json(plain.body, &a));
     ASSERT_TRUE(parse_json(neutral.body, &b));
-    EXPECT_EQ(b["batches"][0]["meta"], sample_meta_list());
-    EXPECT_NE(a["batches"][0]["summary"], b["batches"][0]["summary"]);
+    EXPECT_EQ(b["alphas"][0]["meta"], sample_meta_list());
+    EXPECT_NE(a["alphas"][0]["summary"], b["alphas"][0]["summary"]);
     // An ordinary alpha carries no meta key.
     const auto ordinary = simulate(meta_request("<data expr=\"close\" delay=\"1\"/><rank/>"));
     Json::Value c;
     ASSERT_TRUE(parse_json(ordinary.body, &c));
-    EXPECT_FALSE(c["batches"][0].isMember("meta"));
+    EXPECT_FALSE(c["alphas"][0].isMember("meta"));
 }
 
 TEST_F(HttpContractTest, MetaExplicitEwEqualsImplicit) {
@@ -1889,8 +1833,8 @@ TEST_F(HttpContractTest, MetaExplicitEwEqualsImplicit) {
     Json::Value a, b;
     ASSERT_TRUE(parse_json(implicit.body, &a));
     ASSERT_TRUE(parse_json(explicit_ew.body, &b));
-    a["batches"][0].removeMember("xml");
-    b["batches"][0].removeMember("xml");
+    a["alphas"][0].removeMember("xml");
+    b["alphas"][0].removeMember("xml");
     EXPECT_EQ(a, b);
 }
 
@@ -1904,14 +1848,14 @@ TEST_F(HttpContractTest, MetaExprPipeGivesTwoBatches) {
     ASSERT_EQ(twice.status, 200) << twice.body;
     Json::Value body;
     ASSERT_TRUE(parse_json(twice.body, &body));
-    ASSERT_EQ(body["batches"].size(), 2u);
-    EXPECT_EQ(body["batches"][0]["summary"], body["batches"][1]["summary"]);
-    EXPECT_EQ(body["batches"][0]["meta"], sample_meta_list());
-    EXPECT_EQ(body["batches"][1]["meta"], sample_meta_list());
+    ASSERT_EQ(body["alphas"].size(), 2u);
+    EXPECT_EQ(body["alphas"][0]["summary"], body["alphas"][1]["summary"]);
+    EXPECT_EQ(body["alphas"][0]["meta"], sample_meta_list());
+    EXPECT_EQ(body["alphas"][1]["meta"], sample_meta_list());
     const auto single = simulate(meta_request("<meta expr=\"sample\"/>"));
     Json::Value single_body;
     ASSERT_TRUE(parse_json(single.body, &single_body));
-    EXPECT_EQ(body["batches"][0]["summary"], single_body["batches"][0]["summary"]);
+    EXPECT_EQ(body["alphas"][0]["summary"], single_body["alphas"][0]["summary"]);
 }
 
 TEST_F(HttpContractTest, MetaRequestErrorsReturn400) {
@@ -1933,7 +1877,7 @@ TEST_F(HttpContractTest, MetaRequestErrorsReturn400) {
 TEST_F(HttpContractTest, MetaInGAStream) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>");
-    request["firstSearch"] = 2; request["stopRound"] = 1; request["streamCandidates"] = true;
+    request["firstSearch"] = 2; request["stopRound"] = 1;
     request["threads"] = 4;
     const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
     ASSERT_EQ(response.status, 200) << response.body;
@@ -1952,12 +1896,12 @@ TEST_F(HttpContractTest, MetaInGAStream) {
         EXPECT_EQ(candidate["status"].asString(), "completed") << compact_json(candidate);
         EXPECT_EQ(candidate["meta"], sample_meta_list());
         Json::Value live_request = meta_request(candidate["xml"].asString());
-        live_request["metricsOnly"] = true;
+        live_request["output"] = "performance";
         const auto live = simulate(live_request);
         ASSERT_EQ(live.status, 200) << live.body;
         Json::Value body;
         ASSERT_TRUE(parse_json(live.body, &body));
-        EXPECT_EQ(candidate["summary"], body["batches"][0]["summary"]) << candidate["xml"].asString();
+        EXPECT_EQ(candidate["summary"], body["alphas"][0]["summary"]) << candidate["xml"].asString();
     }
 }
 
@@ -1993,52 +1937,30 @@ TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
     for (std::size_t i = 0; i < xmls.size(); ++i) {
         Json::Value live_request;
         live_request["xml"] = xmls[i];
-        live_request["metricsOnly"] = true;
+        live_request["output"] = "performance";
         const auto live = simulate(with_metadata(live_request, metadata));
         ASSERT_EQ(live.status, 200) << live.body;
         Json::Value expected, stored;
         ASSERT_TRUE(parse_json(live.body, &expected));
-        EXPECT_EQ(expected["batches"][0]["meta"], sample_meta_list());
-        EXPECT_EQ(index["rows"][static_cast<Json::ArrayIndex>(i)]["summary"], expected["batches"][0]["summary"]);
+        EXPECT_EQ(expected["alphas"][0]["meta"], sample_meta_list());
+        EXPECT_EQ(index["rows"][static_cast<Json::ArrayIndex>(i)]["summary"], expected["alphas"][0]["summary"]);
         const auto file = http_get(server_->port(), "/api/alphas/" + name + "/results/rows/" + std::to_string(i));
         ASSERT_TRUE(parse_json(file.body, &stored));
+        expected["alphas"][0]["id"] = static_cast<int>(i);
+        expected["alphas"][0]["round"] = 0;
+        expected["alphas"][0]["origin"] = "saved";
+        EXPECT_EQ(stored["context"]["threads"].asUInt(), 7u);
         EXPECT_EQ(stored, expected);
     }
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
 }
 
-TEST_F(HttpContractTest, MetaInGAStreamNonStreamingBest) {
-    if (!available_) GTEST_SKIP() << skip_reason_;
-    Json::Value request = meta_request("<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>");
-    request["firstSearch"] = 2; request["stopRound"] = 1; request["threads"] = 4;
-    const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
-    ASSERT_EQ(response.status, 200) << response.body;
-    std::istringstream stream(response.body);
-    std::string line;
-    Json::Value complete;
-    while (std::getline(stream, line)) {
-        if (line.empty()) continue;
-        Json::Value event;
-        ASSERT_TRUE(parse_json(line, &event)) << line;
-        ASSERT_NE(event["type"].asString(), "error") << line;
-        if (event["type"].asString() == "complete") complete = event;
-    }
-    ASSERT_EQ(complete["batches"].size(), 1u) << response.body.substr(0, 300);
-    const auto& batch = complete["batches"][0];
-    EXPECT_EQ(batch["meta"], sample_meta_list());
-    Json::Value live_request = meta_request(complete["bestXml"].asString());
-    live_request["metricsOnly"] = true;
-    const auto live = simulate(live_request);
-    ASSERT_EQ(live.status, 200) << live.body;
-    Json::Value body;
-    ASSERT_TRUE(parse_json(live.body, &body));
-    EXPECT_EQ(batch["summary"], body["batches"][0]["summary"]);
-}
+
 
 TEST_F(HttpContractTest, MetaDisconnectStopsMembers) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"heavy\"/>");
-    request["metricsOnly"] = true;
+    request["output"] = "performance";
     // One member worker: the CPU spent before the disconnect is then ~0.3 s regardless of CPU speed,
     // which keeps the 0.6 x cpu_full margin wide.
     request["threads"] = 1;
@@ -2078,16 +2000,16 @@ TEST_F(HttpContractTest, MetaMvoRunsAndReports) {
     Json::Value a, b;
     ASSERT_TRUE(parse_json(mvo.body, &a));
     ASSERT_TRUE(parse_json(ew.body, &b));
-    const auto& meta = a["batches"][0]["meta"];
+    const auto& meta = a["alphas"][0]["meta"];
     ASSERT_EQ(meta.size(), 1u);
     EXPECT_EQ(meta[0]["name"].asString(), "sample");
     EXPECT_EQ(meta[0]["members"].asUInt(), 3u);
     EXPECT_EQ(meta[0]["combine"].asString(), mvo_key(60, "0.5"));
     ASSERT_TRUE(meta[0].isMember("fallbackBars"));
     ASSERT_TRUE(meta[0].isMember("firstEstimatedBar"));
-    EXPECT_EQ(meta[0]["firstEstimatedBar"].asUInt(), a["isStartIndex"].asUInt() + 60) << compact_json(meta);
+    EXPECT_EQ(meta[0]["firstEstimatedBar"].asUInt(), 60u) << compact_json(meta);
     std::cout << "[ meta mvo ] " << compact_json(meta) << "\n";
-    EXPECT_NE(a["batches"][0]["summary"], b["batches"][0]["summary"]);
+    EXPECT_NE(a["alphas"][0]["summary"], b["alphas"][0]["summary"]);
 }
 
 TEST_F(HttpContractTest, MetaMethodsAllRun) {
@@ -2107,11 +2029,11 @@ TEST_F(HttpContractTest, MetaMethodsAllRun) {
         ASSERT_EQ(response.status, 200) << tag << ": " << response.body.substr(0, 300);
         Json::Value body;
         ASSERT_TRUE(parse_json(response.body, &body));
-        const auto& meta = body["batches"][0]["meta"][0];
+        const auto& meta = body["alphas"][0]["meta"][0];
         EXPECT_EQ(meta["combine"].asString(), key) << tag;
         EXPECT_EQ(meta["members"].asUInt(), name == "ten" ? 10u : 3u);
         EXPECT_TRUE(meta.isMember("fallbackBars")) << tag;
-        EXPECT_TRUE(std::isfinite(body["batches"][0]["summary"]["is"]["sharpe"].asDouble())) << tag;
+        EXPECT_TRUE(std::isfinite(body["alphas"][0]["summary"]["is"]["sharpe"].asDouble())) << tag;
     }
 }
 
@@ -2138,7 +2060,7 @@ TEST_F(HttpContractTest, MetaInGAStreamWithMvoGrid) {
     // Dates used by no other test: the member-return cache is process-wide.
     request["simStart"] = "2021-03-01";
     request["simEnd"] = "2022-11-30";
-    request["firstSearch"] = 4; request["stopRound"] = 1; request["streamCandidates"] = true;
+    request["firstSearch"] = 4; request["stopRound"] = 1;
     request["threads"] = 4;
     request["metaStats"] = true;
     const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
@@ -2176,15 +2098,15 @@ TEST_F(HttpContractTest, MetaInGAStreamWithMvoGrid) {
 
     // The candidate summary equals a live single run of its XML.
     Json::Value live_request = request;
-    for (const char* key : {"firstSearch", "stopRound", "streamCandidates", "metaStats"}) live_request.removeMember(key);
+    for (const char* key : {"firstSearch", "stopRound", "metaStats"}) live_request.removeMember(key);
     live_request["xml"] = candidates[0]["xml"];
-    live_request["metricsOnly"] = true;
+    live_request["output"] = "performance";
     const auto live = simulate(live_request);
     ASSERT_EQ(live.status, 200) << live.body.substr(0, 300);
     Json::Value body;
     ASSERT_TRUE(parse_json(live.body, &body));
-    EXPECT_EQ(candidates[0]["summary"], body["batches"][0]["summary"]);
-    EXPECT_EQ(candidates[0]["meta"], body["batches"][0]["meta"]);
+    EXPECT_EQ(candidates[0]["summary"], body["alphas"][0]["summary"]);
+    EXPECT_EQ(candidates[0]["meta"], body["alphas"][0]["meta"]);
 }
 
 namespace {
@@ -2201,7 +2123,7 @@ std::map<int32_t, std::map<int, double>> read_positions(const fs::path& file)
     auto dates = std::static_pointer_cast<arrow::Date32Array>(table->column(0)->chunk(0));
     auto ids = std::static_pointer_cast<arrow::StringArray>(table->column(1)->chunk(0));
     auto weights = std::static_pointer_cast<arrow::DoubleArray>(table->column(2)->chunk(0));
-    for (int64_t i = 0; i < table->num_rows(); ++i) book[dates->Value(i)][ids->GetString(i)[0] - 'A'] = weights->Value(i);
+    for (int64_t i = 0; i < table->num_rows(); ++i) book[dates->Value(i)][std::stoi(ids->GetString(i)) - 1] = weights->Value(i);
     return book;
 }
 }  // namespace
@@ -2239,7 +2161,7 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         if (k == 3) continue;
         Json::Value row_file;
         ASSERT_TRUE(parse_json(read_text(alphas_dir() / name / "results" / "rows" / "0.json"), &row_file));
-        const Json::Value& cum = row_file["timeseries"]["cumPnlGross"];
+        const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
         ASSERT_EQ(cum.size(), T);
         for (unsigned t = 0; t < T; ++t)
             returns.rows[t][k] = cum[t].asDouble() - (t ? cum[t - 1].asDouble() : 0.0);
@@ -2282,7 +2204,7 @@ TEST_F(HttpContractTest, MetaCrossRequestDisconnectDoesNotFailOthers) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"heavy\"/><mvo days=\"40\"/>");
     request["simStart"] = "2020-04-07";  // used by no other test: the member-return key is new
-    request["metricsOnly"] = true;
+    request["output"] = "performance";
     request["threads"] = 1;
     // A computes the shared member returns and disconnects; B waits on the same key and must not
     // inherit A's cancellation.

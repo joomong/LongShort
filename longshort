@@ -5,6 +5,8 @@
 #   longshort start --port 50017 --ui-port 50016   # 첫 기동: workspace 생성(없으면), 빌드, 엔진+화면 기동
 #   longshort start                                 # 다음부터는 저장된 포트로
 #   longshort start --build-only                    # 빌드만 (돌고 있는 엔진은 그대로)
+#   start/restart options: --jobs N --build-type Release|Debug|RelWithDebInfo|MinSizeRel
+#                          --build-dir PATH --modules-dir PATH --cmake-define NAME=VALUE
 #   longshort stop                                  # 이 workspace의 엔진·화면만 내린다
 #   longshort restart                               # 빌드 → 중지 → 기동 (빌드 실패 시 기존 엔진 유지)
 #
@@ -24,15 +26,24 @@ START_TIMEOUT="${LONGSHORT_START_TIMEOUT:-900}"
 die() { echo "longshort: $*" >&2; exit 1; }
 
 usage() {
-    sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit "${1:-1}"
 }
 
 # --- workspace -------------------------------------------------------------
 bootstrap() {
+    [ ! -e "$WS/modules" ] || [ -d "$WS/modules" ] || die "Module path is not a directory: $WS/modules"
     mkdir -p "$WS"/{alphas,meta,modules,research} "$LOGS"
     if [ ! -f "$WS/config.yaml" ]; then
-        cp "$TEMPLATE" "$WS/config.yaml"
+        python3 - "$TEMPLATE" "$WS/config.yaml" "$PLATFORM/alpha_pool" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+template, destination, pool = sys.argv[1:]
+Path(destination).write_text(Path(template).read_text().replace(
+    'alpha_pool: alpha_pool\n', 'alpha_pool: ' + json.dumps(pool) + '\n'))
+PY
         echo "[workspace] $WS/config.yaml 를 예제에서 만들었다 (데이터 경로는 공용 캐시; 필요하면 backtest 블록만 고친다)"
     fi
 }
@@ -132,21 +143,45 @@ cmd_init() {
 }
 
 # --- build -----------------------------------------------------------------
-build() {
+build() (
+    local build modules source cached_source definition
+    build="$(realpath -m -- "$BUILD_DIR")"
+    modules="$(realpath -m -- "$MODULES_DIR")"
+    source="$(realpath -- "$PLATFORM/cpp-engine")"
+    case "$build/" in "$modules/"*) die "Build directory must not be inside the module directory: $build";; esac
+    case "$source/" in "$build/"*) die "Build directory must be separate from the engine source directory";; esac
+    [ ! -e "$modules" ] || [ -d "$modules" ] || die "Module path is not a directory: $modules"
+    [[ "$modules" != *';'* && "$modules" != *$'\n'* && "$modules" != *$'\r'* ]] || die "Invalid module path"
+    mkdir -p "$build" "$modules"
+    exec 8> "$build/.launch-build.lock"
+    flock -n 8 || die "Another build is using $build; retry after it finishes"
+    if [ -f "$build/CMakeCache.txt" ]; then
+        cached_source="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$build/CMakeCache.txt")"
+        [ -n "$cached_source" ] && [ "$(realpath -m -- "$cached_source")" = "$source" ] \
+            || die "Build cache belongs to another source directory; choose a new --build-dir"
+    fi
     local defines=()
     if deps_ready; then
-        defines+=(--cmake-define "LONGSHORT_PYARROW_PYTHON=$DEPS/venv/bin/python"
-                  --cmake-define "CMAKE_PREFIX_PATH=$DEPS/prefix")
-    elif [ ! -f "$STATE/build/CMakeCache.txt" ]; then
+        defines+=("-DLONGSHORT_PYARROW_PYTHON:FILEPATH=$DEPS/venv/bin/python"
+                  "-DCMAKE_PREFIX_PATH:PATH=$DEPS/prefix")
+    elif [ ! -f "$build/CMakeCache.txt" ]; then
         die "빌드 의존성이 없다: $DEPS (먼저 $PLATFORM/longshort init)"
     fi
-    # deps 폴더가 없어도 이미 configure 된 빌드는 CMake 캐시의 경로를 그대로 쓴다.
-    python3 "$PLATFORM/cpp-engine/tools/run_engine.py" --config "$WS/config.yaml" --build-only "${defines[@]}"
-}
+    for definition in "${CMAKE_DEFINES[@]}"; do defines+=("-D$definition"); done
+    local cmake="${LONGSHORT_CMAKE:-cmake}"
+    echo "[configure] $source → $build"
+    "$cmake" -S "$source" -B "$build" -DLONGSHORT_BUILD_TESTS:BOOL=OFF \
+        "${defines[@]}" "-DCMAKE_BUILD_TYPE:STRING=$BUILD_TYPE" \
+        "-DLONGSHORT_MODULE_DIR:PATH=$modules" \
+        || die "configure failed; server was not started"
+    "$cmake" --build "$build" --config "$BUILD_TYPE" --target longshort-server --parallel "$BUILD_JOBS" \
+        || die "build failed; server was not started"
+    [ -x "$build/longshort-server" ] || die "Build completed without an executable server at $build/longshort-server"
+)
 
 # --- start -----------------------------------------------------------------
 launch() {
-    local bin="$STATE/build/longshort-server"
+    local bin="$(realpath -m -- "$BUILD_DIR")/longshort-server"
     [ -x "$bin" ] || die "빌드 결과가 없다: $bin"
     alive "$STATE/engine.pid" longshort-server && die "엔진이 이미 떠 있다 (pid $(cat "$STATE/engine.pid")); restart 를 쓴다"
     alive "$STATE/ui.pid" next && die "화면이 이미 떠 있다 (pid $(cat "$STATE/ui.pid")); restart 를 쓴다"
@@ -182,6 +217,9 @@ launch() {
 
 cmd_start() {
     local build_only=0 restart=0
+    local BUILD_DIR="$STATE/build" MODULES_DIR="$WS/modules" BUILD_TYPE=Release
+    local BUILD_JOBS="${LONGSHORT_BUILD_JOBS:-8}" definition
+    local CMAKE_DEFINES=()
     [ "${1:-}" = "--restart" ] && { restart=1; shift; }
     load_ports
     while [ $# -gt 0 ]; do
@@ -189,10 +227,21 @@ cmd_start() {
             --port)       check_port "${2:-}"; ENGINE_PORT="$2"; shift 2;;
             --ui-port)    check_port "${2:-}"; UI_PORT="$2"; shift 2;;
             --build-only) build_only=1; shift;;
+            --build-dir)  [ -n "${2:-}" ] || die "--build-dir needs a path"; BUILD_DIR="$2"; shift 2;;
+            --modules-dir) [ -n "${2:-}" ] || die "--modules-dir needs a path"; MODULES_DIR="$2"; shift 2;;
+            --jobs)       BUILD_JOBS="${2:-}"; [ $# -ge 2 ] || die "--jobs needs a number"; shift 2;;
+            --build-type) BUILD_TYPE="${2:-}"; [ $# -ge 2 ] || die "--build-type needs a value"; shift 2;;
+            --cmake-define)
+                definition="${2:-}"
+                [[ "$definition" =~ ^[A-Za-z_][A-Za-z0-9_-]*(:[A-Za-z_]+)?= ]] || die "Expected --cmake-define NAME=VALUE"
+                case "${definition%%[:=]*}" in LONGSHORT_MODULE_DIR|CMAKE_BUILD_TYPE) die "This CMake option is managed by longshort";; esac
+                CMAKE_DEFINES+=("$definition"); shift 2;;
             -h|--help)    usage 0;;
             *)            die "모르는 옵션: $1 (start [--port N] [--ui-port N] [--build-only])";;
         esac
     done
+    [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be positive"
+    case "$BUILD_TYPE" in Debug|Release|RelWithDebInfo|MinSizeRel) ;; *) die "Invalid --build-type: $BUILD_TYPE";; esac
     bootstrap
     if [ $build_only -eq 0 ]; then   # 빌드 전에 먼저 걸러서 몇 분 기다린 뒤 실패하지 않게 한다
         [ -n "$ENGINE_PORT" ] && [ -n "$UI_PORT" ] || die "첫 기동은 포트를 정해 준다: longshort start --port <엔진> --ui-port <화면>"
@@ -205,7 +254,7 @@ cmd_start() {
         fi
     fi
     build
-    [ $build_only -eq 1 ] && { echo "[build] 끝 ($STATE/build/longshort-server); 엔진은 건드리지 않았다"; return 0; }
+    [ $build_only -eq 1 ] && { echo "[build] 끝 ($BUILD_DIR/longshort-server); 엔진은 건드리지 않았다"; return 0; }
     [ $restart -eq 1 ] && cmd_stop
     launch
 }

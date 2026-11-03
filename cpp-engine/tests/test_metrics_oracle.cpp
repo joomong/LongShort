@@ -7,8 +7,7 @@
 #include <numeric>
 #include <vector>
 
-#include "metrics/metrics_engine.h"
-#include "metrics/summary_metrics.h"
+#include "simulator_engine.h"
 
 namespace {
 

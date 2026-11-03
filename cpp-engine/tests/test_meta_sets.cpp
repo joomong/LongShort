@@ -6,12 +6,10 @@
 #include <cstring>
 #include <stdexcept>
 #include <thread>
-#include "api/combined_signals.h"
-#include "api/meta_returns.h"
-#include "api/meta_sets.h"
-#include "compiler/dag_builder.h"
-#include "data/data_panel.h"
-#include "engine/simulator.h"
+#include "meta.h"
+#include "xml_compiler.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 
 static DataPanel make_panel(unsigned T = 40, unsigned N = 5) {
     DataPanel dp;

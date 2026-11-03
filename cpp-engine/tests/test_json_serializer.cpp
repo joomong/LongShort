@@ -1,61 +1,85 @@
 #include <gtest/gtest.h>
-#include "api/json_serializer.h"
+#include "http_server.h"
 
 #include <limits>
 #include <cmath>
 
-TEST(JsonSerializer, YearlyWinLoseKeepsPercentagePointsIncludingZero) {
-    YearlyMetrics winning_year{};
-    winning_year.year = 2024;
-    winning_year.win_lose = 62.5;
-    winning_year.ir = -0.125;
-    winning_year.fitness = -1.25;
-    YearlyMetrics losing_year{};
-    losing_year.year = 2025;
-    losing_year.win_lose = 0.0;
-
-    const Json::Value json = yearly_to_json({winning_year, losing_year});
-    ASSERT_EQ(json.size(), 2u);
+TEST(JsonSerializer, YearlyMetricsUseFractionsAndExplicitNames) {
+    YearlyMetrics year{};
+    year.year = 2024; year.long_sm = 0.6; year.short_sm = 0.4;
+    year.pnl_pct = 12.5; year.ann_ret = 25; year.max_dd = -3;
+    year.daily_tvr = 0.25; year.win_lose = 62.5; year.ir = -0.125; year.fitness = -1.25;
+    const auto json = yearly_to_json({year});
+    ASSERT_EQ(json.size(), 1u);
     EXPECT_EQ(json[0]["year"].asInt(), 2024);
-    ASSERT_TRUE(json[0]["winLose"].isNumeric());
-    EXPECT_DOUBLE_EQ(json[0]["winLose"].asDouble(), 62.5);
-    ASSERT_TRUE(json[0]["ir"].isNumeric());
-    EXPECT_DOUBLE_EQ(json[0]["ir"].asDouble(), -0.125);
-    ASSERT_TRUE(json[0]["fitness"].isNumeric());
+    EXPECT_DOUBLE_EQ(json[0]["pnl"].asDouble(), 0.125);
+    EXPECT_DOUBLE_EQ(json[0]["annualReturn"].asDouble(), 0.25);
+    EXPECT_DOUBLE_EQ(json[0]["maxDrawdown"].asDouble(), -0.03);
+    EXPECT_DOUBLE_EQ(json[0]["turnover"].asDouble(), 0.25);
+    EXPECT_DOUBLE_EQ(json[0]["winRate"].asDouble(), 0.625);
+    EXPECT_DOUBLE_EQ(json[0]["longRatio"].asDouble(), 0.6);
+    EXPECT_DOUBLE_EQ(json[0]["shortRatio"].asDouble(), 0.4);
+    EXPECT_DOUBLE_EQ(json[0]["informationRatio"].asDouble(), -0.125);
     EXPECT_DOUBLE_EQ(json[0]["fitness"].asDouble(), -1.25);
-    EXPECT_EQ(json[1]["year"].asInt(), 2025);
-    ASSERT_TRUE(json[1]["winLose"].isNumeric());
-    EXPECT_DOUBLE_EQ(json[1]["winLose"].asDouble(), 0.0);
-    ASSERT_TRUE(json[1]["ir"].isNumeric());
-    EXPECT_DOUBLE_EQ(json[1]["ir"].asDouble(), 0.0);
-    ASSERT_TRUE(json[1]["fitness"].isNumeric());
-    EXPECT_DOUBLE_EQ(json[1]["fitness"].asDouble(), 0.0);
 }
 
-TEST(JsonSerializer, SummaryPreservesLegacyKeysForPositionCounts) {
+TEST(JsonSerializer, SummaryMetricsUseFractionsAndExplicitPositionCounts) {
     SummaryMetrics metrics;
-    metrics.avg_position_count = 3.0;
-    metrics.min_position_count = 2.0;
-    metrics.active_bar_count = 3;
-
-    const Json::Value json = summary_to_json(metrics);
-    EXPECT_DOUBLE_EQ(json["minBet"].asDouble(), 3.0);
-    EXPECT_DOUBLE_EQ(json["minBetMin"].asDouble(), 2.0);
-    EXPECT_EQ(json["nonzeroPosition"].asInt(), 3);
-    EXPECT_FALSE(json.isMember("avg_position_count"));
-    EXPECT_FALSE(json.isMember("min_position_count"));
+    metrics.avg_position_count = 3; metrics.min_position_count = 2; metrics.active_bar_count = 3;
+    metrics.pnl = 0.1; metrics.ann_ret = 0.2; metrics.mdd = -0.05;
+    metrics.turnover = 0.3; metrics.max_weight = 0.4; metrics.avg_max_bet = 0.25;
+    const auto json = summary_to_json(metrics);
+    EXPECT_DOUBLE_EQ(json["avgPositionCount"].asDouble(), 3);
+    EXPECT_DOUBLE_EQ(json["minPositionCount"].asDouble(), 2);
+    EXPECT_EQ(json["activeBarCount"].asInt(), 3);
+    EXPECT_DOUBLE_EQ(json["pnl"].asDouble(), 0.1);
+    EXPECT_DOUBLE_EQ(json["annualReturn"].asDouble(), 0.2);
+    EXPECT_DOUBLE_EQ(json["maxDrawdown"].asDouble(), -0.05);
+    EXPECT_DOUBLE_EQ(json["turnover"].asDouble(), 0.3);
+    EXPECT_DOUBLE_EQ(json["maxWeight"].asDouble(), 0.4);
+    EXPECT_DOUBLE_EQ(json["avgMaxWeight"].asDouble(), 0.25);
 }
 
-TEST(JsonSerializer, TimeseriesPreservesLegacyPositionCountKey) {
-    TimeseriesOutput timeseries;
-    timeseries.position_count = {2, 4, 3};
+TEST(JsonSerializer, PerformanceUsesEpochMillisecondsAndFractionalArrays) {
+    PerformanceSeries series;
+    series.timestamps = {86400000, 172800000};
+    series.cumulative_net = {-0.01, 0.02}; series.cumulative_gross = {0, 0.04};
+    series.drawdown = {0, -0.01}; series.turnover = {0.1, 0.2};
+    series.max_weight = {0.5, 0.6}; series.position_count = {2, 4}; series.os_start_index = 1;
+    const auto json = performance_to_json(series);
+    EXPECT_EQ(json["timestamps"][0].asInt64(), 86400000);
+    EXPECT_DOUBLE_EQ(json["cumulativeNet"][0].asDouble(), -0.01);
+    EXPECT_DOUBLE_EQ(json["cumulativeGross"][1].asDouble(), 0.04);
+    EXPECT_DOUBLE_EQ(json["drawdown"][1].asDouble(), -0.01);
+    EXPECT_DOUBLE_EQ(json["turnover"][1].asDouble(), 0.2);
+    EXPECT_DOUBLE_EQ(json["maxWeight"][1].asDouble(), 0.6);
+    EXPECT_EQ(json["positionCount"][1].asInt(), 4);
+    EXPECT_EQ(json["osStartIndex"].asUInt(), 1u);
+}
 
-    const Json::Value json = timeseries_to_json(timeseries);
-    ASSERT_EQ(json["nonzeroCount"].size(), 3u);
-    EXPECT_EQ(json["nonzeroCount"][0].asInt(), 2);
-    EXPECT_EQ(json["nonzeroCount"][1].asInt(), 4);
-    EXPECT_EQ(json["nonzeroCount"][2].asInt(), 3);
-    EXPECT_FALSE(json.isMember("position_count"));
+TEST(PerformanceReport, RebaseAtIsStartAndKeepOsContinuous) {
+    FullMetricsResult metrics;
+    metrics.timeseries.timestamps = {0, 86400000, 172800000, 259200000};
+    metrics.timeseries.cum_pnl = {0.4, 0.3, 0.25, 0.45};
+    metrics.timeseries.cum_pnl_gross = {0.5, 0.4, 0.35, 0.55};
+    metrics.timeseries.turnover_pct = {10, 20, 30, 40};
+    metrics.timeseries.max_weight_pct = {50, 60, 70, 80};
+    metrics.timeseries.position_count = {1, 2, 3, 4};
+    metrics.is_start_index = 1; metrics.os_start_index = 2;
+    const auto report = compute_performance_series(metrics);
+    ASSERT_EQ(report.timestamps.size(), 3u);
+    EXPECT_EQ(report.timestamps[0], 86400000);
+    EXPECT_NEAR(report.cumulative_net[0], -0.1, 1e-15);
+    EXPECT_NEAR(report.cumulative_net[2], 0.05, 1e-15);
+    EXPECT_NEAR(report.cumulative_gross[0], -0.1, 1e-15);
+    EXPECT_NEAR(report.drawdown[0], -0.1, 1e-15);
+    EXPECT_NEAR(report.drawdown[1], -0.15, 1e-15);
+    EXPECT_NEAR(report.drawdown[2], 0, 1e-15);
+    EXPECT_DOUBLE_EQ(report.turnover[0], 0.2);
+    EXPECT_DOUBLE_EQ(report.max_weight[2], 0.8);
+    EXPECT_EQ(report.os_start_index, 1u);
+    metrics.is_start_index = 4;
+    EXPECT_TRUE(compute_performance_series(metrics).timestamps.empty());
 }
 
 TEST(JsonSerializer, PlotOffsetKeepsDatesAndSignalRowsAligned) {
@@ -67,8 +91,8 @@ TEST(JsonSerializer, PlotOffsetKeepsDatesAndSignalRowsAligned) {
 
     const Json::Value json = signal_plot_to_json(signals, timestamps, symbols, 1);
     ASSERT_EQ(json["timestamps"].size(), 2u);
-    EXPECT_EQ(json["timestamps"][0].asString(), "1970-01-02");
-    EXPECT_EQ(json["timestamps"][1].asString(), "1970-01-03");
+    EXPECT_EQ(json["timestamps"][0].asInt64(), 86400000);
+    EXPECT_EQ(json["timestamps"][1].asInt64(), 172800000);
     ASSERT_EQ(json["symbols"].size(), 2u);
     EXPECT_EQ(json["symbols"][0].asString(), "AAA");
     EXPECT_EQ(json["symbols"][1].asString(), "BBB");
@@ -157,8 +181,8 @@ TEST(JsonSerializer, SignalPlotCellBudgetPreservesRawValuesDatesAndLatestRow) {
     EXPECT_EQ(json["values"].size() * json["symbols"].size(), 12u);
     EXPECT_TRUE(json["sampled"].asBool());
     EXPECT_EQ(json["originalRows"].asUInt(), 10u);
-    EXPECT_EQ(json["timestamps"][0].asString(), "1970-01-01");
-    EXPECT_EQ(json["timestamps"][2].asString(), "1970-01-10");
+    EXPECT_EQ(json["timestamps"][0].asInt64(), 0);
+    EXPECT_EQ(json["timestamps"][2].asInt64(), 777600000);
     EXPECT_DOUBLE_EQ(json["values"][0][0].asDouble(), 0.0);
     EXPECT_DOUBLE_EQ(json["values"][1][2].asDouble(), 52.0);
     EXPECT_DOUBLE_EQ(json["values"][2][3].asDouble(), 93.0);
@@ -168,7 +192,7 @@ TEST(JsonSerializer, SignalPlotBudgetAlsoBoundsVeryWidePanels) {
     const std::vector<std::vector<float>> signals = {{0, 1, 2, 3, 4}, {5, 6, 7, 8, 9}};
     const auto json = signal_plot_to_json(signals, {0, 86400000}, {"A", "B", "C", "D", "E"}, 0, 3);
     EXPECT_LE(json["values"].size() * json["symbols"].size(), 3u);
-    EXPECT_EQ(json["timestamps"][0].asString(), "1970-01-02");
+    EXPECT_EQ(json["timestamps"][0].asInt64(), 86400000);
     EXPECT_EQ(json["symbols"][2].asString(), "E");
     EXPECT_DOUBLE_EQ(json["values"][0][2].asDouble(), 9.0);
     EXPECT_GT(json["symbolStride"].asUInt(), 1u);
@@ -187,21 +211,15 @@ TEST(JsonSerializer, HistogramKeepsFiniteBinsForOppositeFloatExtremes) {
 }
 
 
-TEST(JsonSerializer, TimeseriesCarriesFrozenGrossAcrossTheTradingSpan) {
-    const std::vector<int64_t> timestamps = {0, 86400000, 172800000};
-    const std::vector<double> ret(3, 0.0), turnover(3, 0.0), max_weight(3, 0.0);
-    const std::vector<int> position_count(3, 0);
-    const std::vector<double> frozen = {9.0, 0.25, 0.5};
-    const auto series = compute_timeseries(timestamps, ret, ret, turnover, max_weight,
-                                           position_count, 1, &frozen);
-    ASSERT_EQ(series.frozen_gross.size(), 2u);
-    EXPECT_DOUBLE_EQ(series.frozen_gross[0], 0.25);
-    EXPECT_DOUBLE_EQ(series.frozen_gross[1], 0.5);
-    const Json::Value json = timeseries_to_json(series);
+TEST(JsonSerializer, PerformanceCarriesFrozenGrossAcrossTheReportSpan) {
+    FullMetricsResult metrics;
+    metrics.timeseries = compute_timeseries({0, 86400000, 172800000}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0});
+    metrics.timeseries.frozen_gross = {9, 0.25, 0.5};
+    metrics.is_start_index = 1; metrics.os_start_index = 2;
+    const auto json = performance_to_json(compute_performance_series(metrics));
     ASSERT_EQ(json["frozenGross"].size(), 2u);
     EXPECT_DOUBLE_EQ(json["frozenGross"][0].asDouble(), 0.25);
     EXPECT_DOUBLE_EQ(json["frozenGross"][1].asDouble(), 0.5);
-    EXPECT_EQ(series.timestamps.size(), series.frozen_gross.size());
 }
 
 TEST(JsonSerializer, SignalPlotSymbolSubsetReturnsEveryRowForThoseColumns) {
@@ -270,9 +288,9 @@ TEST(JsonSerializer, HistogramNamesLargestCellPerBin) {
     ASSERT_EQ(json["exampleSymbol"].size(), 200u);
     // range [-100, 3): -100 is the first inner bin; 3 and 50 spill into the top overflow bin, 50 wins on |value|
     EXPECT_EQ(json["exampleSymbol"][1].asString(), "A");
-    EXPECT_EQ(json["exampleDate"][1].asString(), "1970-01-01");
+    EXPECT_EQ(json["exampleTimestamp"][1].asInt64(), 0);
     EXPECT_EQ(json["exampleSymbol"][199].asString(), "A");
-    EXPECT_EQ(json["exampleDate"][199].asString(), "1970-01-03");
+    EXPECT_EQ(json["exampleTimestamp"][199].asInt64(), 172800000);
     EXPECT_TRUE(json["exampleSymbol"][0].isNull());
 }
 
@@ -389,13 +407,13 @@ TEST(JsonSerializer, LogHistogramUsesFullDataAndTrueNavigableExamplesDespitePlot
     expect_full_log_histogram(json, 6);
     EXPECT_DOUBLE_EQ(json["max"].asDouble(), static_cast<double>(3.58e9f));
     EXPECT_EQ(json["exampleSymbol"][199].asString(), "A");
-    EXPECT_EQ(json["exampleDate"][199].asString(), "1970-01-03");
+    EXPECT_EQ(json["exampleTimestamp"][199].asInt64(), 172800000);
     EXPECT_DOUBLE_EQ(json["exampleValue"][199].asDouble(), static_cast<double>(3.58e9f));
-    EXPECT_EQ(json["exampleDate"][0].asString(), "1970-01-02");
+    EXPECT_EQ(json["exampleTimestamp"][0].asInt64(), 86400000);
     for (Json::ArrayIndex i = 0; i < 200; ++i) {
         if (json["counts"][i].asUInt64() == 0) {
             EXPECT_TRUE(json["exampleSymbol"][i].isNull());
-            EXPECT_TRUE(json["exampleDate"][i].isNull());
+            EXPECT_TRUE(json["exampleTimestamp"][i].isNull());
             EXPECT_TRUE(json["exampleValue"][i].isNull());
         } else {
             EXPECT_GE(json["exampleValue"][i].asDouble(), json["edges"][i].asDouble());
@@ -422,7 +440,7 @@ TEST(JsonSerializer, PairedLinearHistogramUsesTheSameFinitePopulationAndFullRang
     EXPECT_EQ(linear["counts"][0].asUInt64(), 1u);
     EXPECT_EQ(linear["counts"][199].asUInt64(), 1u);
     EXPECT_EQ(linear["exampleSymbol"][199].asString(), "E");
-    EXPECT_EQ(linear["exampleDate"][199].asString(), "1970-01-02");
+    EXPECT_EQ(linear["exampleTimestamp"][199].asInt64(), 86400000);
     EXPECT_DOUBLE_EQ(linear["exampleValue"][199].asDouble(), static_cast<double>(maximum));
     const double span = linear["rangeHi"].asDouble() - linear["rangeLo"].asDouble();
     for (Json::ArrayIndex i = 0; i < 200; ++i) {
@@ -445,4 +463,26 @@ TEST(JsonSerializer, PairedLinearHistogramPreservesTinyZerosConstantsAndEmptyDat
     EXPECT_TRUE(json["linear"]["counts"].empty());
     EXPECT_TRUE(json["linear"]["edges"].empty());
     EXPECT_FALSE(json["linear"].isMember("linear"));
+}
+
+TEST(JsonSerializer, PlotStatisticsMatchReceivedFinitePopulationIncludingOutsideUniverse) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const std::vector<std::vector<float>> rows = {{1, 2, 3, 4}, {5, 5, 5, 100}, {nan,nan,nan,nan}, {7,7,7,7}};
+    const std::vector<int64_t> dates = {0,1,2,3};
+    const std::vector<std::size_t> all = {0,1,2,3};
+    const std::vector<uint8_t> membership = {1,0,0,0, 1,1,1,1, 1,1,1,1, 1,1,1,1};
+    const auto plot = signal_plot_to_json(rows, dates, {"A","B","C","D"}, 0, 100, &all, &membership);
+    ASSERT_EQ(plot["centers"].size(), 4u);
+    EXPECT_DOUBLE_EQ(plot["centers"][0].asDouble(), 2.5);
+    EXPECT_NEAR(plot["scales"][0].asDouble(), 1.4826, 1e-12);
+    EXPECT_DOUBLE_EQ(plot["centers"][1].asDouble(), 5);
+    EXPECT_NEAR(plot["scales"][1].asDouble(), std::sqrt(1692.1875), 1e-12);
+    EXPECT_TRUE(plot["centers"][2].isNull()); EXPECT_TRUE(plot["scales"][2].isNull());
+    EXPECT_DOUBLE_EQ(plot["centers"][3].asDouble(), 7);
+    EXPECT_DOUBLE_EQ(plot["scales"][3].asDouble(), 0);
+    // A selected/sampled subset, rather than the hidden complete panel, owns the population.
+    const std::vector<std::size_t> subset = {0,3};
+    const auto selected = signal_plot_to_json(rows, dates, {"A","B","C","D"}, 0, 100, &subset);
+    EXPECT_DOUBLE_EQ(selected["centers"][0].asDouble(), 2.5);
+    EXPECT_NEAR(selected["scales"][0].asDouble(), 1.5 * 1.4826, 1e-12);
 }

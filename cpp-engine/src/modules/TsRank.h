@@ -15,37 +15,38 @@ struct MTsRank : public Module {
     {
         unsigned w = (unsigned)days;
 
-        for (unsigned ii = 0; ii < numAssets; ++ii)
-            buf[ii][pos] = output[ii];
+        const unsigned cur_slot = pos;
         pos = (pos + 1) % w;
         if (count < w) ++count;
 
-        for (unsigned ii = 0; ii < numAssets; ++ii) {
-            unsigned cur_slot = (pos + w - 1) % w;
-            float cur = buf[ii][cur_slot];
+        parallel_for_assets(numAssets, w, [&](unsigned begin, unsigned end) {
+            for (unsigned ii = begin; ii < end; ++ii) {
+                buf[ii][cur_slot] = output[ii];
+                float cur = buf[ii][cur_slot];
 
-            if (!std::isfinite(cur)) {
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-                continue;
+                if (!std::isfinite(cur)) {
+                    output[ii] = std::numeric_limits<float>::quiet_NaN();
+                    continue;
+                }
+
+                int n_valid = 0, n_less = 0, n_equal = 0;
+                for (unsigned j = 0; j < w; ++j) {
+                    float v = buf[ii][j];
+                    if (!std::isfinite(v)) continue;
+                    ++n_valid;
+                    if (v < cur) ++n_less;
+                    else if (v == cur) ++n_equal;
+                }
+
+                if (n_valid < min_count) {
+                    output[ii] = std::numeric_limits<float>::quiet_NaN();
+                    continue;
+                }
+
+                double rank = (n_less + 1 + (n_equal - 1) / 2.0);
+                output[ii] = (float)(pct ? rank / n_valid : rank);
             }
-
-            int n_valid = 0, n_less = 0, n_equal = 0;
-            for (unsigned j = 0; j < w; ++j) {
-                float v = buf[ii][j];
-                if (!std::isfinite(v)) continue;
-                ++n_valid;
-                if (v < cur) ++n_less;
-                else if (v == cur) ++n_equal;
-            }
-
-            if (n_valid < min_count) {
-                output[ii] = std::numeric_limits<float>::quiet_NaN();
-                continue;
-            }
-
-            double rank = (n_less + 1 + (n_equal - 1) / 2.0);
-            output[ii] = (float)(pct ? rank / n_valid : rank);
-        }
+        });
     }
 
     std::vector<std::vector<float>> buf;

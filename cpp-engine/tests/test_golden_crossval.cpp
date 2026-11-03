@@ -12,8 +12,8 @@
 
 #include "module.h"
 #include "signal_vector.h"
-#include "data/data_panel.h"
-#include "metrics/summary_metrics.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include "modules/Decay.h"
 #include "modules/Delay.h"
 #include "modules/Neutralize.h"

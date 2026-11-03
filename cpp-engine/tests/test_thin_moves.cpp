@@ -1,8 +1,8 @@
 // Thin cache engine path (BRIEF_S section 3-3): holding P&L = carried x returns_total,
 // move_events applied from the bar-start book. Expected values are computed by hand.
 #include <gtest/gtest.h>
-#include "../src/data/data_panel.h"
-#include "../src/engine/simulator.h"
+#include "simulation_data.h"
+#include "simulator_engine.h"
 #include <cmath>
 #include <limits>
 #include <stdexcept>

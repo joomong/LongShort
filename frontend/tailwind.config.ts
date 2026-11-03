@@ -3,12 +3,7 @@ import defaultTheme from 'tailwindcss/defaultTheme';
 
 const config: Config = {
   darkMode: 'class',
-  content: [
-    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./lib/**/*.{ts,tsx}",
-  ],
+  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       fontFamily: {
@@ -34,17 +29,12 @@ const config: Config = {
         "chart-line": "var(--chart-line)",
         "row-hover": "var(--row-hover)",
         "metric-positive": "var(--metric-positive)",
-        "metric-neutral": "var(--metric-neutral)",
         "metric-negative": "var(--metric-negative)",
         "row-active": "var(--row-active)",
         "data-color": "var(--data-color)",
-        "metric-positive-bg": "var(--metric-positive-bg)",
-        "metric-negative-bg": "var(--metric-negative-bg)",
-        "metric-neutral-bg": "var(--metric-neutral-bg)",
       },
       boxShadow: {
         card: "0 1px 3px rgba(0,0,0,0.3)",
-        elevated: "0 4px 12px rgba(0,0,0,0.4)",
         modal: "0 8px 32px rgba(0,0,0,0.5)",
       },
     },

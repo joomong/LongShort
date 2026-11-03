@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MRank: cross-sectional percentile rank (stateless).
 struct MRank : public Module {

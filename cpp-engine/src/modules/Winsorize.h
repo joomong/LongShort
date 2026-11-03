@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MWinsorize: clip each value to mean +/- std * sample sd of the masked
 // cross-section (stateless). Fewer than 2 finite values pass unchanged.

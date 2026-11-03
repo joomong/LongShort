@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <vector>
-#include "metrics/summary_metrics.h"
+#include "simulator_engine.h"
 
 TEST(SummaryMetrics, BasicComputation) {
     // 4 return bars (no dummy bar-0 — compute_summary processes all elements)

@@ -1,5 +1,5 @@
 #pragma once
-#include "../data/data_panel.h"
+#include "simulation_data.h"
 
 // MZscore: cross-sectional z-score (stateless).
 struct MZscore : public Module {

@@ -1,17 +1,27 @@
 import { mockRun } from '../helpers/mockRun';
 import { test, expect } from '@playwright/test';
-import captured from '../../__tests__/fixtures/capture.json';
-import fixture from '../../__tests__/fixtures/cpp_multi.json';
+import captured from '../unit/fixtures/capture.json';
+import fixture from '../unit/fixtures/cpp_multi.json';
 
 test('Execution selection is sent on each run without an interval mode', async ({ page }) => {
   const requests: Array<{ executionPrice: string }> = [];
-  await page.route('**/api/config', route => route.fulfill({ json: {
-    ...captured.config, executionPrice: 'close', executionPrices: ['close', 'ohlc4', 'vwap'], } }));
-  await mockRun(page, route => {
+  await page.route('**/api/config', (route) =>
+    route.fulfill({
+      json: {
+        ...captured.config,
+        executionPrice: 'close',
+        executionPrices: ['close', 'ohlc4', 'vwap'],
+      },
+    }),
+  );
+  await mockRun(page, (route) => {
     const body = route.request().postDataJSON();
     expect(body).not.toHaveProperty('mode');
-    requests.push({ executionPrice: body.executionPrice });
-    return route.fulfill({ json: { ...fixture, executionPrice: body.executionPrice } });
+    if (route.request().url().endsWith('/api/ga/stream'))
+      requests.push({ executionPrice: body.executionPrice });
+    return route.fulfill({
+      json: { ...fixture, context: { ...fixture.context, executionPrice: body.executionPrice } },
+    });
   });
   await page.goto('/');
   const execution = page.getByLabel('Execution price');
@@ -28,7 +38,10 @@ test('Execution selection is sent on each run without an interval mode', async (
   await execution.selectOption('close');
   await page.getByLabel('Run Backtest (Shift+Enter)').click();
   await expect.poll(() => requests.length).toBe(3);
-  expect(requests).toEqual([{ executionPrice: 'ohlc4', }, { executionPrice: 'vwap', },
-    { executionPrice: 'close', }]);
+  expect(requests).toEqual([
+    { executionPrice: 'ohlc4' },
+    { executionPrice: 'vwap' },
+    { executionPrice: 'close' },
+  ]);
   await expect(page.getByLabel('Bar interval')).toHaveCount(0);
 });
