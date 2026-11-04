@@ -4,6 +4,7 @@
 
 | 목적 | 안내 |
 |---|---|
+| 내부 파일 구성과 엔진·화면 역할 | [내부 구조와 실행 흐름](architecture.md) |
 | 빌드, 실행, 모듈 발견, 검증 | [빌드와 검증](build_and_validation.md) |
 | 데이터 설정과 현재 thin 계약 | [데이터 계약](data_contract.md) |
 | 손익·체결·지표·엔진/화면 결과 계약 | [엔진 계산 계약](math_contract.md) |

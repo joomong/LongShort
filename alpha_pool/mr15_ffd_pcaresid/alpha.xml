@@ -1,5 +1,0 @@
-<data expr="close/adj_factor" delay="1" />
-<ffd d="0.24" thres="0.00001" />
-<pcaresid group="sector" train="1260" refit="252" var="0.9" />
-<rank />
-<neutralize group="sector" />

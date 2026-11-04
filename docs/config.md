@@ -71,9 +71,11 @@ sector·industry·모든 universe 마스크는 로딩 시 이전 거래일 기�
 
 `alphas_dir`는 웹에서 저장할 알파 디렉터리이며 기본값은 설정 옆 `alphas`다. 저장 형태는 `<name>/{alpha.xml, metadata.yml, results/, positions/}`다. `meta_dir`는 `<meta expr="이름"/>`이 읽을 구성원 XML 디렉터리이며 기본값은 설정 옆 `meta`다. 저장 결과는 실행 당시 context를 보존한다. 현재 엔진에 원래 유니버스가 없으면 그 기준의 상세 조회를 사용할 수 없으며, 저장한 지표에 다른 유니버스의 신호를 결합하지 않는다. 다른 설정으로 실행하면 별도의 새 결과가 된다.
 
+웹에서 저장하는 `alpha.xml`은 태그별 줄바꿈과 2칸 들여쓰기를 사용한다. `<meta>`를 사용하는 알파도 같은 형식으로 저장하며 주석과 수식의 의미를 유지한다. 기존 저장 파일을 일괄 재작성하지 않는다.
+
 `alpha_pool`은 승인 알파 풀 경로다. 엔진이 `<이름>/alpha.xml`을 읽어 풀의 동일가중 일별 손익과 실행 결과의 상관관계를 계산하고 화면의 `Corr`에 표시한다. 풀에는 쓰지 않는다. `alpha_pool_universe`는 풀 평가 유니버스이며 생략하면 기본 유니버스를 사용한다.
 
-승인 알파는 플랫폼 저장소의 `alpha_pool/`에서 Git으로 관리한다. 예제의 상대 경로는 설정 파일 위치를 기준으로 해석한다. `longshort`가 새 workspace 설정을 만들 때는 해당 플랫폼의 `alpha_pool/` 절대 경로를 기록한다. `meta_pool/`과 `portfolio/`는 전략 정의를 둘 디렉터리이며 현재 실행 경로에는 연결하지 않았다.
+승인 알파는 `/home/base/longshort/alpha_pool/`에 둔다. Git은 `longshort_platform/` 코드 저장소에서만 사용한다. 예제의 상대 경로는 설정 파일 위치를 기준으로 해석한다. `longshort`가 새 workspace 설정을 만들 때는 플랫폼 옆 `../alpha_pool/`의 절대 경로를 기록한다. `meta_pool/`과 `portfolio/`는 전략 정의를 둘 디렉터리이며 현재 실행 경로에는 연결하지 않았다.
 
 UI 종목 라벨은 캐시의 `master.parquet`에서 `symbol`, 없으면 `companyName`을 사용한다. `backtest.symbol_labels_path` JSON을 지정하면 해당 라벨을 우선한다.
 

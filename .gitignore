@@ -228,6 +228,7 @@ data/
 *.jpg
 *.jpeg
 *.png
+!docs/png/*.png
 
 # Per-config generated engine builds
 .longshort/
@@ -278,3 +279,5 @@ frontend/public/monaco/
 frontend/tests/.artifacts/
 frontend/.env*
 !frontend/.env.example
+
+frontend/.init.lock

@@ -4,11 +4,35 @@
 
 ## 서버와 화면 실행
 
-루트 `longshort`가 CMake를 직접 호출해 빌드하고 엔진과 화면을 실행한다([README](../README.md) 실행 절). 별도 Python 실행기는 없다.
+루트 `longshort`가 CMake를 직접 호출해 빌드하고 엔진과 화면을 실행한다.
+다른 사용자와 겹치지 않는 엔진·화면 포트를 선택한다.
 
 ```bash
-~/longshort_platform/longshort start --port <엔진포트> --ui-port <화면포트>
+# 관리자: 공용 환경 준비
+./longshort init
+# 사용자: 개인 엔진과 화면 실행
+./longshort start --port 50017 --ui-port 50016
+./longshort start
+./longshort restart
+./longshort stop
 ```
+
+`init`은 관리자가 서버에서 한 번 실행해 공용 C++ 라이브러리와 화면 패키지를 준비한다. 사용자는 `start`로 개인 workspace를 생성한다.
+공용 서버의 시스템 도구와 데이터 캐시를 사용한다. 사용자별 시스템 패키지나 Node 설치는 필요 없다.
+`init`은 CMake 3.24 이상, Python 3.8 이상, Node 호환 버전과 C++17 컴파일 지원을 검사한다.
+Node는 패키지 요구사항에 맞춰 20.x의 20.19 이상, 22.x의 22.12 이상 또는 24 이상을 허용한다.
+도구가 없거나 호환되지 않으면 공용 도구를 관리하는 서버 관리자에게 알리도록 안내한다.
+프런트엔드 패키지는 기존 `node_modules` 유무와 관계없이 `npm ci`로 lockfile에 맞춘다.
+첫 `start`는 `~/longshort_workspace/`에 설정과 작업 폴더를 만들고 두 포트를 저장한다.
+설정의 `alpha_pool`에는 공용 소스 옆 `../alpha_pool/`의 절대 경로를 기록한다.
+이후 `start`는 저장된 포트를 사용하고, `restart`는 빌드 성공 후 기존 프로세스를 재기동한다.
+`stop`은 해당 workspace에서 스크립트가 시작한 엔진과 화면을 종료한다.
+화면은 시작 시 엔진 주소를 사용하므로 사용자별로 엔진과 화면을 함께 실행한다.
+
+workspace는 `LONGSHORT_WORKSPACE`, 브라우저에서 접근할 서버 주소는 `LONGSHORT_HOST`로 지정한다.
+기본 서버 주소는 서버의 첫 IP다. 빌드·pid·로그·포트 파일은 workspace의 `.longshort/`에 둔다.
+workspace를 복사할 때 생성 파일인 `.longshort/`는 제외한다.
+캐시 갱신 후에는 엔진을 재시작하고 웹 화면을 새로고침한다.
 
 기본 모듈 경로는 설정 파일 옆 `modules/`, 빌드 경로는 `.longshort/build/`다. 모듈 추가나 수정은 다음 프로그램 시작 때 반영된다. 모듈 생성이나 빌드가 실패하면 이전 실행 파일로 기동하지 않는다.
 
@@ -24,27 +48,23 @@ LONGSHORT_WORKSPACE=/path/to/workspace ./longshort start --build-only \
 
 `start --build-only`는 서버를 시작하지 않고 빌드까지만 수행한다. `--build-dir`는 해당 호출의 빌드·실행에 적용하므로 `restart`에서도 같은 경로를 지정한다. 빌드 잠금(`flock`)과 소스 경로 검사를 수행하며 실패한 빌드 뒤에 이전 서버를 새로 기동하지 않는다. `--jobs`, `--build-type`, `--cmake-define NAME=VALUE`로 빌드를 설정한다. 빌드 디렉터리를 모듈 경로 안에 두거나 같은 빌드 경로에서 동시에 configure/build하지 않는다.
 
-화면은 `frontend/`에서 실행한다.
-
-```bash
-cd ~/longshort_platform/frontend
-npm ci
-NEXT_PUBLIC_API_URL="http://SERVER_ADDRESS:<엔진포트>" npm run dev -- --port <화면포트>
-```
-
-`SERVER_ADDRESS`는 브라우저가 접근할 수 있는 서버 주소로 바꾼다. Production은 같은 API 주소를 지정해 `npm run build` 후 `npm start`로 실행한다.
+화면 실행 폴더는 개인 workspace의 `.longshort/frontend/`다. `start`가 공용 화면 소스·설정을 이 폴더에 복사하고 패키지·정적 파일은 공용 경로를 참조한다. Next.js 출력·타입 생성·TypeScript 캐시는 개인 폴더에 기록한다. 화면 소스 변경은 `restart`로 반영한다.
 
 ## 빌드 의존성과 모듈 발견
 
-C++17 컴파일러와 CMake, Arrow/Parquet, Drogon 및 저장소 CMake가 요구하는 라이브러리가 필요하다. pugixml·yaml-cpp·drogon·Eigen(3.4.0, 헤더 전용, SHA256 고정)은 configure 때 FetchContent로 내려받으며 테스트 빌드는 googletest도 사용한다. 최초 configure에는 네트워크가 필요하다. CMake 패키지를 이미 준비한 경로를 우선 사용한다. PyArrow 번들 Arrow/Parquet를 쓰면 해당 Python을 명시한다.
+C++17 컴파일러와 CMake 3.24 이상을 사용한다. 공용 라이브러리 위치는 소스 폴더 옆
+`../dependencies/`이며 `LONGSHORT_DEPENDENCIES`로 변경할 수 있다.
+`longshort init`이 Arrow·Parquet 18.1.0을 직접 빌드하고 jsoncpp·uuid 개발 파일을 준비한다.
+Arrow에는 실제 캐시의 SNAPPY·ZSTD와 GZIP 압축을 읽을 수 있는 코덱을 포함한다.
+Python 가상환경 없이 CMake의 `find_package(Arrow)`와 `find_package(Parquet)`로 연결한다.
+빌드·실행 모두 이 공용 라이브러리를 사용하므로 모든 사용자가 읽을 수 있어야 한다.
 
 ```bash
-./longshort start --build-only \
-  --cmake-define LONGSHORT_PYARROW_PYTHON=/path/to/python-with-pyarrow \
-  --cmake-define CMAKE_PREFIX_PATH=/path/to/dependency-prefix
+./longshort start --build-only
 ```
 
-플랫폼 루트의 `longshort init`이 이 둘을 `LONGSHORT_DEPS`(기본 `/home/base/longshort_deps`)에 만들고, `longshort start`가 `LONGSHORT_PYARROW_PYTHON=$DEPS/venv/bin/python`, `CMAKE_PREFIX_PATH=$DEPS/prefix`로 넘긴다. 서버에 Arrow C++ 패키지와 jsoncpp·uuid 개발 헤더가 설치돼 있지 않아서(root 없음; 런타임 `libjsoncpp.so.25`·`libuuid.so.1`만 있다) `init`은 `venv/`를 시스템 python3로 만들어 `pip install pyarrow==18.1.0`(운영 엔진이 링크된 버전; `LONGSHORT_PYARROW_VERSION`으로 바꿈)으로 `libarrow`·`libparquet`를 얻고, `prefix/`에는 `apt-get download libjsoncpp-dev libjsoncpp25 uuid-dev libuuid1`을 `dpkg -x`로 풀어 `usr/` 아래를 옮긴다(`include/jsoncpp/json`, `include/uuid`, `lib/x86_64-linux-gnu/{libjsoncpp.so*, libuuid.so*, cmake/jsoncpp}`). `-dev` 패키지만 풀면 `.so` 실체가 런타임 패키지에 있어 CMake가 imported target 파일 부재로 실패하므로 런타임 패키지까지 함께 푼다. 이 배치면 jsoncpp CONFIG 패키지와 Drogon의 FindUUID가 추가 지정 없이 찾는다. 빌드 결과는 venv 안의 `libarrow.so`·`libparquet.so`를 실행 시에도 참조하므로 deps는 모든 사용자가 읽을 수 있는 곳에 있어야 한다. 폴더가 없어도 이미 configure 된 빌드는 CMake 캐시의 경로를 쓴다.
+pugixml·yaml-cpp·drogon·Eigen은 각 사용자 빌드의 FetchContent가 지정 버전으로 준비한다.
+테스트 빌드는 googletest도 사용한다. Python은 빌드 도구와 테스트에 사용한다.
 
 헤더와 라이브러리는 같은 설치에서 가져온다. 사용자 모듈의 `.h/.hpp/.cpp/.cc/.cxx`를 발견하고 빌드 경로의 `generated/`에 헤더 include와 `register_<파일명>(registry)` 호출 목록만 생성한다. 모듈의 타입·속성은 C++ 등록 선언을 컴파일한다. 점으로 시작하는 하위 경로는 검색에서 제외된다. 변경 없는 registry는 다시 쓰지 않고, 파일 추가·수정·삭제는 증분 빌드가 반영한다. 모듈 문법과 속성은 [모듈 규약](modules.md)을 따른다.
 
@@ -71,10 +91,9 @@ GA 후보, 여러 알파, 메타 구성원, 저장 결과 재계산은 기존 �
 ```bash
 cmake -S cpp-engine -B /path/to/test-build \
   -DLONGSHORT_BUILD_TESTS=ON \
-  -DLONGSHORT_PYARROW_PYTHON=/path/to/python-with-pyarrow \
-  -DCMAKE_PREFIX_PATH=/path/to/dependency-prefix
+  -DCMAKE_PREFIX_PATH=/home/base/longshort/dependencies
 cmake --build /path/to/test-build --parallel 4
-/path/to/python-with-pyarrow cpp-engine/tests/make_http_test_fixture.py --output-dir /tmp/longshort-http-fixture
+python3 cpp-engine/tests/make_http_test_fixture.py --output-dir /tmp/longshort-http-fixture
 LONGSHORT_TEST_SERVER=/path/to/test-build/longshort-server \
 LONGSHORT_TEST_CONFIG=/tmp/longshort-http-fixture/config.yaml \
 ctest --test-dir /path/to/test-build --output-on-failure -j 4

@@ -3,8 +3,8 @@
 개인 모듈은 `~/longshort_workspace/modules/`에 둔다. 공용 내장 모듈은 `cpp-engine/src/modules/`에 둔다. 루트 `longshort`가 CMake를 직접 호출해 증분 빌드한다.
 
 ```bash
-~/longshort_platform/longshort start --build-only  # 빌드만
-~/longshort_platform/longshort restart            # 빌드 → 중지 → 기동
+/home/base/longshort/longshort_platform/longshort start --build-only  # 빌드만
+/home/base/longshort/longshort_platform/longshort restart            # 빌드 → 중지 → 기동
 ```
 
 사용자 모듈은 계산 클래스와 XML 등록 선언을 같은 헤더에 작성한다. `ModulePrelude.h`가 기본 타입, Eigen, 등록 API를 제공하므로 별도 include는 필요하지 않다. 예를 들어 `MySignal.h`는 다음과 같다.

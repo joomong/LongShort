@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
@@ -10,12 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------------------------------------------------------------------
-# Dependencies from conda (Arrow, Parquet)
+# Shared C++ dependencies
 # ---------------------------------------------------------------------------
-if(DEFINED ENV{CONDA_PREFIX})
-    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
-endif()
-include(cmake/ArrowDependencies.cmake)
+find_package(Arrow 18.1.0 EXACT CONFIG REQUIRED)
+find_package(Parquet 18.1.0 EXACT CONFIG REQUIRED)
 
 set(LONGSHORT_MODULE_DIR "" CACHE PATH
     "Directory containing additional user module headers and sources (empty: built-in modules only)")
@@ -222,14 +220,9 @@ foreach(tool_test test_longshort_launcher test_module_build)
 endforeach()
 
 # The weights oracle needs numpy/scipy/scikit-learn, which ${Python3_EXECUTABLE} need not have.
-# Prefer the interpreter whose PyArrow already backs this build; the test itself exits 77 when
-# those modules are missing, so CTest reports a skip instead of a pass.
-set(oracle_python "${Python3_EXECUTABLE}")
-if(LONGSHORT_PYARROW_PYTHON)
-    set(oracle_python "${LONGSHORT_PYARROW_PYTHON}")
-endif()
+# The test exits 77 when its Python dependencies are unavailable.
 add_test(NAME test_meta_weights_oracle
-    COMMAND "${oracle_python}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_meta_weights_oracle.py"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_meta_weights_oracle.py"
             "$<TARGET_FILE:meta_weights_probe>")
 set_tests_properties(test_meta_weights_oracle PROPERTIES SKIP_RETURN_CODE 77)
 endif()

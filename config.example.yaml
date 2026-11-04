@@ -31,5 +31,5 @@ backtest:
   missing_close_policy: carry
 
 # Approved alpha pool (optional): the Corr column of the results table correlates a run with these alphas.
-alpha_pool: alpha_pool
+alpha_pool: ../alpha_pool
 alpha_pool_universe: TOP500_CAP   # the pool standard (book universe); pool alphas are simulated with it once at startup

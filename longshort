@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # longshort — 개인 workspace(~/longshort_workspace)로 엔진과 화면을 빌드·기동·중지한다.
 #
-#   longshort init                                  # 최초 1회: 도구 확인, 공용 deps(/home/base/longshort_deps) 없으면 생성, 화면 npm ci
+#   longshort init                                  # 최초 1회: 도구 확인, 공용 dependencies 설치, 화면 npm ci
 #   longshort start --port 50017 --ui-port 50016   # 첫 기동: workspace 생성(없으면), 빌드, 엔진+화면 기동
 #   longshort start                                 # 다음부터는 저장된 포트로
 #   longshort start --build-only                    # 빌드만 (돌고 있는 엔진은 그대로)
@@ -10,15 +10,14 @@
 #   longshort stop                                  # 이 workspace의 엔진·화면만 내린다
 #   longshort restart                               # 빌드 → 중지 → 기동 (빌드 실패 시 기존 엔진 유지)
 #
-# 환경변수(선택): LONGSHORT_WORKSPACE(기본 ~/longshort_workspace), LONGSHORT_DEPS(기본 /home/base/longshort_deps:
-# venv/bin/python 의 pyarrow가 Arrow/Parquet, prefix/ 가 jsoncpp·uuid), LONGSHORT_HOST(브라우저가 접속하는 주소).
+# 환경변수: LONGSHORT_WORKSPACE, LONGSHORT_DEPENDENCIES, LONGSHORT_HOST.
 set -euo pipefail
 
-PLATFORM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLATFORM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WS="${LONGSHORT_WORKSPACE:-$HOME/longshort_workspace}"
 STATE="$WS/.longshort"
 LOGS="$STATE/logs"
-DEPS="${LONGSHORT_DEPS:-/home/base/longshort_deps}"
+DEPENDENCIES="$(realpath -m -- "${LONGSHORT_DEPENDENCIES:-$PLATFORM/../dependencies}")"
 HOST="${LONGSHORT_HOST:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 TEMPLATE="$PLATFORM/config.example.yaml"
 START_TIMEOUT="${LONGSHORT_START_TIMEOUT:-900}"
@@ -35,14 +34,14 @@ bootstrap() {
     [ ! -e "$WS/modules" ] || [ -d "$WS/modules" ] || die "Module path is not a directory: $WS/modules"
     mkdir -p "$WS"/{alphas,meta,modules,research} "$LOGS"
     if [ ! -f "$WS/config.yaml" ]; then
-        python3 - "$TEMPLATE" "$WS/config.yaml" "$PLATFORM/alpha_pool" <<'PY'
+        python3 - "$TEMPLATE" "$WS/config.yaml" "$(realpath -m -- "$PLATFORM/../alpha_pool")" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 template, destination, pool = sys.argv[1:]
 Path(destination).write_text(Path(template).read_text().replace(
-    'alpha_pool: alpha_pool\n', 'alpha_pool: ' + json.dumps(pool) + '\n'))
+    'alpha_pool: ../alpha_pool\n', 'alpha_pool: ' + json.dumps(pool) + '\n'))
 PY
         echo "[workspace] $WS/config.yaml 를 예제에서 만들었다 (데이터 경로는 공용 캐시; 필요하면 backtest 블록만 고친다)"
     fi
@@ -92,54 +91,52 @@ stop_one() {  # stop_one <pidfile> <name-pattern> <label>
     rm -f "$1"
 }
 
-# --- init: 공용 빌드 의존성 ---------------------------------------------------
-# 이 서버에는 Arrow C++ 와 jsoncpp·uuid 개발 헤더가 없다(root 없이 apt 설치 불가). 대신
-#   venv/   : pip 의 pyarrow 휠이 libarrow·libparquet 를 가져온다(빌드·실행 모두 이 경로를 읽음)
-#   prefix/ : Ubuntu 패키지(libjsoncpp-dev+libjsoncpp25, uuid-dev+libuuid1)를 받아 풀어 둔 것(헤더·.so·CMake 설정)
-# 둘 다 한 번만 만들면 모든 사용자가 같이 쓴다. 이미 있으면 건너뛴다.
-PYARROW_VERSION="${LONGSHORT_PYARROW_VERSION:-18.1.0}"   # 운영 엔진이 링크된 버전
-DEB_PACKAGES=(libjsoncpp-dev libjsoncpp25 uuid-dev libuuid1)
+# --- shared dependencies ---------------------------------------------------
+dependencies_ready() {
+    [ -f "$DEPENDENCIES/lib/cmake/Arrow/ArrowConfig.cmake" ] &&
+    [ -f "$DEPENDENCIES/lib/cmake/Parquet/ParquetConfig.cmake" ] &&
+    [ -f "$DEPENDENCIES/include/uuid/uuid.h" ]
+}
 
-deps_ready() { [ -x "$DEPS/venv/bin/python" ] && [ -f "$DEPS/prefix/include/uuid/uuid.h" ] && [ -d "$DEPS/prefix/lib" ]; }
+check_init_tools() {
+    local missing=()
+    for t in cmake c++ python3 node npm curl ss git apt-get dpkg flock; do
+        command -v "$t" > /dev/null || missing+=("$t")
+    done
+    [ ${#missing[@]} -eq 0 ] || die "Missing shared tools: ${missing[*]}. Contact the server administrator."
+    local node_version cmake_version
+    node_version="$(node --version)"
+    cmake_version="$(cmake --version)"
+    python3 - "$node_version" "$cmake_version" <<'PY'
+import re
+import sys
+
+node, cmake = sys.argv[1:]
+if sys.version_info < (3, 8):
+    sys.exit('Python >= 3.8 required; found ' + sys.version.split()[0] + '. Contact the server administrator.')
+version = re.search(r'cmake version (\d+)\.(\d+)\.(\d+)', cmake)
+if not version or tuple(map(int, version.groups())) < (3, 24, 0):
+    sys.exit('CMake >= 3.24 required; found ' + cmake.splitlines()[0] + '. Contact the server administrator.')
+version = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', node)
+major, minor, patch = map(int, version.groups()) if version else (0, 0, 0)
+if not (major == 20 and minor >= 19 or major == 22 and minor >= 12 or major >= 24):
+    sys.exit('Node.js 20.19+, 22.12+, or 24+ required; found ' + node + '. Contact the server administrator.')
+PY
+    c++ -std=c++17 -x c++ -fsyntax-only - <<'CPP' || die "A C++17 compiler is required. Contact the server administrator."
+#include <filesystem>
+#include <optional>
+int main() { std::optional<std::filesystem::path> path; }
+CPP
+}
 
 cmd_init() {
-    [ $# -eq 0 ] || die "init 은 옵션이 없다 (deps 위치는 LONGSHORT_DEPS 로)"
-    local missing=()
-    for t in cmake c++ python3 node npm curl ss; do command -v "$t" > /dev/null || missing+=("$t"); done
-    [ ${#missing[@]} -eq 0 ] || die "시스템 도구가 없다: ${missing[*]} (관리자에게 설치를 요청한다)"
-    echo "[init] cmake $(cmake --version | head -1 | awk '{print $3}'), $(c++ --version | head -1), python $(python3 -c 'import sys;print(sys.version.split()[0])'), node $(node --version)"
-
-    mkdir -p "$DEPS"
-    exec 9> "$DEPS/.init.lock"; flock 9   # 두 사용자가 동시에 init 해도 한 번만 만든다
-
-    if "$DEPS/venv/bin/python" -c 'import pyarrow' 2> /dev/null; then
-        echo "[init] venv 있음: pyarrow $("$DEPS/venv/bin/python" -c 'import pyarrow;print(pyarrow.__version__)')"
-    else
-        echo "[init] venv 생성 + pyarrow $PYARROW_VERSION 설치 (Arrow/Parquet 라이브러리 용도) ..."
-        python3 -m venv "$DEPS/venv"
-        "$DEPS/venv/bin/python" -m pip install --quiet --upgrade pip
-        "$DEPS/venv/bin/python" -m pip install --quiet "pyarrow==$PYARROW_VERSION"
-    fi
-
-    if [ -f "$DEPS/prefix/include/uuid/uuid.h" ] && [ -n "$(find "$DEPS/prefix/lib" -name 'libjsoncpp.so.*' 2> /dev/null)" ]; then
-        echo "[init] prefix 있음: $DEPS/prefix"
-    else
-        echo "[init] prefix 생성: ${DEB_PACKAGES[*]} 를 받아 $DEPS/prefix 에 푼다 ..."
-        local tmp; tmp="$(mktemp -d "$DEPS/.prefix.XXXXXX")"
-        (cd "$tmp" && apt-get download "${DEB_PACKAGES[@]}" > /dev/null) \
-            || { rm -rf "$tmp"; die "apt-get download 실패 (네트워크/미러). deb 4개를 받아 $DEPS/prefix 에 dpkg -x 로 풀어도 된다"; }
-        for d in "$tmp"/*.deb; do dpkg -x "$d" "$tmp/x"; done
-        mkdir -p "$DEPS/prefix" && cp -a "$tmp/x/usr/." "$DEPS/prefix/" && rm -rf "$tmp"
-        local dangling; dangling="$(find "$DEPS/prefix" -xtype l)"
-        [ -z "$dangling" ] || die "prefix 에 깨진 링크가 있다: $dangling"
-    fi
-    chmod -R g+rwX,o+rX "$DEPS" 2> /dev/null || true   # 같은 그룹은 갱신, 나머지는 읽기
-    echo "[init] deps 준비됨: $DEPS"
-
-    local fe="$PLATFORM/frontend"
-    if [ -d "$fe/node_modules" ]; then echo "[init] frontend node_modules 있음"
-    else echo "[init] frontend npm ci (몇 분) ..."; (cd "$fe" && npm ci --no-audit --no-fund > /dev/null); fi
-    echo "다음: $PLATFORM/longshort start --port <엔진포트> --ui-port <화면포트>"
+    [ $# -eq 0 ] || die "init takes no options"
+    check_init_tools
+    "$PLATFORM/cpp-engine/tools/install_dependencies.sh" "$DEPENDENCIES"
+    exec 9> "$PLATFORM/frontend/.init.lock"
+    flock 9
+    (cd "$PLATFORM/frontend" && npm ci --no-audit --no-fund && node scripts/prepare-monaco.mjs)
+    echo "[init] Shared dependencies ready: $DEPENDENCIES"
 }
 
 # --- build -----------------------------------------------------------------
@@ -161,12 +158,8 @@ build() (
             || die "Build cache belongs to another source directory; choose a new --build-dir"
     fi
     local defines=()
-    if deps_ready; then
-        defines+=("-DLONGSHORT_PYARROW_PYTHON:FILEPATH=$DEPS/venv/bin/python"
-                  "-DCMAKE_PREFIX_PATH:PATH=$DEPS/prefix")
-    elif [ ! -f "$build/CMakeCache.txt" ]; then
-        die "빌드 의존성이 없다: $DEPS (먼저 $PLATFORM/longshort init)"
-    fi
+    dependencies_ready || die "Shared dependencies missing: $DEPENDENCIES (administrator: $PLATFORM/longshort init)"
+    defines+=("-DCMAKE_PREFIX_PATH:PATH=$DEPENDENCIES")
     for definition in "${CMAKE_DEFINES[@]}"; do defines+=("-D$definition"); done
     local cmake="${LONGSHORT_CMAKE:-cmake}"
     echo "[configure] $source → $build"
@@ -178,6 +171,26 @@ build() (
         || die "build failed; server was not started"
     [ -x "$build/longshort-server" ] || die "Build completed without an executable server at $build/longshort-server"
 )
+
+# --- per-user frontend -----------------------------------------------------
+prepare_frontend() {
+    local source="$PLATFORM/frontend" target="$STATE/frontend"
+    [ -d "$source/node_modules" ] && [ -d "$source/public/monaco/vs" ] ||
+        die "Shared frontend dependencies missing (administrator: $PLATFORM/longshort init)"
+    mkdir -p "$target"
+    for entry in public node_modules; do ln -sfn "$source/$entry" "$target/$entry"; done
+    rm -rf "$target/src"
+    cp -a "$source/src" "$target/src"
+    cp "$source/package.json" "$source/next.config.mjs" "$source/tailwind.config.ts" "$target/"
+    python3 - "$source/tsconfig.json" "$target/tsconfig.json" <<'PYTHON'
+import json
+from pathlib import Path
+import sys
+config = json.loads(Path(sys.argv[1]).read_text())
+config['compilerOptions']['tsBuildInfoFile'] = './tsconfig.tsbuildinfo'
+Path(sys.argv[2]).write_text(json.dumps(config, indent=2) + '\n')
+PYTHON
+}
 
 # --- start -----------------------------------------------------------------
 launch() {
@@ -191,9 +204,7 @@ launch() {
     echo "[start] engine :$ENGINE_PORT  ($LOGS/engine.log)"
     (cd "$WS" && spawn "$STATE/engine.pid" "$LOGS/engine.log" env "LONGSHORT_PORT=$ENGINE_PORT" "$bin" "$WS/config.yaml")
 
-    local fe="$PLATFORM/frontend"
-    [ -d "$fe/node_modules" ] || (cd "$fe" && echo "[start] npm ci (최초 1회)" && npm ci --no-audit --no-fund)
-    [ -d "$fe/public/monaco/vs" ] || (cd "$fe" && node scripts/prepare-monaco.mjs)
+    local fe="$STATE/frontend"
     echo "[start] ui     :$UI_PORT  ($LOGS/ui.log)"
     (cd "$fe" && spawn "$STATE/ui.pid" "$LOGS/ui.log" env "NEXT_PUBLIC_API_URL=http://$HOST:$ENGINE_PORT" \
         "$fe/node_modules/.bin/next" dev --port "$UI_PORT" --hostname 0.0.0.0)
@@ -255,6 +266,7 @@ cmd_start() {
     fi
     build
     [ $build_only -eq 1 ] && { echo "[build] 끝 ($BUILD_DIR/longshort-server); 엔진은 건드리지 않았다"; return 0; }
+    prepare_frontend
     [ $restart -eq 1 ] && cmd_stop
     launch
 }
