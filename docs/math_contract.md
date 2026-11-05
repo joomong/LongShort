@@ -27,6 +27,9 @@ This document is the single source of truth for C++ engine test math.
   modules or the book, and that one bar sets intent and marks without trading. Execution, signals, metrics and diagnostics stop
   at that end, with no added terminal liquidation. A capped run must equal the
   same-start uncapped run through the selected end.
+- A run is rejected with `Insufficient history` when the signal's first valid bar is later than
+  `max(isStart bar, simStart bar) - 1` (not below 0) or is not before the run's end. So `delay="1"` or any
+  lookback needs isStart later than simStart; isStart equal to simStart only admits lookback 0.
 - After `history_start + lookback`, a later simStart matches an earlier one, except where state outlives
   the window: `<tsewma>` (bounded), `<hump>` and `<event>` (path dependent), and `<ffd>` for a name finite
   before `history_start`, `NaN` across it and restarting later (`NaN` for up to `L-1` bars after the

@@ -463,7 +463,7 @@ TEST(HttpCompactPanel, RunKeepsMembersAndSuccessorsAndTheSuccessorsReceiveTheirP
         request["xml"] = xml;
         request["universe"] = "SMALL";
         request["simStart"] = "2021-01-01";
-        request["isStart"] = "2021-01-01";
+        request["isStart"] = "2021-01-02";
         request["osStart"] = "2021-07-01";
         request["output"] = output;
         return request;
@@ -515,7 +515,7 @@ TEST(HttpCompactPanel, RunKeepsMembersAndSuccessorsAndTheSuccessorsReceiveTheirP
     save["level"] = "positions";
     save["metadata"]["simStart"] = "2021-01-01";
     save["metadata"]["simEnd"] = "2021-12-31";
-    save["metadata"]["isStart"] = "2021-01-01";
+    save["metadata"]["isStart"] = "2021-01-02";
     save["metadata"]["osStart"] = "2021-07-01";
     save["metadata"]["universe"] = "SMALL";
     save["metadata"]["executionPrice"] = "close";
@@ -604,7 +604,7 @@ TEST_F(HttpContractTest, ExplicitDefaultUniverseWorksWithoutASelectableUniverseL
 
     Json::Value request;
     request["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/>";
-    request["simStart"] = "2024-01-01";
+    request["simStart"] = "2023-12-01";
     request["isStart"] = "2024-01-01";
     request["osStart"] = "2025-01-01";
     request["output"] = "performance";
@@ -1053,9 +1053,11 @@ TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
     const auto initial = call(request);
     ASSERT_GT(initial["alphas"][0]["performance"]["timestamps"].size(), 3u);
     request["simStart"] = date_string(initial["alphas"][0]["performance"]["timestamps"][3].asInt64());
+    // delay 1 needs isStart after simStart; the performance series starts at isStart, plot row 1.
+    request["isStart"] = date_string(initial["alphas"][0]["performance"]["timestamps"][4].asInt64());
     const auto delayed = call(request);
     double gross = 0.0, maximum = 0.0;
-    for (const auto& value : delayed["alphas"][0]["signals"]["plot"]["values"][0]) {
+    for (const auto& value : delayed["alphas"][0]["signals"]["plot"]["values"][1]) {
         if (value.isNull()) continue;
         const double absolute = std::fabs(value.asDouble());
         gross += absolute;
@@ -1779,6 +1781,7 @@ TEST_F(AlphaStorageHttpTest, RowRoundDefaultsToZeroAndIdsAreJavaScriptSafe) {
     request["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/>";
     request["level"] = "results";
     request["metadata"] = alpha_metadata();
+    request["metadata"]["isStart"] = "2024-01-02";  // delay 1
     Json::Value row;
     row["id"] = max_id + 1; row["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/>";
     request["rows"].append(row);
@@ -2249,14 +2252,19 @@ TEST_F(HttpContractTest, InsufficientHistoryAroundSimStart) {
         return simulate(request);
     };
     const std::string delayed = "<data expr=\"close\" delay=\"1\"/>";
-    // Valid exactly at simStart: the book is unfunded there, so isStart == simStart runs.
-    EXPECT_EQ(run(delayed, "2020-01-11", "2020-01-11").status, 200);
-    // isStart < simStart: simStart is the bound. Valid at 9 + 4 = 13 > 10.
+    // Valid at simStart (bar 10) is one bar late for isStart == simStart; the next day runs.
+    const auto same_day = run(delayed, "2020-01-11", "2020-01-11");
+    EXPECT_EQ(same_day.status, 400);
+    EXPECT_NE(same_day.body.find("Insufficient history"), std::string::npos);
+    EXPECT_EQ(run(delayed, "2020-01-11", "2020-01-12").status, 200);
+    EXPECT_EQ(run("<data expr=\"close\" delay=\"0\"/><rank/>", "2020-01-11", "2020-01-11").status, 200);
+    // isStart < simStart: the bound is simStart - 1 = 9. Valid at 9 + 4 = 13.
     const std::string window = "<data expr=\"close\"/><tsmean days=\"5\"/>";
     const auto rejected = run(window, "2020-01-11", "2020-01-02");
     EXPECT_EQ(rejected.status, 400);
     EXPECT_NE(rejected.body.find("Insufficient history"), std::string::npos);
-    EXPECT_EQ(run("<data expr=\"close\"/><tsmean days=\"2\"/>", "2020-01-11", "2020-01-02").status, 200);
+    EXPECT_EQ(run(delayed, "2020-01-11", "2020-01-02").status, 400);
+    EXPECT_EQ(run("<data expr=\"close\" delay=\"0\"/><rank/>", "2020-01-11", "2020-01-02").status, 200);
     // isStart before the panel: delay 0 runs, delay 1 cannot be valid on bar 0.
     EXPECT_EQ(run("<data expr=\"close\" delay=\"0\"/><rank/>", "", "2000-01-01").status, 200);
     EXPECT_EQ(run(delayed, "", "2000-01-01").status, 400);

@@ -833,13 +833,13 @@ static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, co
 }
 
 // Rejects an alpha whose signal is not valid in time for the first IS bar, whose position comes from
-// the previous bar's signal, or never valid in the run. The book is unfunded on simStart, so a signal
-// first valid there loses nothing. Computation starts one bar before simStart.
+// the previous bar's signal, or never valid in the run. Computation starts one bar before simStart.
 static void require_history(const CompiledAlpha& alpha, const RunOptions& options) {
     const unsigned sim_start = options.sim_start_index;
     const auto is_index = static_cast<unsigned>(std::lower_bound(
         g_data.timestamps.begin(), g_data.timestamps.end(), options.is_ms) - g_data.timestamps.begin());
-    const unsigned required = std::max(is_index > 0 ? is_index - 1 : 0u, sim_start);
+    unsigned required = std::max(is_index, sim_start);
+    if (required > 0) --required;
     const unsigned first_valid = first_valid_bar(alpha, simulator_config(options, false).history_start());
     if (first_valid > required || first_valid >= options.sim_end_index)
         throw std::invalid_argument("Insufficient history");
