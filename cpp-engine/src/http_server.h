@@ -21,6 +21,21 @@ Json::Value signal_plot_to_json(
     const std::vector<std::size_t>* symbol_subset = nullptr,   // subset: every row, only these columns
     const std::vector<uint8_t>* universe_mask = nullptr);      // T*N; non-empty adds "membership"
 
+// Plot of requested symbols whose matrix has `panel_symbols` columns. A symbol outside that panel was
+// never a member of the run: its column is all null with membership 0. originalSymbols reports
+// `whole_panel_symbols`, the width of the loaded panel.
+constexpr std::size_t kSymbolNotInPanel = static_cast<std::size_t>(-1);
+Json::Value signal_subset_plot_to_json(
+    const std::vector<std::vector<float>>& signals,
+    const std::vector<int64_t>& timestamps,
+    const std::vector<std::string>& symbols,
+    const std::vector<std::size_t>& columns,
+    std::size_t panel_symbols,
+    std::size_t whole_panel_symbols,
+    std::size_t start_index,
+    std::size_t max_cells,
+    const std::vector<uint8_t>& universe_mask);
+
 // Signal distribution histogram (fixed 200 bins, rows from start_index). When
 // timestamps/symbols are given, each bin also names one example cell
 // (exampleSymbol/exampleTimestamp: the largest |value| in the bin) for navigation.

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -67,4 +68,40 @@ struct DataPanel {
     static DataPanel load(const BacktestConfig& config,
                           const std::vector<std::string>& selected_fields = {});
 
+};
+
+// Columns a run over bars [history_start, sim_end) can touch, in panel order: symbols in `mask` on any
+// of those rows, closed over the destinations of those bars' moves whose source is kept. An empty mask
+// keeps everything; a keep set with no member holds column 0 so the run still has a nonempty panel.
+std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector<uint8_t>& mask,
+                                        unsigned history_start, unsigned sim_end);
+
+// Compact panel for one run: same T and timestamps, so bar indexes stay absolute. Fields project `base`
+// on first read and `base` must outlive it. Moves keep kept sources on bars up to sim_end; a move before
+// history_start stays only to retire its source, without a destination.
+std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std::string& universe,
+                                                unsigned history_start, unsigned sim_end);
+
+// LRU of run panels by (universe, history_start, sim_end), capped by the bytes they retain now (mask,
+// returns_total, loaded columns), measured at each lookup because columns load lazily. Least recently
+// used panels go until the total fits; the most recently used always stays. A panel held by a running
+// request stays alive through its shared_ptr, so eviction does not free its bytes until the request ends.
+// Concurrent first requests may each build a panel; the first one stored is shared afterwards.
+class RunPanelCache {
+public:
+    static constexpr std::size_t kMaxBytes = std::size_t{8} << 30;
+    explicit RunPanelCache(const DataPanel& base, std::size_t max_bytes = kMaxBytes)  // tests pass a small cap
+        : base_(base), max_bytes_(max_bytes) {}
+    std::shared_ptr<const DataPanel> get(const std::string& universe, unsigned history_start, unsigned sim_end);
+private:
+    struct Entry {
+        std::string universe;
+        unsigned history_start, sim_end;
+        std::shared_ptr<const DataPanel> panel;
+    };
+    void evict();  // with mutex_ held
+    const DataPanel& base_;
+    const std::size_t max_bytes_;
+    std::mutex mutex_;
+    std::list<Entry> entries_;  // front = most recently used
 };

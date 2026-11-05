@@ -42,6 +42,8 @@ XML에서 `<mysignal factor="2" days="10"/>`으로 사용한다. `REGISTER_MODUL
 
 `DataPanel`과 공통 실행 도구는 `include/simulation_data.h`, `include/parallel_executor.h`에 정의된다. 데이터와 실행 유니버스가 필요하면 public `const DataPanel* panel = nullptr;`, `const std::vector<uint8_t>* universe = nullptr;`을 선언한다. 등록 API가 타입을 검사하고 연결한다. `universe`는 내장 rank/neutralize와 같은 실행 선택 마스크(T*N, 이전 거래일 기준 멤버십)이며 nullptr이면 `panel->universe_mask`를 사용한다. 빈 vector는 전 종목이다. `sel && !sel->empty()`로 확인한다.
 
+**주의:** 실행은 해당 run이 건드릴 수 있는 종목만 남긴 run panel에서 돌므로 `numAssets`와 열 인덱스는 전체 패널이 아니라 run panel 기준이고, 그 밖의 종목은 아예 없다. `numAssets` 전체를 cross-section으로 쓰는 모듈은 반드시 유니버스 마스크를 적용해야 한다. 마스크가 없으면 범위 밖 멤버였거나 successor로만 남은 열이 cross-section에 섞인다.
+
 그룹 속성은 `GroupParameter group{""};`과 `MODULE_PARAMETER(타입, group)`으로 등록한다. XML 값은 내장 `group=`과 같이 `sector|industry`만 허용하고 공백을 제거하며 패널에 필드가 있어야 한다. 생략하면 C++ 기본값을 유지한다. 그룹 이름은 `group.name()`으로 읽는다.
 
 매크로 대신 `inline void register_MySignal(ModuleRegistry& registry)` 안에서 `register_type<MMySignal>(registry, "mysignal").parameter("factor", &MMySignal::factor);`로 직접 선언할 수도 있다.

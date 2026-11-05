@@ -11,6 +11,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <numeric>
 #include <iomanip>
 #include <chrono>
 #include <limits>
@@ -252,6 +253,38 @@ Json::Value signal_plot_to_json(
     j["symbolStride"] = static_cast<Json::UInt64>(columns.stride);
     j["sampled"] = rows.indices.size() < original_rows || columns.indices.size() < original_symbols;
     return j;
+}
+
+Json::Value signal_subset_plot_to_json(
+    const std::vector<std::vector<float>>& signals,
+    const std::vector<int64_t>& timestamps,
+    const std::vector<std::string>& symbols,
+    const std::vector<std::size_t>& columns,
+    std::size_t panel_symbols,
+    std::size_t whole_panel_symbols,
+    std::size_t start_index,
+    std::size_t max_cells,
+    const std::vector<uint8_t>& universe_mask)
+{
+    const std::size_t count = symbols.size();
+    std::vector<std::vector<float>> values(signals.size());
+    std::vector<uint8_t> membership;
+    if (!universe_mask.empty()) membership.assign(signals.size() * count, 0);
+    for (std::size_t di = 0; di < signals.size(); ++di) {
+        if (!signals[di].empty()) values[di].resize(count, std::numeric_limits<float>::quiet_NaN());
+        for (std::size_t k = 0; k < count; ++k) {
+            if (columns[k] == kSymbolNotInPanel) continue;
+            if (!signals[di].empty()) values[di][k] = signals[di][columns[k]];
+            if (!universe_mask.empty()) membership[di * count + k] = universe_mask[di * panel_symbols + columns[k]];
+        }
+    }
+    std::vector<std::size_t> own(count);
+    std::iota(own.begin(), own.end(), std::size_t{0});
+    Json::Value plot = signal_plot_to_json(values, timestamps, symbols, start_index, max_cells, &own,
+                                           universe_mask.empty() ? nullptr : &membership);
+    plot["originalSymbols"] = static_cast<Json::UInt64>(whole_panel_symbols);
+    plot["sampled"] = count < whole_panel_symbols || plot["sampled"].asBool();
+    return plot;
 }
 
 Json::Value signal_distribution_to_json(
@@ -496,6 +529,7 @@ namespace fs = std::filesystem;
 static BacktestConfig g_config;
 static Json::Value g_symbol_labels;  // optional {panel symbol: display label}
 static DataPanel g_data;
+static RunPanelCache g_run_panels(g_data);
 static fs::path g_alphas_dir;
 static fs::path g_meta_dir;  // optional; never created by the engine
 static MemberReturnsCache g_member_returns;  // member gross returns of non-EW sets, shared by requests
@@ -648,10 +682,12 @@ struct RunOptions {
     unsigned threads = 20;
     std::string output = "full";
     std::size_t signal_max_cells = 4000000;
-    std::vector<std::size_t> signal_symbol_subset;  // non-empty: full series for these columns only
+    std::vector<std::string> signal_symbols;       // non-empty: full series for these symbols only
+    std::vector<std::size_t> signal_columns;       // their run panel columns; kSymbolNotInPanel = never touched
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
     std::string universe;                          // selected universe.names entry; empty = default
-    const std::vector<uint8_t>* universe_mask = nullptr; // resolved from g_data
+    std::shared_ptr<const DataPanel> panel;        // compact run panel, held for the whole request
+    const std::vector<uint8_t>* universe_mask = nullptr; // the panel's mask
     std::string execution_price;
 };
 
@@ -716,15 +752,14 @@ static RunOptions parse_run_options(const Json::Value& body) {
             throw std::invalid_argument("signalPlotSymbols must be an array of panel symbols");
         for (const Json::Value& item : subset) {
             const std::string name = item.asString();
-            const auto it = std::find(g_data.symbols.begin(), g_data.symbols.end(), name);
-            if (it == g_data.symbols.end())
+            if (std::find(g_data.symbols.begin(), g_data.symbols.end(), name) == g_data.symbols.end())
                 throw std::invalid_argument("signalPlotSymbols: unknown symbol " + name);
-            options.signal_symbol_subset.push_back(static_cast<std::size_t>(it - g_data.symbols.begin()));
+            options.signal_symbols.push_back(name);
         }
-        if (options.signal_symbol_subset.empty())
+        if (options.signal_symbols.empty())
             throw std::invalid_argument("signalPlotSymbols must not be empty");
     }
-    if (options.output == "signalSeries" && options.signal_symbol_subset.empty())
+    if (options.output == "signalSeries" && options.signal_symbols.empty())
         throw std::invalid_argument("signalSeries output requires signalPlotSymbols");
     options.missing_close_policy = g_missing_close_policy;
     if (body.isMember("missingClose") &&
@@ -735,9 +770,23 @@ static RunOptions parse_run_options(const Json::Value& body) {
             throw std::invalid_argument("universe must be a string");
         options.universe = body["universe"].asString();
     }
-    options.universe_mask = &g_data.mask_for(options.universe);
+    (void)g_data.mask_for(options.universe);
     if (options.universe.empty()) options.universe = g_data.default_universe;
     return options;
+}
+
+// Separate from parsing, which also runs on the I/O loop: a first build copies the panel's returns.
+static void attach_run_panel(RunOptions& options) {
+    SimulatorConfig range;
+    range.sim_start_index = options.sim_start_index;
+    options.panel = g_run_panels.get(options.universe, range.history_start(), options.sim_end_index);
+    options.universe_mask = &options.panel->universe_mask;
+    options.signal_columns.clear();
+    const auto& symbols = options.panel->symbols;
+    for (const auto& name : options.signal_symbols) {
+        const auto it = std::find(symbols.begin(), symbols.end(), name);
+        options.signal_columns.push_back(it == symbols.end() ? kSymbolNotInPanel : static_cast<std::size_t>(it - symbols.begin()));
+    }
 }
 
 static Json::Value run_context(const RunOptions& options) {
@@ -756,8 +805,8 @@ static Json::Value run_context(const RunOptions& options) {
 
 static SimulatorConfig simulator_config(const RunOptions& options, bool collect) {
     SimulatorConfig config;
-    config.T = g_data.T;
-    config.N = g_data.N;
+    config.T = options.panel->T;
+    config.N = options.panel->N;
     config.fee_rate = g_config.transaction_fee_rate;
     config.sim_start_index = options.sim_start_index;
     config.sim_end_index = options.sim_end_index;
@@ -778,7 +827,7 @@ static const MetaResolver g_meta_resolver = [](const std::string& name) {
 };
 
 static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, const RunOptions& options) {
-    return compile_xml(xml, &g_data, options.universe_mask, &g_meta_resolver);
+    return compile_xml(xml, options.panel.get(), options.universe_mask, &g_meta_resolver);
 }
 
 // Rejects an alpha whose signal is not valid in time for the first IS bar, whose position comes from
@@ -802,7 +851,7 @@ static MetaCombineContext meta_context(const RunOptions& options, MetaSetCache& 
     const std::string settings = options.universe + "\n" + std::to_string(options.sim_start_index) + "\n" +
         std::to_string(options.sim_end_index) + "\n" + options.execution_price + "\n" +
         missing_close_policy_name(options.missing_close_policy);
-    return MetaCombineContext{g_data,
+    return MetaCombineContext{*options.panel,
                               MetaRunConfig{simulator_config(options, false), options.threads,
                                             options.missing_close_policy, options.universe_mask},
                               settings, g_member_returns, cache, cancelled};
@@ -819,7 +868,7 @@ static MetaMatrices bind_meta_sets(CompiledAlpha& alpha, const RunOptions& optio
             const auto context = meta_context(options, cache, cancelled);
             if (!set.combine.is_ew()) return materialize_combined(context, set);
             cache.record(1, set.members.size());
-            return materialize_meta_set(g_data, set, context.config, cancelled, &cache.budget());
+            return materialize_meta_set(*options.panel, set, context.config, cancelled, &cache.budget());
         });
         set.source->matrix = matrix.get();
         set.members.clear();  // compiled for this alpha; the cached matrix replaces them
@@ -855,7 +904,7 @@ static SimulatorOutput execute_alpha(
     config.module_threads = module_threads;
     config.signal_row_callback = callback;
     config.accounting_row_callback = accounting;
-    return Simulator(g_data, config).run(alpha.pipeline);
+    return Simulator(*options.panel, config).run(alpha.pipeline);
 }
 
 static FullMetricsResult full_metrics(const SimulatorOutput& output, const RunOptions& options) {
@@ -888,6 +937,8 @@ static std::vector<double> pool_net_returns(const std::string& xml) {
     options.output = "performance";
     options.missing_close_policy = g_missing_close_policy;
     options.universe = pool_universe();
+    // The pool stays on the whole panel; correlations read its daily returns by absolute bar.
+    options.panel = std::shared_ptr<const DataPanel>(std::shared_ptr<const DataPanel>{}, &g_data);
     options.universe_mask = &g_data.mask_for(options.universe);
     auto alphas = compile_request_xml(xml, options);
     if (alphas.size() != 1) throw std::runtime_error("alpha.xml must compile to exactly one alpha");
@@ -955,31 +1006,29 @@ static void append_signal_payload(
     Json::Value& payload, const std::vector<std::vector<float>>& signals,
     const std::vector<int64_t>& timestamps, const RunOptions& options) {
     const std::size_t begin = options.sim_start_index;
+    const DataPanel& panel = *options.panel;
     // Outputs stop at simEnd while the immutable, shared panel retains its full
     // history. The plot serializer requires a mask matching the output prefix.
     const auto* mask = options.universe_mask;
     std::vector<uint8_t> prefix_mask;
-    const auto cells = signals.size() * g_data.N;
+    const auto cells = signals.size() * panel.N;
     if (mask && !mask->empty() && mask->size() > cells) {
         prefix_mask.assign(mask->begin(), mask->begin() + cells);
         mask = &prefix_mask;
     }
     const bool parallel = cells >= 1000000;
-    if (options.output == "signalSeries") {
-        payload["plot"] = signal_plot_to_json(signals, timestamps, g_data.symbols, begin,
-            options.signal_max_cells, &options.signal_symbol_subset, mask);
-        return;
-    }
     const auto policy = parallel ? std::launch::async : std::launch::deferred;
     auto plot = std::async(policy, [&] {
-        return signal_plot_to_json(signals, timestamps, g_data.symbols, begin, options.signal_max_cells,
-            options.signal_symbol_subset.empty() ? nullptr : &options.signal_symbol_subset, mask);
+        if (options.signal_symbols.empty())
+            return signal_plot_to_json(signals, timestamps, panel.symbols, begin, options.signal_max_cells, nullptr, mask);
+        return signal_subset_plot_to_json(signals, timestamps, options.signal_symbols, options.signal_columns,
+            panel.N, g_data.N, begin, options.signal_max_cells, *options.universe_mask);
     });
     auto linear = std::async(policy, [&] {
-        return signal_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
+        return signal_distribution_to_json(signals, begin, &timestamps, &panel.symbols);
     });
     auto logarithmic = std::async(policy, [&] {
-        return signal_log_distribution_to_json(signals, begin, &timestamps, &g_data.symbols);
+        return signal_log_distribution_to_json(signals, begin, &timestamps, &panel.symbols);
     });
     payload["plot"] = plot.get();
     payload["distribution"] = linear.get();
@@ -1002,7 +1051,9 @@ static void append_signal_payload(
 static Json::Value simulate_response(const Json::Value& body, const std::function<bool()>& cancelled,
                                      const SimulatorConfig::AccountingRowCallback& accounting = {},
                                      MetaSetCache* shared_cache = nullptr) {
-    const RunOptions options = parse_run_options(body);
+    RunOptions options = parse_run_options(body);
+    attach_run_panel(options);
+    const DataPanel& panel = *options.panel;
     MetaSetCache request_cache(options.threads);  // one per request unless the caller shares one (save rows)
     MetaSetCache& cache = shared_cache ? *shared_cache : request_cache;
     const bool combined_only = body.get("combinedOnly", false).asBool();
@@ -1039,28 +1090,27 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         if (options.output == "signalSeries") {
             std::vector<std::vector<float>> values;
             std::vector<int64_t> timestamps;
-            std::vector<std::string> symbols;
-            for (auto column : options.signal_symbol_subset) symbols.push_back(g_data.symbols[column]);
             std::vector<uint8_t> membership;
-            Simulator(g_data, config).run_signal_rows(alphas[0].pipeline, [&](unsigned di, const float* row, unsigned n) {
+            Simulator(panel, config).run_signal_rows(alphas[0].pipeline, [&](unsigned di, const float* row, unsigned n) {
                 if (cancelled()) throw EvaluationCancelled();
                 if (di < options.sim_start_index) return;
                 timestamps.push_back(g_data.timestamps[di]);
                 auto& selected = values.emplace_back();
-                selected.reserve(options.signal_symbol_subset.size());
-                for (auto column : options.signal_symbol_subset) {
-                    selected.push_back(row[column]);
+                selected.reserve(options.signal_columns.size());
+                for (auto column : options.signal_columns) {
+                    const bool kept = column != kSymbolNotInPanel;
+                    selected.push_back(kept ? row[column] : std::numeric_limits<float>::quiet_NaN());
                     if (options.universe_mask && !options.universe_mask->empty())
-                        membership.push_back((*options.universe_mask)[static_cast<size_t>(di) * n + column]);
+                        membership.push_back(kept && (*options.universe_mask)[static_cast<size_t>(di) * n + column]);
                 }
             });
             std::vector<std::size_t> columns;
-            for (std::size_t i = 0; i < symbols.size(); ++i) columns.push_back(i);
-            entry["signals"]["plot"] = signal_plot_to_json(values, timestamps, symbols, 0,
+            for (std::size_t i = 0; i < options.signal_symbols.size(); ++i) columns.push_back(i);
+            entry["signals"]["plot"] = signal_plot_to_json(values, timestamps, options.signal_symbols, 0,
                 options.signal_max_cells, &columns, membership.empty() ? nullptr : &membership);
         } else {
             std::vector<std::vector<float>> signals(options.sim_end_index);
-            Simulator(g_data, config).run_signal_rows(alphas[0].pipeline, [&](unsigned di, const float* row, unsigned n) {
+            Simulator(panel, config).run_signal_rows(alphas[0].pipeline, [&](unsigned di, const float* row, unsigned n) {
                 if (cancelled()) throw EvaluationCancelled();
                 if (di >= options.sim_start_index) signals[di].assign(row, row + n);
             });
@@ -1103,7 +1153,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                                                                   options.sim_end_index);
     } else {
         OrderedSignalAccumulator accumulator(
-            g_data, options.missing_close_policy,
+            panel, options.missing_close_policy,
             options.universe_mask);
         const unsigned thread_count = std::min<unsigned>(options.threads, static_cast<unsigned>(alphas.size()));
         std::atomic<std::size_t> next_index{0};
@@ -1117,11 +1167,11 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                 if (i >= alphas.size()) return;
                 try {
                     std::vector<float> signal_block;
-                    signal_block.reserve(static_cast<size_t>(32) * g_data.N);
+                    signal_block.reserve(static_cast<size_t>(32) * panel.N);
                     unsigned first_bar = 0;
                     auto flush = [&] {
                         if (signal_block.empty()) return;
-                        accumulator.add_block(i, first_bar, signal_block, g_data.N, normalized_scratch);
+                        accumulator.add_block(i, first_bar, signal_block, panel.N, normalized_scratch);
                         signal_block.clear();
                     };
                     auto observe = [&](unsigned di, const float* row, unsigned n) {
@@ -1134,7 +1184,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
                     const auto stop = [&] { return failed.load() || cancelled(); };
                     if (combined_only) {
                         const auto meta_matrices = bind_meta_sets(alphas[i], options, cache, stop);
-                        Simulator(g_data, simulator_config(options, false)).run_signal_rows(alphas[i].pipeline, observe);
+                        Simulator(panel, simulator_config(options, false)).run_signal_rows(alphas[i].pipeline, observe);
                     } else {
                         auto output = execute_alpha(alphas[i], options, false, observe, {}, cache, stop);
                         batches[i] = {i, alphas[i].source_xml, full_metrics(output, options),
@@ -1201,7 +1251,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     }
     if (!single || combined_only) {
         if (cancelled()) throw EvaluationCancelled();
-        Simulator combined_simulator(g_data, simulator_config(options, false));
+        Simulator combined_simulator(panel, simulator_config(options, false));
         auto combined_output = combined_simulator.run_from_signals(combined_signals);
         Json::Value combined = metrics_payload(full_metrics(combined_output, options));
         combined["missingData"] = missing_data_payload(combined_output);
@@ -1348,6 +1398,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
     }
 
     metadata.threads = options.threads;
+    if (metadata.level != "xml") attach_run_panel(options);
 
     struct Row { Json::UInt64 id; Json::Value round; std::string xml; };
     std::vector<Row> rows;
@@ -1421,7 +1472,7 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
                     std::unique_ptr<alpha_storage::PositionsWriter> writer;
                     SimulatorConfig::AccountingRowCallback accounting;
                     if (positions) {
-                        writer = std::make_unique<alpha_storage::PositionsWriter>(g_data.symbols);
+                        writer = std::make_unique<alpha_storage::PositionsWriter>(options.panel->symbols);
                         accounting = [&writer](const AccountingRowView& view) {
                             if (view.trading_enabled)
                                 writer->add_bar(g_data.timestamps[view.bar], view.desired_weights);
@@ -1739,11 +1790,11 @@ int run_http_server(int argc, char* argv[])
                     throw std::invalid_argument("GA search/round size and stopAlphas must be 1..5000, stopRound 1..1000");
                 const bool meta_stats = body->get("metaStats", false).asBool();
                 auto response = drogon::HttpResponse::newAsyncStreamResponse(
-                    [xml, options, ga_config, req, meta_stats](drogon::ResponseStreamPtr stream) {
+                    [xml, parsed = options, ga_config, req, meta_stats](drogon::ResponseStreamPtr stream) {
                         // The I/O loop must remain free to receive cancellation and
                         // flush generation events while the GA controller is running.
                         try {
-                            g_ga_workers.launch([xml, options, ga_config, req, meta_stats, stream = std::move(stream)]() mutable {
+                            g_ga_workers.launch([xml, parsed, ga_config, req, meta_stats, stream = std::move(stream)]() mutable {
                                 auto require_connection = [&] {
                                     if (g_ga_workers.stopping() || !req->connected()) throw ClientDisconnected();
                                 };
@@ -1755,6 +1806,8 @@ int run_http_server(int argc, char* argv[])
                                         throw ClientDisconnected();
                                 };
                                 try {
+                                    RunOptions options = parsed;
+                                    attach_run_panel(options);  // held until the search ends
                                     const auto space = extract_search_space(xml);
                                     std::mutex payload_mutex;
                                     std::unordered_map<std::string, Json::Value> payloads;

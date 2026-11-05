@@ -486,3 +486,21 @@ TEST(JsonSerializer, PlotStatisticsMatchReceivedFinitePopulationIncludingOutside
     EXPECT_DOUBLE_EQ(selected["centers"][0].asDouble(), 2.5);
     EXPECT_NEAR(selected["scales"][0].asDouble(), 1.5 * 1.4826, 1e-12);
 }
+
+TEST(SignalSubsetPlot, SymbolOutsideTheRunPanelIsNullAndNeverAMember) {
+    const std::vector<std::vector<float>> signals = {{}, {1.0f, 2.0f}, {3.0f, 4.0f}};
+    const std::vector<int64_t> timestamps = {0, 86400000, 172800000};
+    const std::vector<uint8_t> mask = {0, 0, 1, 0, 1, 1};
+    const auto plot = signal_subset_plot_to_json(signals, timestamps, {"B", "GONE"}, {1, kSymbolNotInPanel},
+                                                 2, 9, 1, 4000000, mask);
+    ASSERT_EQ(plot["symbols"].size(), 2u);
+    EXPECT_EQ(plot["symbols"][1].asString(), "GONE");
+    EXPECT_FLOAT_EQ(plot["values"][0][0].asFloat(), 2.0f);
+    EXPECT_FLOAT_EQ(plot["values"][1][0].asFloat(), 4.0f);
+    EXPECT_TRUE(plot["values"][0][1].isNull());
+    EXPECT_TRUE(plot["values"][1][1].isNull());
+    EXPECT_EQ(plot["membership"][0].asString(), "00");
+    EXPECT_EQ(plot["membership"][1].asString(), "10");
+    EXPECT_EQ(plot["originalSymbols"].asUInt64(), 9u);
+    EXPECT_TRUE(plot["sampled"].asBool());
+}

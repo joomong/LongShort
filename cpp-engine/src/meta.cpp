@@ -39,7 +39,7 @@ void OrderedSignalAccumulator::add(std::size_t alpha_index, unsigned di, const f
             const float sum = std::isfinite(value) ? value + contribution : contribution;
             if (!std::isfinite(sum))
                 throw std::overflow_error("Combined signal sum overflow at bar " +
-                    std::to_string(di) + ", asset " + std::to_string(ii));
+                    std::to_string(di) + ", asset " + data_.symbols[ii]);
             value = sum;
         }
         ++next_alpha_[di];
@@ -74,7 +74,7 @@ void OrderedSignalAccumulator::add_block(std::size_t alpha_index, unsigned first
                 float& value = combined[ii];
                 const float sum = std::isfinite(value) ? value + row[ii] : row[ii];
                 if (!std::isfinite(sum)) throw std::overflow_error("Combined signal sum overflow at bar " +
-                    std::to_string(first_di + offset) + ", asset " + std::to_string(ii));
+                    std::to_string(first_di + offset) + ", asset " + data_.symbols[ii]);
                 value = sum;
             }
             ++next_alpha_[first_di + offset];
@@ -801,7 +801,7 @@ public:
                     float& value = combined[ii];
                     const float sum = std::isfinite(value) ? value + contribution : contribution;
                     if (!std::isfinite(sum)) throw std::overflow_error("Combined signal sum overflow at bar " +
-                        std::to_string(di) + ", asset " + std::to_string(ii));
+                        std::to_string(di) + ", asset " + data_.symbols[ii]);
                     value = sum;
                 }
             }

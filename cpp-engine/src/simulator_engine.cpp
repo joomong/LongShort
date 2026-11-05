@@ -27,9 +27,9 @@ QuoteState classify_quote(float value) {
     return valid_close(value) ? kQuoteObserved : kQuoteInvalid;
 }
 
-std::string unusable_price_message(unsigned di, unsigned ii) {
+std::string unusable_price_message(const DataPanel& data, unsigned di, unsigned ii) {
     return "Invalid close price (not NaN) at bar " + std::to_string(di) +
-           ", asset " + std::to_string(ii);
+           ", asset " + data.symbols[ii];
 }
 
 SimulatorOutput make_output(const DataPanel& data, unsigned end) {
@@ -198,7 +198,7 @@ private:
         for (size_t at = next_move_; at < end; ++at)
             if (moves[at].destination >= 0 && retired_[moves[at].destination])
                 throw std::runtime_error("Move to a retired destination at bar " + std::to_string(di) +
-                                         ", asset " + std::to_string(moves[at].destination));
+                                         ", asset " + data_.symbols[moves[at].destination]);
         next_move_ = end;
     }
 
@@ -278,7 +278,7 @@ private:
             if (retired_[ii] || quote_state_[ii] != kQuoteInvalid)
                 continue;
             if (carried_[ii] != 0.0 || desired[ii] != 0.0)
-                throw std::runtime_error(unusable_price_message(di, ii));
+                throw std::runtime_error(unusable_price_message(data_, di, ii));
         }
     }
 
@@ -292,7 +292,7 @@ private:
                 continue;
             if (carried_[ii] != 0.0 || desired[ii] != 0.0)
                 throw std::runtime_error("Cannot value or execute position: invalid close at bar " +
-                                         std::to_string(di) + ", asset " + std::to_string(ii));
+                                         std::to_string(di) + ", asset " + data_.symbols[ii]);
         }
     }
 
@@ -307,7 +307,7 @@ private:
             }
             if (carried_[ii] != 0.0 && !std::isfinite(marks_[ii]))
                 throw std::runtime_error("Cannot value position: no observed mark at bar " +
-                                         std::to_string(di) + ", asset " + std::to_string(ii));
+                                         std::to_string(di) + ", asset " + data_.symbols[ii]);
             if (quote_state_[ii] == kQuoteObserved) {
                 if (trading && carried_[ii] != 0.0) {
                     pnl += carried_[ii] * (static_cast<double>(close[ii]) / marks_[ii] - 1.0);
@@ -350,7 +350,7 @@ private:
                     inconsistent = inconsistent || fill_source[ii] < low[ii] || fill_source[ii] > high[ii];
                 if (corrupt && (carried_[ii] != 0.0 || desired[ii] != 0.0))
                     throw std::runtime_error(std::string("Invalid ") + label + " execution price at bar " + std::to_string(di) +
-                                             ", asset " + std::to_string(ii));
+                                             ", asset " + data_.symbols[ii]);
                 // Finite but inconsistent OHLC cannot provide a trusted fill.
                 // Use the same unfilled-order policy as a missing execution quote.
                 if (!missing && !corrupt && !inconsistent) {
@@ -362,7 +362,7 @@ private:
             if (!execution_available_[ii] && config_.missing_close_policy == MissingClosePolicy::Error &&
                 desired[ii] != carried_[ii])
                 throw std::runtime_error(std::string("Cannot execute: missing or inconsistent ") + label + " price at bar " + std::to_string(di) +
-                                         ", asset " + std::to_string(ii));
+                                         ", asset " + data_.symbols[ii]);
         }
     }
 
@@ -382,7 +382,7 @@ private:
             if (retired_[ii] || can_trade(ii)) continue;
             if (!intraday_fill && config_.missing_close_policy == MissingClosePolicy::Error && desired[ii] != carried_[ii])
                 throw std::runtime_error("Cannot execute: missing or invalid close price at bar " + std::to_string(di) +
-                                         ", asset " + std::to_string(ii));
+                                         ", asset " + data_.symbols[ii]);
             diagnostics.frozen_gross += std::fabs(carried_[ii]);
         }
         double execution_pnl = 0.0;
@@ -471,7 +471,7 @@ void normalize_signal_row(const DataPanel& data, unsigned di, const float* signa
             // Carry admits a quoteless name, but only when the venue printed
             // nothing. A corrupt price cannot be normalized against.
             if (!require_quote && classify_quote(close[ii]) == kQuoteInvalid)
-                throw std::runtime_error(unusable_price_message(di, ii));
+                throw std::runtime_error(unusable_price_message(data, di, ii));
             absolute_signal_sum += std::fabs(static_cast<double>(signal[ii]));
         }
     }

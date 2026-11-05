@@ -638,3 +638,133 @@ const std::vector<uint8_t>& DataPanel::mask_for(const std::string& name) const {
     if (it == universe_masks.end()) throw std::invalid_argument("Unknown universe: " + name);
     return it->second;
 }
+
+std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector<uint8_t>& mask,
+                                        unsigned history_start, unsigned sim_end) {
+    std::vector<uint8_t> kept(base.N, mask.empty() ? 1 : 0);
+    if (!mask.empty())
+        for (size_t t = history_start; t < sim_end; ++t) {
+            const uint8_t* row = mask.data() + t * base.N;
+            for (unsigned n = 0; n < base.N; ++n) kept[n] |= row[n] ? 1 : 0;
+        }
+    for (bool changed = !mask.empty(); changed;) {
+        changed = false;
+        for (const auto& move : base.move_events)
+            if (move.bar >= history_start && move.bar < sim_end && move.destination >= 0 &&
+                kept[move.source] && !kept[move.destination]) {
+                kept[move.destination] = 1;
+                changed = true;
+            }
+    }
+    std::vector<unsigned> columns;
+    for (unsigned n = 0; n < base.N; ++n)
+        if (kept[n]) columns.push_back(n);
+    if (columns.empty() && base.N) columns.push_back(0);
+    return columns;
+}
+
+namespace {
+template <class Value>
+std::vector<Value> project_columns(const std::vector<Value>& values, const std::vector<unsigned>& columns,
+                                   unsigned T, unsigned N) {
+    std::vector<Value> out(static_cast<size_t>(T) * columns.size());
+    Value* next = out.data();
+    for (size_t t = 0; t < T; ++t) {
+        const Value* row = values.data() + t * N;
+        for (unsigned column : columns) *next++ = row[column];
+    }
+    return out;
+}
+}
+
+std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std::string& universe,
+                                                unsigned history_start, unsigned sim_end) {
+    const auto& mask = base.mask_for(universe);
+    const auto columns = std::make_shared<const std::vector<unsigned>>(
+        run_panel_columns(base, mask, history_start, sim_end));
+    const unsigned T = base.T, N = base.N;
+    auto panel = std::make_shared<DataPanel>();
+    panel->T = T;
+    panel->N = static_cast<unsigned>(columns->size());
+    panel->timestamps = base.timestamps;
+    panel->symbols.reserve(columns->size());
+    for (unsigned column : *columns) panel->symbols.push_back(base.symbols[column]);
+    panel->default_universe = universe.empty() ? base.default_universe : universe;
+    if (!mask.empty()) panel->universe_mask = project_columns(mask, *columns, T, N);
+    for (const auto& [name, values] : base.arrays) {
+        const auto* source = &values;
+        panel->lazy_columns.emplace(name, std::make_shared<LazyColumn>([source, columns, T, N] {
+            return project_columns(*source, *columns, T, N);
+        }));
+    }
+    std::unordered_map<const LazyColumn*, std::shared_ptr<LazyColumn>> projected;
+    for (const auto& [name, parent] : base.lazy_columns) {
+        auto& child = projected[parent.get()];
+        if (!child)
+            child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {
+                return project_columns(parent->get(), *columns, T, N);
+            });
+        panel->lazy_columns.emplace(name, child);
+    }
+    panel->thin_layout = base.thin_layout;
+    if (!base.returns_total.empty()) panel->returns_total = project_columns(base.returns_total, *columns, T, N);
+    std::vector<int32_t> position(N, -1);
+    for (size_t k = 0; k < columns->size(); ++k) position[(*columns)[k]] = static_cast<int32_t>(k);
+    for (auto move : base.move_events) {
+        if (position[move.source] < 0 || move.bar >= sim_end) continue;
+        if (move.bar < history_start) {
+            if (!move.source_ends) continue;
+            move.destination = -1;
+        } else if (move.destination >= 0) {
+            move.destination = position[move.destination];
+        }
+        move.source = static_cast<unsigned>(position[move.source]);
+        panel->move_events.push_back(move);
+    }
+    return panel;
+}
+
+std::shared_ptr<const DataPanel> RunPanelCache::get(const std::string& universe, unsigned history_start,
+                                                    unsigned sim_end) {
+    const auto find = [&] {
+        return std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) {
+            return entry.universe == universe && entry.history_start == history_start && entry.sim_end == sim_end;
+        });
+    };
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = find();
+        if (found != entries_.end()) {
+            entries_.splice(entries_.begin(), entries_, found);
+            evict();
+            return entries_.front().panel;
+        }
+    }
+    auto panel = make_run_panel(base_, universe, history_start, sim_end);
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = find();
+    if (found != entries_.end()) {
+        entries_.splice(entries_.begin(), entries_, found);
+        evict();
+        return entries_.front().panel;
+    }
+    entries_.push_front(Entry{universe, history_start, sim_end, std::move(panel)});
+    evict();
+    return entries_.front().panel;
+}
+
+void RunPanelCache::evict() {
+    // Sized once: a column may finish loading between two reads of the same panel.
+    std::vector<size_t> sizes;
+    size_t total = 0;
+    for (const auto& entry : entries_) {
+        const DataPanel& panel = *entry.panel;
+        sizes.push_back(panel.universe_mask.size() + panel.returns_total.size() * sizeof(double) + panel.loaded_bytes());
+        total += sizes.back();
+    }
+    while (total > max_bytes_ && entries_.size() > 1) {
+        total -= sizes.back();
+        sizes.pop_back();
+        entries_.pop_back();
+    }
+}

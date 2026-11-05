@@ -32,7 +32,9 @@ This document is the single source of truth for C++ engine test math.
   before `history_start`, `NaN` across it and restarting later (`NaN` for up to `L-1` bars after the
   restart; accepted, the desk math is kept). A non-EW `<meta>` is valid from the first grid bar
   `simStart + days + k·rebalance` whose window lies wholly on real member returns.
-- `missingData.retirements` counts sources ending on trading bars only.
+- `missingData.retirements` counts kept sources ending on trading bars only. A run computes only the
+  columns of its run panel: symbols in the universe on some bar in `[history_start, simEnd]`, plus the
+  successors they can move into. "Move to a retired destination" no longer fires for a dropped source.
 - An initially empty book has no holding return on its first trading bar. It pays
   entry fees and, with OHLC4/VWAP execution, can earn the fill-to-close trading return.
 - Explicit XML delay owns signal timing.
@@ -157,7 +159,9 @@ optional `error`, `summary: {is, os}`, `yearly`, `performance`, `signals`, `pool
   `drawdown`, `turnover`, `maxWeight`, `positionCount` and `osStartIndex`.
   Dollar presentation multiplies cumulative return by `context.reportNotional` ($20M).
   That reporting notional is distinct from YAML `initial_capital`.
-- `signals` contains optional `plot`, `range`, `distribution` and `logDistribution`.
+- `signals` contains optional `plot`, `range`, `distribution` and `logDistribution`. `distribution`,
+  `logDistribution` and `range` cover the run panel's columns only; compared with counting every panel
+  symbol, only unmasked final signals and the zero population of meta or combined signals differ.
   Plot values stay raw; membership and heatmap center/scale are separate fields.
 - Browser code renders the engine's financial results. It does not reconstruct daily
   returns from cumulative PnL, reconstruct gross returns from fees, or recalculate drawdown.

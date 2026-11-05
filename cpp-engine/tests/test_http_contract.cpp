@@ -312,6 +312,16 @@ int test_port()
     return 18080;
 }
 
+std::string iso_date(int64_t epoch_ms)
+{
+    const time_t seconds = epoch_ms / 1000;
+    struct tm parts;
+    gmtime_r(&seconds, &parts);
+    char buffer[11];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d", &parts);
+    return buffer;
+}
+
 class HttpContractTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite()
@@ -427,6 +437,122 @@ bool HttpContractTest::available_ = false;
 std::string HttpContractTest::skip_reason_;
 
 }  // namespace
+
+// A named universe smaller than the panel runs on a compacted panel with successors outside the universe.
+TEST(HttpCompactPanel, RunKeepsMembersAndSuccessorsAndTheSuccessorsReceiveTheirPositions) {
+    const fs::path cfg = find_config_path();
+    const fs::path bin = find_server_binary();
+    if (cfg.empty() || bin.empty()) GTEST_SKIP() << "LONGSHORT_TEST_CONFIG not set";
+    const fs::path compact = cfg.parent_path() / "compact" / "config.yaml";
+    ASSERT_TRUE(fs::exists(compact)) << compact;
+    // The server writes alphas/ and .longshort/ here, never beside the fixture.
+    const fs::path run_dir = fs::temp_directory_path() / ("longshort_http_compact_" + std::to_string(::getpid()));
+    fs::create_directories(run_dir);
+    struct RemoveDir { fs::path dir; ~RemoveDir() { std::error_code error; fs::remove_all(dir, error); } } remove_dir{run_dir};
+    Json::Value run_config;
+    std::ostringstream compact_text;
+    compact_text << std::ifstream(compact).rdbuf();
+    ASSERT_TRUE(parse_json(compact_text.str(), &run_config));
+    run_config["alphas_dir"] = (run_dir / "alphas").string();
+    const fs::path run_cfg = run_dir / "config.yaml";  // JSON fixture paths are absolute
+    std::ofstream(run_cfg) << compact_json(run_config);
+    ServerProcess server(bin, run_cfg, test_port() + 2);
+    ASSERT_TRUE(server.start());
+    const auto run = [&](const std::string& xml, const char* output) {
+        Json::Value request;
+        request["xml"] = xml;
+        request["universe"] = "SMALL";
+        request["simStart"] = "2021-01-01";
+        request["isStart"] = "2021-01-01";
+        request["osStart"] = "2021-07-01";
+        request["output"] = output;
+        return request;
+    };
+    const std::string raw = "<data expr=\"close\" delay=\"1\"/>", ranked = raw + "<rank/>";
+
+    auto series_request = run(raw, "signalSeries");
+    for (const char* symbol : {"1", "2", "3", "4", "5", "6"}) series_request["signalPlotSymbols"].append(symbol);
+    const auto series_response = http_post_json(server.port(), "/api/simulate", series_request);
+    ASSERT_EQ(series_response.status, 200) << series_response.body.substr(0, 300);
+    Json::Value series;
+    ASSERT_TRUE(parse_json(series_response.body, &series));
+    const auto& plot = series["alphas"][0]["signals"]["plot"];
+    const Json::ArrayIndex last = plot["values"].size() - 1;
+    // An unmasked signal is finite wherever the column exists: 4 is the only dropped symbol.
+    for (Json::ArrayIndex k = 0; k < 6; ++k) EXPECT_EQ(plot["values"][last][k].isNull(), k == 3) << k;
+    EXPECT_EQ(plot["membership"][last].asString(), "110010");
+
+    const auto full_response = http_post_json(server.port(), "/api/simulate", run(ranked, "full"));
+    ASSERT_EQ(full_response.status, 200) << full_response.body.substr(0, 300);
+    Json::Value full;
+    ASSERT_TRUE(parse_json(full_response.body, &full));
+    const auto& alpha = full["alphas"][0];
+    Json::Value members(Json::arrayValue);
+    for (const char* symbol : {"1", "2", "5"}) members.append(symbol);
+    EXPECT_EQ(alpha["signals"]["plot"]["symbols"], members);
+    EXPECT_EQ(alpha["missingData"]["successorConversions"].asUInt(), 1u);
+    EXPECT_GT(alpha["missingData"]["convertedGross"].asDouble(), 0.0);
+    EXPECT_GT(alpha["missingData"]["frozenGrossSum"].asDouble(), 0.0);
+
+    const auto& performance = alpha["performance"];
+    const auto positions_on = [&](const std::string& date) {
+        for (Json::ArrayIndex i = 0; i < performance["timestamps"].size(); ++i)
+            if (iso_date(performance["timestamps"][i].asInt64()) == date) return performance["positionCount"][i].asInt();
+        ADD_FAILURE() << date;
+        return -1;
+    };
+    EXPECT_EQ(positions_on("2021-02-28"), 3);
+    EXPECT_EQ(positions_on("2021-03-01"), 4);  // members 1, 2, 5 plus the distribution in 3
+    EXPECT_EQ(positions_on("2021-03-02"), 3);  // 3 is sold: it is outside the universe
+    EXPECT_EQ(positions_on("2021-04-01"), 3);  // 5 ended; 1, 2 plus 6, frozen without a quote
+    EXPECT_EQ(positions_on("2021-04-05"), 2);  // 6 quoted again and sold
+
+    // Saved positions are order targets, so they name universe members only: a successor's received weight
+    // is not a target. Weights by rank show the compact columns map back to the right symbols.
+    Json::Value save;
+    save["name"] = "compact_positions";
+    save["xml"] = ranked;
+    save["level"] = "positions";
+    save["metadata"]["simStart"] = "2021-01-01";
+    save["metadata"]["simEnd"] = "2021-12-31";
+    save["metadata"]["isStart"] = "2021-01-01";
+    save["metadata"]["osStart"] = "2021-07-01";
+    save["metadata"]["universe"] = "SMALL";
+    save["metadata"]["executionPrice"] = "close";
+    save["metadata"]["threads"] = 2;
+    Json::Value row;
+    row["id"] = 1; row["round"] = 0; row["xml"] = ranked;
+    save["rows"].append(row);
+    const auto saved = http_post_json(server.port(), "/api/alphas", save);
+    ASSERT_EQ(saved.status, 200) << saved.body.substr(0, 300);
+    auto input = arrow::io::ReadableFile::Open(
+        (run_dir / "alphas" / "compact_positions" / "positions" / "1.parquet").string()).ValueOrDie();
+    std::unique_ptr<parquet::arrow::FileReader> reader;
+    ASSERT_TRUE(parquet::arrow::OpenFile(input, arrow::default_memory_pool(), &reader).ok());
+    std::shared_ptr<arrow::Table> table;
+    ASSERT_TRUE(reader->ReadTable(&table).ok());
+    const auto flat = table->CombineChunksToBatch().ValueOrDie();
+    const auto& dates = static_cast<const arrow::Date32Array&>(*flat->GetColumnByName("date"));
+    const auto& symbols = static_cast<const arrow::StringArray&>(*flat->GetColumnByName("tradingItemId"));
+    const auto& weights = static_cast<const arrow::DoubleArray&>(*flat->GetColumnByName("weight"));
+    const int32_t before_end = 18659, after_end = 18732;  // 2021-02-01, 2021-04-15
+    std::map<std::string, double> early, late;
+    for (int64_t i = 0; i < flat->num_rows(); ++i) {
+        EXPECT_NE(symbols.GetString(i), "3");
+        EXPECT_NE(symbols.GetString(i), "4");
+        EXPECT_NE(symbols.GetString(i), "6");
+        if (dates.Value(i) == before_end) early[symbols.GetString(i)] = weights.Value(i);
+        if (dates.Value(i) == after_end) late[symbols.GetString(i)] = weights.Value(i);
+    }
+    ASSERT_EQ(early.size(), 3u);
+    EXPECT_NEAR(early.at("1"), 1.0 / 6.0, 1e-6);
+    EXPECT_NEAR(early.at("2"), 2.0 / 6.0, 1e-6);
+    EXPECT_NEAR(early.at("5"), 3.0 / 6.0, 1e-6);
+    ASSERT_EQ(late.size(), 2u);
+    EXPECT_NEAR(late.at("1"), 1.0 / 3.0, 1e-6);
+    EXPECT_NEAR(late.at("2"), 2.0 / 3.0, 1e-6);
+    server.stop();
+}
 
 TEST_F(HttpContractTest, ExecutionPriceIsValidatedAndScopedToEachRequest) {
     if (!available_) GTEST_SKIP() << skip_reason_;

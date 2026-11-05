@@ -900,7 +900,7 @@ TEST(MissingDataAccounting, CarryFreezesOnlyNaNAndRejectsEveryOtherUnusablePrice
         ADD_FAILURE() << "a zero close must not be carried";
     } catch (const std::runtime_error& error) {
         EXPECT_EQ(std::string(error.what()),
-                  "Invalid close price (not NaN) at bar 2, asset 0");
+                  "Invalid close price (not NaN) at bar 2, asset S0");
     }
 }
 

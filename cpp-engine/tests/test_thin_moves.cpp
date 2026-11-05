@@ -283,7 +283,7 @@ TEST(ThinMoves, SuccessorIntoQuotelessDestinationReservesBudget) {
             // Rejected on the move bar, not only later by the pre-valuation gate.
             const std::string what = error.what();
             EXPECT_NE(what.find("Cannot execute"), std::string::npos) << what;
-            EXPECT_NE(what.find("at bar 1, asset 1"), std::string::npos) << what;
+            EXPECT_NE(what.find("at bar 1, asset S1"), std::string::npos) << what;
         }
     }
 }
