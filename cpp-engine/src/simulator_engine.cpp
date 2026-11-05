@@ -71,12 +71,21 @@ public:
             marks_before_.assign(data.N, kNaN);
             market_trades_.assign(data.N, 0.0);
         }
-        if (data.thin_layout) received_.assign(data.N, 0.0);
+        if (data.thin_layout) {
+            received_.assign(data.N, 0.0);
+            // A source that ended before computation starts stays out of the book and the intent.
+            const auto& moves = data.move_events;
+            for (; next_move_ < moves.size() && moves[next_move_].bar < config.history_start(); ++next_move_)
+                if (moves[next_move_].source_ends) {
+                    retired_[moves[next_move_].source] = 1;
+                    any_retired_ = true;
+                }
+        }
     }
 
     void advance(unsigned di, const float* signal) {
         const float* close = data_.row("close", di);
-        // Warmup bars keep marks and intent current without holdings or costs.
+        // The bar before simStart sets marks and intent without holdings or costs.
         const bool trading = di >= config_.sim_start_index;
         MissingDataDiagnostics diagnostics;
         double pnl = 0.0;
@@ -153,7 +162,6 @@ private:
             carried_[ii] = retired_[ii] ? 0.0 : previous_weights_[ii];
         }
         const auto& moves = data_.move_events;
-        while (next_move_ < moves.size() && moves[next_move_].bar < di) ++next_move_;
         size_t end = next_move_;
         while (end < moves.size() && moves[end].bar == di) ++end;
         for (size_t at = next_move_; at < end; ++at) {
@@ -180,7 +188,7 @@ private:
             const double rt = data_.returns_total[static_cast<size_t>(di) * data_.N + source];
             if (trading && carried_[source] != 0.0 && std::isfinite(rt))
                 pnl += carried_[source] * rt;
-            ++diagnostics.retirement_count;
+            if (trading) ++diagnostics.retirement_count;
             retired_[source] = 1;
             any_retired_ = true;
             carried_[source] = 0.0;
@@ -536,7 +544,7 @@ SimulatorOutput Simulator::run(const std::vector<Module*>& pipeline) {
         module->numAssets = data_.N;
         module->init();
     }
-    for (unsigned di = 0; di < simulation.output.ret.size(); ++di) {
+    for (unsigned di = config_.history_start(); di < simulation.output.ret.size(); ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init())
             signal.fill_nan();
         for (Module* module : pipeline) {
@@ -562,7 +570,7 @@ void Simulator::run_signal_rows(const std::vector<Module*>& pipeline,
         module->numAssets = data_.N;
         module->init();
     }
-    for (unsigned di = 0; di < std::min(data_.T, config_.sim_end_index); ++di) {
+    for (unsigned di = config_.history_start(); di < std::min(data_.T, config_.sim_end_index); ++di) {
         if (!pipeline.empty() && !pipeline[0]->skips_nan_init()) signal.fill_nan();
         for (Module* module : pipeline) {
             module->calculate(di, signal);
@@ -574,13 +582,13 @@ void Simulator::run_signal_rows(const std::vector<Module*>& pipeline,
 
 SimulatorOutput Simulator::run_from_signals(const std::vector<std::vector<float>>& signals) {
     if (signals.size() != config_.T ||
-        std::any_of(signals.begin(), signals.end(), [this](const auto& row) {
+        std::any_of(signals.begin() + config_.history_start(), signals.end(), [this](const auto& row) {
             return row.size() != config_.N;
         }))
         throw std::invalid_argument("Signal matrix dimensions must match the data panel");
 
     PortfolioSimulation simulation(data_, config_);
-    for (unsigned di = 0; di < simulation.output.ret.size(); ++di)
+    for (unsigned di = config_.history_start(); di < simulation.output.ret.size(); ++di)
         simulation.advance(di, signals[di].data());
     return std::move(simulation.output);
 }

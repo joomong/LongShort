@@ -19,11 +19,11 @@ universe:
 
 # start_date is the DATA load start (rows before it are dropped; modules see nothing earlier), not the
 # simulation start. Each alpha picks its own simulation range in the UI (simStart / isStart / osStart,
-# saved with the alpha), so keep this early enough for long warm-ups such as a 5-year PCA fit.
+# saved with the alpha). Computation starts one bar before simStart, so a long lookback such as a
+# 5-year PCA fit needs isStart that far after simStart; otherwise the run reports Insufficient history.
 backtest:
   start_date: '2000-01-01'
   end_date: latest
-  warmup_bars: 0
   initial_capital: 1000000
   transaction_fee: 1.5
   bars_per_year: 252

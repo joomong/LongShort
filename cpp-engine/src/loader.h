@@ -22,7 +22,6 @@ struct BacktestConfig {
     std::string config_dir;
     std::string start_date;
     std::string end_date = "latest";
-    unsigned warmup_bars = 0;
     double initial_capital = 1000000.0;
     double transaction_fee_rate = 1.5 * 0.0001;
     unsigned bars_per_year = 365;

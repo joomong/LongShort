@@ -4,8 +4,8 @@
 // Series.ewm(alpha, adjust, ignore_na=False, min_periods=min_count).mean() per instrument
 // (kernel of pandas/_libs/window/aggregations.pyx `ewm` with deltas = 1).
 // Alpha from exactly one of span (2/(span+1)), halflife (1-exp(ln 0.5/halflife)) or alpha;
-// the unused ones stay <= 0. Infinite memory: the value depends on the panel start; the
-// difference to a longer history is bounded by (1-alpha)^warmup. O(1) per instrument.
+// the unused ones stay <= 0. Infinite memory: the value depends on where computation starts; the
+// difference to a longer history is bounded by (1-alpha)^bars since then. O(1) per instrument.
 struct MTsEwma : public Module {
     double resolved_alpha() const
     {

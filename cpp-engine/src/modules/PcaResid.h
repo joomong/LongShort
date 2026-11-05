@@ -2,8 +2,8 @@
 
 // MPcaResid: rolling PCA residual per group (the combo15 MR alpha).
 // <pcaresid group="sector" train="1260" refit="252" k="0" var="0.9"/>
-// Fit at panel bars b with b % refit == 0 and b >= train on the input rows [b - train, b); NaN before the
-// first fit. Fit set per group: in the run universe, same finite group code >= 0, and finite input on every
+// Fit at panel bars b with b % refit == 0 once train input rows were pushed, on the input rows
+// [b - train, b); NaN before the first fit. Fit set per group: in the run universe, same finite group code >= 0, and finite input on every
 // train bar (bars >= b are never used for selection). Columns are standardized with the train mean/std
 // (ddof 0; zero-std columns dropped), PCA as sklearn on the standardized matrix: k > 0 fixes the component
 // count, else the first k with cumulative explained variance ratio >= var (0 < var < 1). Each bar t of the block outputs
@@ -31,12 +31,14 @@ struct MPcaResid : public Module {
         R = static_cast<unsigned>(std::max(1, (int)refit));
         input.init(T, numAssets);
         fits.clear();
+        pushed = 0;
         resid.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
     }
     void calculate(unsigned di, SignalVector &output)
     {
         input.push(output);   // input(b - r) is the input row of bar r <= b
-        if (di >= T && di % R == 0) refit_at(di);
+        if (pushed >= T && di % R == 0) refit_at(di);
+        ++pushed;
 
         const float* codes = group_codes(di);
         for (const Fit& f : fits) {
@@ -176,6 +178,7 @@ struct MPcaResid : public Module {
 
     unsigned T = 1, R = 1;             // train / refit after init()
     ModuleInput input;                 // input history, lookback T
+    unsigned pushed = 0;               // input rows before the current bar
     std::vector<Fit> fits;             // current block's fits, one per group
     StarVector<float> resid;
     std::vector<int> obs;

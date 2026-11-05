@@ -5,7 +5,9 @@
 // Weights w_0 = 1, w_k = -w_{k-1}/k * (d - k + 1) stop at |w_k| < thres and, like getWeights_FFD
 // (range(1, 1000)), at 1000 weights. out[t] = sum_k w_k * x~[t-k], x~ = input forward-filled from its
 // first finite value; NaN when today's input is not finite or fewer than L = len(w) bars have passed
-// since the first finite input. Double accumulation in eight interleaved partial sums, oldest-first.
+// since the first finite input. Accepted: computation starts at history_start, so a name finite before it,
+// NaN across it and restarting later outputs NaN for up to L-1 bars after the restart, where a run from an
+// earlier start is finite. Double accumulation in eight interleaved partial sums, oldest-first.
 struct MFfd : public Module {
     // Newest-first: w[0] = 1.
     std::vector<double> newest_first_weights() const

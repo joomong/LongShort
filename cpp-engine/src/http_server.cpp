@@ -672,15 +672,13 @@ static RunOptions parse_run_options(const Json::Value& body) {
         throw std::invalid_argument("Invalid date format; expected YYYY-MM-DD");
     if (options.is_ms >= options.os_ms)
         throw std::invalid_argument("isStart must be earlier than osStart");
-    options.sim_start_index = g_data.trade_start_index;
     const std::string sim_start = body.get("simStart", "").asString();
     if (!sim_start.empty()) {
         int64_t sim_ms = 0;
         if (!parse_iso_date_ms(sim_start, &sim_ms))
             throw std::invalid_argument("Invalid simStart; expected YYYY-MM-DD");
-        const auto requested = static_cast<unsigned>(std::lower_bound(
+        options.sim_start_index = static_cast<unsigned>(std::lower_bound(
             g_data.timestamps.begin(), g_data.timestamps.end(), sim_ms) - g_data.timestamps.begin());
-        options.sim_start_index = std::max(options.sim_start_index, requested);
     }
     if (options.sim_start_index >= g_data.T)
         throw std::invalid_argument("simStart is after the available trading period");
@@ -791,7 +789,7 @@ static void require_history(const CompiledAlpha& alpha, const RunOptions& option
     const auto is_index = static_cast<unsigned>(std::lower_bound(
         g_data.timestamps.begin(), g_data.timestamps.end(), options.is_ms) - g_data.timestamps.begin());
     const unsigned required = std::max(is_index > 0 ? is_index - 1 : 0u, sim_start);
-    const unsigned first_valid = first_valid_bar(alpha, sim_start > 0 ? sim_start - 1 : 0);
+    const unsigned first_valid = first_valid_bar(alpha, simulator_config(options, false).history_start());
     if (first_valid > required || first_valid >= options.sim_end_index)
         throw std::invalid_argument("Insufficient history");
 }
@@ -885,7 +883,6 @@ static std::vector<double> pool_net_returns(const std::string& xml) {
         throw std::runtime_error("alpha_pool: OHLC4 execution needs exact open/high/low fields");
     if (options.execution_price == "vwap" && !supports_vwap())
         throw std::runtime_error("alpha_pool: VWAP execution needs exact vwap/high/low fields");
-    options.sim_start_index = g_data.trade_start_index;
     options.sim_end_index = g_data.T;
     options.threads = 1;
     options.output = "performance";
@@ -1644,7 +1641,7 @@ int run_http_server(int argc, char* argv[])
                 return;
             }
 
-            json["simStart"] = ms_to_date(g_data.timestamps.at(g_data.trade_start_index));
+            json["simStart"] = ms_to_date(g_data.timestamps.front());
             json["simEnd"]   = ms_to_date(g_data.timestamps.back());
             json["feeRate"]  = g_config.transaction_fee_rate;
             json["reportNotional"] = kReportNotional;

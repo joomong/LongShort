@@ -347,7 +347,7 @@ TEST(CombinedAlpha, SignalOnlyEvaluationPreservesWarmupAndEndBoundary) {
         std::vector<Module*> pipeline = {&data, &rank};
         Simulator simulator(panel, config);
         if (!signal_only) return simulator.run(pipeline).signals;
-        std::vector<std::vector<float>> rows;
+        std::vector<std::vector<float>> rows(3);  // computation starts at bar 3
         simulator.run_signal_rows(pipeline, [&](unsigned di, const float* row, unsigned n) {
             EXPECT_EQ(di, rows.size()); rows.emplace_back(row, row + n);
         });

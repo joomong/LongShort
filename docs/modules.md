@@ -50,7 +50,7 @@ XML에서 `<mysignal factor="2" days="10"/>`으로 사용한다. `REGISTER_MODUL
 
 ## lookback
 
-`virtual unsigned lookback(unsigned first_bar) const`는 입력이 처음 유효한 패널 bar `first_bar` 이후 출력이 처음 유효해질 때까지의 bar 수다. 기본값은 0이다. 과거 bar를 쓰는 모듈은 반드시 override한다. 예: 길이 `days` rolling window는 `days - 1`. 기본값을 두면 엔진은 warmup을 모른 채 `Insufficient history` 검사를 통과시킨다.
+`virtual unsigned lookback(unsigned first_bar) const`는 입력이 처음 유효한 패널 bar `first_bar` 이후 출력이 처음 유효해질 때까지의 bar 수다. 기본값은 0이다. 과거 bar를 쓰는 모듈은 반드시 override한다. 예: 길이 `days` rolling window는 `days - 1`. 기본값을 두면 엔진은 필요한 과거를 모른 채 `Insufficient history` 검사를 통과시킨다.
 
 ```cpp
 unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }

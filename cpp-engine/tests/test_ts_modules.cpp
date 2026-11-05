@@ -609,7 +609,7 @@ TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsFillHoldsBlocks) {
     // Blocks stay anchored at panel index 0 regardless of simStart.
     auto fill7 = collect(dp, base + R"(<tsfill days="3"/>)", 7);
     ASSERT_EQ(fill7.size(), fill.size());
-    for (unsigned t = 0; t < dp.T; ++t)
+    for (unsigned t = 9; t < dp.T; ++t)  // simStart 7 computes from bar 6; delay 1 samples first on bar 9
         for (unsigned n = 0; n < dp.N; ++n)
             EXPECT_TRUE(std::isnan(fill[t][n]) ? std::isnan(fill7[t][n])
                                                : std::memcmp(&fill[t][n], &fill7[t][n], sizeof(float)) == 0)

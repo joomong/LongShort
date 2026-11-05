@@ -1277,9 +1277,17 @@ unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start) {
             if (set.source != module) continue;
             for (const CompiledAlpha& member : set.members)
                 lookback = std::max<unsigned long long>(lookback, first_valid_bar(member, running) - running);
-            // Member returns exist from the bar after computation starts and the first estimate uses
-            // `days` of them (meta.cpp: t0 = sim_start + days, sim_start = history start + 1).
-            if (!set.combine.is_ew()) lookback += set.combine.days + 1ULL;
+            // Weights in force come from the grid t0 + k * rebalance, t0 = sim_start + days (meta.cpp), and
+            // must estimate on [t - days, t) of real member returns: from the bar after the last member is
+            // valid. A member valid at the history start has only the unfunded simStart row before that.
+            if (!set.combine.is_ew()) {
+                const unsigned long long days = set.combine.days, rebalance = std::max(1u, set.combine.rebalance);
+                const unsigned long long late = running + lookback - start;
+                unsigned long long first = start + 1 + days + (late + rebalance - 1) / rebalance * rebalance;
+                // History start 0 is simStart 1 (the grid above) or simStart 0, whose grid has t0 = days.
+                if (start == 0 && late > 0) first = std::max(first, days + (late + rebalance) / rebalance * rebalance);
+                lookback = first - running;
+            }
         }
         running = saturating_bars(running + lookback);
         result = std::max(result, running);

@@ -43,17 +43,15 @@ TEST(ParquetLoader, RestrictedSelectionStillReadsExecutionFieldsAndHoldingReturn
     }
 }
 
-TEST(ParquetLoader, WarmupAndExplicitPeriodsUseTheCacheCalendar) {
+TEST(ParquetLoader, ExplicitPeriodsUseTheCacheCalendar) {
     ThinCache cache;
     auto config = BacktestConfig::from_yaml(cache.config(top500));
-    config.start_date = "2020-01-04";
+    config.start_date = "2020-01-02";
     config.end_date = "2020-01-08";
-    config.warmup_bars = 2;
     const auto panel = DataPanel::load(config);
     EXPECT_EQ(panel.T, 7u);
     EXPECT_EQ(panel.timestamps.front(), at(1));
     EXPECT_EQ(panel.timestamps.back(), at(7));
-    EXPECT_EQ(panel.trade_start_index, 2u);
     EXPECT_TRUE(std::isnan(panel.row("sector", 0)[index_of(panel, "101")]));
     EXPECT_EQ(panel.universe_mask[index_of(panel, "101")], 0);
     EXPECT_EQ(panel.universe_mask[panel.N + index_of(panel, "101")], 1);

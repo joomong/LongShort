@@ -1554,7 +1554,9 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         ASSERT_EQ(id.size(), 1u);
         book[dates->Value(i)][std::stoi(id) - 1] = w;
     }
-    EXPECT_EQ(book.size(), static_cast<std::size_t>(last_day - first_day + 1));
+    // Computation starts at simStart - 1: tsmean 3 emits from simStart + 1, its oldest row NaN from delay 1.
+    EXPECT_EQ(book.size(), static_cast<std::size_t>(last_day - first_day));
+    EXPECT_EQ(book.begin()->first, first_day + 1);
     for (const auto& [day, positions] : book) {
         double gross = 0.0;
         for (const auto& [symbol, w] : positions) gross += std::fabs(w);
@@ -2209,6 +2211,110 @@ TEST_F(HttpContractTest, GaReportsInsufficientHistoryPerCandidate) {
     EXPECT_EQ(one_candidate.back()["error"].asString(), "Insufficient history");
 }
 
+TEST_F(HttpContractTest, MetaRebalanceGridBoundsInsufficientHistory) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    // Sample lookback 10 from simStart - 1: the window must start at simStart + 10, so the grid
+    // simStart + 40 + 60k gives bar 100 (2022-05-12), which positions the bar after it.
+    Json::Value request = meta_request("<meta expr=\"sample\"/><mvo days=\"40\" rebalance=\"60\"/>");
+    request["simStart"] = "2022-02-01";
+    request["output"] = "performance";
+    request["isStart"] = "2022-05-13";
+    EXPECT_EQ(simulate(request).status, 200);
+    request["isStart"] = "2022-05-12";
+    const auto rejected = simulate(request);
+    EXPECT_EQ(rejected.status, 400);
+    EXPECT_NE(rejected.body.find("Insufficient history"), std::string::npos);
+}
+
+TEST_F(HttpContractTest, EveryPathRunsWithSimStartMidPanel) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    auto with_dates = [](Json::Value request) {
+        // Dates used by no other test: the member-return cache is process-wide.
+        request["simStart"] = "2021-08-17";
+        request["isStart"] = "2021-11-01";
+        request["osStart"] = "2022-06-01";
+        request["simEnd"] = "2022-12-31";
+        return request;
+    };
+    const std::string rolling = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"5\"/><rank/>";
+    Json::Value single;
+    single["xml"] = rolling;
+    single["signalPlotMaxCells"] = 1000;
+    for (const char* output : {"full", "performance", "signals"}) {
+        single["output"] = output;
+        const auto response = simulate(with_dates(single));
+        ASSERT_EQ(response.status, 200) << output << ": " << response.body.substr(0, 300);
+        Json::Value body;
+        ASSERT_TRUE(parse_json(response.body, &body));
+        EXPECT_EQ(body["context"]["simStart"].asString(), "2021-08-17");
+        if (std::string(output) != "performance") {
+            const auto& plot = body["alphas"][0]["signals"]["plot"];
+            ASSERT_GT(plot["values"].size(), 0u);
+            // Row 0 is simStart; tsmean emits only once 5 rows were pushed (simStart + 3). Rows are sampled.
+            const auto finite_in = [&](Json::ArrayIndex row) {
+                Json::UInt finite = 0;
+                for (const auto& value : plot["values"][row]) finite += !value.isNull();
+                return finite;
+            };
+            EXPECT_EQ(finite_in(0), 0u);
+            EXPECT_GT(finite_in(plot["values"].size() - 1), 0u);
+            single["signalPlotSymbols"] = Json::Value(Json::arrayValue);
+            single["signalPlotSymbols"].append(plot["symbols"][0]);
+        }
+    }
+    single["output"] = "signalSeries";
+    const auto series = simulate(with_dates(single));
+    ASSERT_EQ(series.status, 200) << series.body.substr(0, 300);
+    single.removeMember("signalPlotSymbols");
+
+    single["output"] = "performance";
+    const auto performance = simulate(with_dates(single));
+    Json::Value performance_body;
+    ASSERT_TRUE(parse_json(performance.body, &performance_body));
+    EXPECT_GT(performance_body["alphas"][0]["performance"]["timestamps"].size(), 0u);
+
+    Json::Value batch;
+    batch["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"3|5\"/><rank/>";
+    batch["output"] = "full";
+    batch["signalPlotMaxCells"] = 1000;
+    const auto combined = simulate(with_dates(batch));
+    ASSERT_EQ(combined.status, 200) << combined.body.substr(0, 300);
+    Json::Value combined_body;
+    ASSERT_TRUE(parse_json(combined.body, &combined_body));
+    EXPECT_EQ(combined_body["alphas"].size(), 2u);
+    EXPECT_TRUE(combined_body["combined"]["summary"].isObject());
+    EXPECT_GT(combined_body["combined"]["summary"]["is"]["activeBarCount"].asInt(), 0);
+
+    for (const char* xml : {"<meta expr=\"sample\"/>", "<meta expr=\"sample\"/><rank/>",
+                            "<meta expr=\"sample\"/><mvo days=\"40\"/>"}) {
+        const auto meta = simulate(with_dates(meta_request(xml)));
+        ASSERT_EQ(meta.status, 200) << xml << ": " << meta.body.substr(0, 300);
+        Json::Value body;
+        ASSERT_TRUE(parse_json(meta.body, &body));
+        EXPECT_GT(body["alphas"][0]["summary"]["is"]["activeBarCount"].asInt(), 0) << xml;
+    }
+
+    Json::Value ga = with_dates(meta_request(""));
+    ga["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/><rank/>";
+    ga["firstSearch"] = 3; ga["stopRound"] = 1; ga["threads"] = 4;
+    const auto search = http_post_json(server_->port(), "/api/ga/stream", ga);
+    ASSERT_EQ(search.status, 200) << search.body.substr(0, 300);
+    std::istringstream stream(search.body);
+    std::string line;
+    unsigned candidates = 0;
+    bool complete = false;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+        Json::Value event;
+        ASSERT_TRUE(parse_json(line, &event));
+        ASSERT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "candidate") ++candidates;
+        if (event["type"].asString() == "search_complete") complete = true;
+    }
+    EXPECT_EQ(candidates, 3u);
+    EXPECT_TRUE(complete);
+}
+
 TEST_F(HttpContractTest, MetaInGAStreamWithMvoGrid) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"sample\"/><mvo days=\"40|60\" shrink=\"0.3|0.7\"/>");
@@ -2292,6 +2398,7 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
     const unsigned T = static_cast<unsigned>(last_day - first_day + 1);
     std::vector<std::string> xmls(kSampleMembers.begin(), kSampleMembers.end());
     xmls.push_back("<meta expr=\"sample\"/><mvo days=\"60\"/>");
+    const unsigned first_book[4] = {0, 3, 9, 0};
     std::vector<std::map<int32_t, std::map<int, double>>> books;
     MemberReturns returns;
     returns.T = T;
@@ -2314,12 +2421,16 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         const auto saved = save(request);
         ASSERT_EQ(saved.status, 200) << saved.body;
         books.push_back(read_positions(alphas_dir() / name / "positions" / "0.parquet"));
-        ASSERT_EQ(books.back().size(), T) << xmls[k];
+        // From simStart - 1: rank has a signal on simStart, tsmean 5 emits at +3, tsrank 10 needs 10 finite rows
+        // (+9). The combined book holds rank from the first bar.
+        const unsigned offset = first_book[k];
+        ASSERT_EQ(books.back().size(), T - offset) << xmls[k];
+        ASSERT_EQ(books.back().begin()->first, first_day + static_cast<int32_t>(offset)) << xmls[k];
         if (k == 3) continue;
         // Close execution: gross_ret[t] = sum_i w[t-1,i] * (close[t,i] / close[t-1,i] - 1); the
         // performance series starts at isStart, so the returns come from the saved book.
         const long first_t = first_day - 18262;  // 2020-01-01 as days since 1970-01-01
-        for (unsigned t = 1; t < T; ++t)
+        for (unsigned t = offset + 1; t < T; ++t)
             for (const auto& [symbol, w] : books.back().at(first_day + static_cast<int32_t>(t) - 1))
                 returns.rows[t][k] += w * (fixture_close(symbol, first_t + t) / fixture_close(symbol, first_t + t - 1) - 1.0);
     }
@@ -2335,6 +2446,7 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         double combined[4] = {0, 0, 0, 0}, gross = 0.0;
         for (int i = 0; i < 4; ++i) {
             for (int k = 0; k < 3; ++k) {
+                if (t < first_book[k]) continue;
                 const auto& book = books[k].at(day);
                 const auto found = book.find(i);
                 if (found != book.end()) combined[i] += weights.rows[t][k] * found->second;
@@ -2346,9 +2458,10 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
             const auto& book = books[3].at(day);
             const auto found = book.find(i);
             const double engine = found == book.end() ? 0.0 : found->second;
-            const double diff = std::fabs(engine - combined[i] / gross);
+            const double expected = combined[i] / gross;
+            const double diff = std::fabs(engine - expected);
             max_diff = std::max(max_diff, diff);
-            EXPECT_NEAR(engine, combined[i] / gross, 1e-6) << "day " << day << " symbol " << i;
+            EXPECT_NEAR(engine, expected, 1e-6) << "day " << day << " symbol " << i;
             ++checked;
         }
     }

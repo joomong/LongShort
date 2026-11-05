@@ -22,10 +22,17 @@ This document is the single source of truth for C++ engine test math.
 - Return aggregation is additive (simple sum), not compounded.
 - API `simStart`/`simEnd` select each run's interval without modifying the shared
   data panel. `simEnd` is inclusive by calendar day and maps to an exclusive
-  `SimulatorConfig.sim_end_index`; omission uses the loaded panel end. Earlier
-  bars still warm the modules. Execution, signals, metrics and diagnostics stop
+  `SimulatorConfig.sim_end_index`; omission uses the loaded panel end. Computation
+  starts at `history_start = max(simStart - 1, 0)`; earlier bars are never read by
+  modules or the book, and that one bar sets intent and marks without trading. Execution, signals, metrics and diagnostics stop
   at that end, with no added terminal liquidation. A capped run must equal the
   same-start uncapped run through the selected end.
+- After `history_start + lookback`, a later simStart matches an earlier one, except where state outlives
+  the window: `<tsewma>` (bounded), `<hump>` and `<event>` (path dependent), and `<ffd>` for a name finite
+  before `history_start`, `NaN` across it and restarting later (`NaN` for up to `L-1` bars after the
+  restart; accepted, the desk math is kept). A non-EW `<meta>` is valid from the first grid bar
+  `simStart + days + k·rebalance` whose window lies wholly on real member returns.
+- `missingData.retirements` counts sources ending on trading bars only.
 - An initially empty book has no holding return on its first trading bar. It pays
   entry fees and, with OHLC4/VWAP execution, can earn the fill-to-close trading return.
 - Explicit XML delay owns signal timing.
@@ -110,7 +117,7 @@ This document is the single source of truth for C++ engine test math.
   `fitness = sharpe * sqrt(abs(annualReturn) / max(turnover, 0.125))`.
 - `annualReturn` and `turnover` are fractions. `turnover` is the mean daily turnover
   for that calendar year. The denominator floor is 12.5% daily turnover.
-- Both use the requested trading interval and exclude warmup. Negative Sharpe
+- Both use the requested trading interval. Negative Sharpe
   yields negative Fitness; zero Sharpe yields 0, including degenerate years.
 - Return is based on the full gross book with no factor of 2. The reporting
   notional is `context.reportNotional = 20000000`, independent of `initial_capital`.
@@ -118,7 +125,7 @@ This document is the single source of truth for C++ engine test math.
 
 ## IS/OS Split and Performance Reports
 
-- Summary slices use the requested trading span, excluding warmup. IS begins at
+- Summary slices use the requested trading span. IS begins at
   `max(simStart, isStart)` and ends before `osStart`; OS uses its part of the requested
   trading interval. Yearly metrics cover the requested trading interval.
 - The performance report begins at `max(simStart, isStart)` and stops at `simEnd`
@@ -197,8 +204,8 @@ signal values, plot sampling and tooltip values remain raw.
 - `MDelay(days)`:
   - output at `t` is input at `t-days`; unavailable lookback -> `NaN`
 - `MTsMean(days)`:
-  - warmup rule: `t+1 < days` -> `NaN`
-  - after warmup: mean of finite values in rolling window
+  - fewer than `days` bars computed -> `NaN`
+  - otherwise: mean of finite values in rolling window
 - `MTsZscore(days, ddof, min_count, eps)`:
   - rolling stats over finite window values
   - if valid count `< min_count`: output `0`
@@ -249,12 +256,12 @@ signal values, plot sampling and tooltip values remain raw.
   - `<tsmax|tsmin days=20 min_count=days>`: max/min of the finite window values; `NaN` if fewer than `min_count`; a `NaN` today does not force `NaN`
   - `<tsewma span=20 | halflife | alpha, adjust=1, min_count=1>`: pandas `ewm(alpha, adjust, ignore_na=False, min_periods=min_count).mean()` with the
     float-rounded parameter (α = 2/(span+1), 1−exp(ln 0.5/halflife) or alpha; at most one given); a missing bar outputs the previous mean;
-    infinite memory, so the value depends on the panel start (difference bounded by (1−α)^warmup)
+    infinite memory, so the value depends on where computation starts (difference bounded by (1−α)^bars since then)
 - Fractional difference and PCA residual:
   - `<ffd d=0.24 thres=0.00001>`: per instrument; weights `w_0 = 1`, `w_k = −w_{k−1}/k·(d−k+1)` until `|w_k| < thres` or 1000 weights
     (the desk's `getWeights_FFD`); `out[t] = Σ_k w_k·x~[t−k]` with `x~` the input forward-filled from its first finite value, double
     accumulation; `NaN` when today's input is non-finite or fewer than `len(w)` bars have passed since the first finite input. `d=0` is the identity
-  - `<pcaresid group train=1260 refit=252 k=0 var=0.9>`: refit at panel bars `b ≥ train` with `b % refit == 0` on the input rows `[b−train, b)`
+  - `<pcaresid group train=1260 refit=252 k=0 var=0.9>`: refit at panel bars with `b % refit == 0` once `train` input rows were computed, on the input rows `[b−train, b)`
     (`NaN` before the first fit); `group` is optional (`sector|industry`, validated like neutralize; absent = one block over the run universe).
     Fit set per group: in the run universe, finite code ≥ 0 equal on every train bar, finite input on every train bar. Columns standardized with the
     train mean/std (ddof 0; zero-std columns dropped); PCA as sklearn on the standardized matrix (`k > 0` fixes the component count, else the first `k`

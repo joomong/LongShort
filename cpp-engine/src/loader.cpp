@@ -83,7 +83,7 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     const auto bt = root["backtest"];
     if (!bt || !bt.IsMap()) throw std::runtime_error("config.yaml: missing backtest mapping");
     require_known_keys(bt, "backtest.", {"start_date", "end_date", "initial_capital", "transaction_fee",
-                                         "bars_per_year", "execution_price", "warmup_bars",
+                                         "bars_per_year", "execution_price",
                                          "symbol_labels_path", "missing_close_policy"});
     cfg.start_date = bt["start_date"] ? bt["start_date"].as<std::string>() : "";
     cfg.end_date = bt["end_date"] && !bt["end_date"].IsNull()
@@ -102,7 +102,6 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     cfg.execution_price = bt["execution_price"] ? bt["execution_price"].as<std::string>() : cfg.execution_price;
     if (cfg.execution_price != "close" && cfg.execution_price != "ohlc4" && cfg.execution_price != "vwap")
         throw std::runtime_error("backtest.execution_price must be 'close', 'ohlc4' or 'vwap'");
-    cfg.warmup_bars = unsigned_option(bt["warmup_bars"], 0, false);
     if (bt["symbol_labels_path"] && !bt["symbol_labels_path"].IsNull()) {
         std::filesystem::path labels = bt["symbol_labels_path"].as<std::string>();
         if (labels.is_relative()) labels = std::filesystem::path(cfg.config_dir) / labels;
@@ -476,11 +475,8 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     const auto first = std::lower_bound(master->calendar.begin(), master->calendar.end(), start);
     const auto last = std::upper_bound(master->calendar.begin(), master->calendar.end(), end);
     if (first == master->calendar.end() || first >= last) throw std::runtime_error("No close observations in the configured period");
-    const size_t begin = first - master->calendar.begin();
-    const size_t warmup_begin = begin - std::min<size_t>(begin, config.warmup_bars);
     DataPanel panel;
-    panel.timestamps.assign(master->calendar.begin() + warmup_begin, last);
-    panel.trade_start_index = static_cast<unsigned>(begin - warmup_begin);
+    panel.timestamps.assign(first, last);
     panel.T = static_cast<unsigned>(panel.timestamps.size());
     auto membership = config.universe.name.empty() && config.universe.names.empty()
         ? Membership{} : read_universe(config, panel.timestamps);
@@ -518,9 +514,9 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     auto close_values = read_field<float>(sources.at("close"), {panel.timestamps, panel.symbols});
     if (latest_end) {
         size_t rows = panel.T;
-        while (rows > panel.trade_start_index && std::all_of(close_values.begin() + (rows - 1) * panel.N,
+        while (rows > 0 && std::all_of(close_values.begin() + (rows - 1) * panel.N,
                close_values.begin() + rows * panel.N, [](float value) { return std::isnan(value); })) --rows;
-        if (rows <= panel.trade_start_index) throw std::runtime_error("No close prices in the configured trading period");
+        if (rows == 0) throw std::runtime_error("No close prices in the configured trading period");
         panel.T = static_cast<unsigned>(rows);
         panel.timestamps.resize(rows);
         close_values.resize(rows * panel.N);

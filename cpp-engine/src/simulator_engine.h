@@ -17,7 +17,7 @@ struct MissingDataDiagnostics {
     double frozen_gross = 0.0;
     double blocked_trade_weight = 0.0;
     unsigned resumed_holding_count = 0;
-    unsigned retirement_count = 0; // thin source ending, held or not
+    unsigned retirement_count = 0; // thin source ending on a trading bar, held or not
     unsigned missing_entry_count = 0;
     unsigned successor_conversions = 0;    // ending thin moves carried into a destination
     double converted_gross = 0.0;          // exposure handed to destinations
@@ -53,7 +53,7 @@ struct SimulatorConfig {
     double fee_rate;        // fraction (e.g., 0.0005)
     bool collect_signals = false;  // run() stores the T×N raw signal matrix
     SignalRowCallback signal_row_callback{}; // run() observes raw rows before normalization
-    unsigned sim_start_index = 0; // earlier bars warm modules/targets, with no positions or fees
+    unsigned sim_start_index = 0; // first trading bar; computation starts at history_start()
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
     AccountingRowCallback accounting_row_callback{}; // opt-in for either execution path
     // Run-selected signal-date mask (universe.names); null = data.universe_mask.
@@ -61,6 +61,8 @@ struct SimulatorConfig {
     ExecutionPrice execution_price = ExecutionPrice::Close;
     unsigned sim_end_index = std::numeric_limits<unsigned>::max(); // exclusive; default = panel end
     unsigned module_threads = 1; // includes caller; outer alpha/member workers use one
+    // First bar computed: one bar before sim_start_index sets intent and marks without trading.
+    unsigned history_start() const { return sim_start_index > 0 ? sim_start_index - 1 : 0; }
 };
 
 struct SimulatorOutput {
@@ -73,7 +75,7 @@ struct SimulatorOutput {
     std::vector<double> short_weight;
     std::vector<int> position_count;
     std::vector<int64_t> timestamps;
-    std::vector<std::vector<float>> signals;  // T×N raw signal (only when collect_signals=true)
+    std::vector<std::vector<float>> signals;  // T rows of raw signal, empty before history_start (only when collect_signals=true)
     std::vector<MissingDataDiagnostics> missing_data; // T bars; last bar exposes terminal frozen holdings
 };
 

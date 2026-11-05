@@ -27,7 +27,6 @@ private:
 struct DataPanel {
     unsigned T = 0;
     unsigned N = 0;
-    unsigned trade_start_index = 0; // earlier rows are available for warmup only
     std::vector<int64_t> timestamps;    // exact epoch_ms, UTC sorted ascending
     std::vector<std::string> symbols;   // lexically sorted stable IDs
     std::unordered_map<std::string, std::vector<float>> arrays;

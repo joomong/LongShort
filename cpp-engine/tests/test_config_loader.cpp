@@ -28,7 +28,6 @@ backtest:
   initial_capital: 1000000
   transaction_fee: 1.5
   bars_per_year: 252
-  warmup_bars: 63
   execution_price: vwap
 )";
 }
@@ -44,7 +43,7 @@ TEST(ConfigLoader, ReadsCachePathsAndRuntimeSettings) {
     EXPECT_EQ(config.universe.symbols, (std::vector<std::string>{"101", "102"}));
     EXPECT_DOUBLE_EQ(config.initial_capital, 1000000);
     EXPECT_NEAR(config.transaction_fee_rate, 0.00015, 1e-15);
-    EXPECT_EQ(config.bars_per_year, 252u); EXPECT_EQ(config.warmup_bars, 63u);
+    EXPECT_EQ(config.bars_per_year, 252u);
     EXPECT_EQ(config.execution_price, "vwap");
 }
 
@@ -70,7 +69,7 @@ TEST(ConfigLoader, ResolvesOutputDirectoriesBesideTheConfig) {
 
 TEST(ConfigLoader, RuntimeOptionsValidateTheirInputs) {
     ConfigFiles files;
-    for (const std::string option : {"execution_price: unknown", "missing_close_policy: unknown", "warmup_bars: -1",
+    for (const std::string option : {"execution_price: unknown", "missing_close_policy: unknown", "warmup_bars: 0",
                                      "bars_per_year: 0", "transaction_fee: -1", "initial_capital: 0",
                                      "start_date: '2020-02-30'", "end_date: 'wrong'"})
         EXPECT_THROW(BacktestConfig::from_yaml(files.file("bad.yaml", "base: {cache: cache}\nbacktest: {" + option + "}\n")), std::exception);

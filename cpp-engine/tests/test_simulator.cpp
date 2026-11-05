@@ -306,8 +306,10 @@ TEST(Simulator, StartDateWarmsModulesButStartsWithNoHistoricalHoldings) {
         EXPECT_DOUBLE_EQ(out.turnover[di], 0.0);
         EXPECT_EQ(out.position_count[di], 0);
     }
-    // Delay module is warm: day 2 executes day 1 raw values (120/100).
-    EXPECT_FLOAT_EQ(out.signals[1][0], 100.0f);
+    // Computation starts on day 1: day 2 executes day 1 raw values (120/100).
+    EXPECT_TRUE(out.signals[0].empty());
+    EXPECT_TRUE(std::isnan(out.signals[1][0]));
+    EXPECT_FLOAT_EQ(out.signals[2][0], 120.0f);
     EXPECT_NEAR(out.ret[2], -0.001, 1e-12); // no pre-start 120 -> 60 loss
     EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
     // First holding period is 60 -> 90 at 120/220 weight; rebalance to 60/160.
@@ -533,9 +535,10 @@ TEST(MissingDataAccounting, FirstExecutionUsesCurrentIntentAndNeedsAStartQuote) 
         auto config = carry_config(panel, ledger);
         config.sim_start_index = 2;
         auto out = Simulator(panel, config).run_from_signals(signals);
-        // The first trading bar uses its current pipeline output.
-        EXPECT_NEAR(ledger.weights[2][0], 1.0, 1e-12);
-        EXPECT_NEAR(ledger.weights[2][1], 0.0, 1e-12);
+        // The first trading bar uses its current pipeline output. Ledger rows start at bar 1.
+        EXPECT_EQ(ledger.bar[1], 2u);
+        EXPECT_NEAR(ledger.weights[1][0], 1.0, 1e-12);
+        EXPECT_NEAR(ledger.weights[1][1], 0.0, 1e-12);
         EXPECT_NEAR(out.turnover[2], 1.0, 1e-12);
     }
     // Without a quote on the first trading bar no position executes.
@@ -547,10 +550,10 @@ TEST(MissingDataAccounting, FirstExecutionUsesCurrentIntentAndNeedsAStartQuote) 
         auto config = carry_config(stalled, ledger);
         config.sim_start_index = 2;
         auto out = Simulator(stalled, config).run_from_signals(one_sided);
-        EXPECT_NEAR(ledger.weights[2][0], 0.0, 1e-12);
+        EXPECT_NEAR(ledger.weights[1][0], 0.0, 1e-12);
         EXPECT_DOUBLE_EQ(out.turnover[2], 0.0);
         EXPECT_DOUBLE_EQ(out.ret[2], 0.0);
-        EXPECT_EQ(ledger.diagnostics[2].missing_entry_count, 1u);
+        EXPECT_EQ(ledger.diagnostics[1].missing_entry_count, 1u);
     }
 }
 
