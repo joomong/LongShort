@@ -2,6 +2,7 @@
 
 // MTsRank: rolling percentile rank (O(days) comparison counting per instrument).
 struct MTsRank : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         if (min_count < 0)

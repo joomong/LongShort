@@ -1262,6 +1262,31 @@ static MetaSet compile_meta_set(const std::map<std::string, std::string>& attrib
     return set;
 }
 
+// Saved signals keep their own first valid bar, a load resumes from it. <event> reads saved
+// signals, so from there on the running bar is the maximum so far.
+unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start) {
+    std::map<const MSignalSave*, unsigned> saved_by_module;
+    unsigned running = start, result = start;
+    for (const Module* module : alpha.pipeline) {
+        if (std::find(alpha.chain_starts.begin(), alpha.chain_starts.end(), module) != alpha.chain_starts.end()) running = start;
+        if (const auto* save = dynamic_cast<const MSignalSave*>(module)) saved_by_module[save] = running;
+        else if (const auto* load = dynamic_cast<const MSignalLoad*>(module)) running = saved_by_module.at(load->source);
+        else if (dynamic_cast<const MEvent*>(module)) running = result;
+        unsigned long long lookback = module->lookback(running);
+        for (const MetaSet& set : alpha.meta_sets) {
+            if (set.source != module) continue;
+            for (const CompiledAlpha& member : set.members)
+                lookback = std::max<unsigned long long>(lookback, first_valid_bar(member, running) - running);
+            // Member returns exist from the bar after computation starts and the first estimate uses
+            // `days` of them (meta.cpp: t0 = sim_start + days, sim_start = history start + 1).
+            if (!set.combine.is_ew()) lookback += set.combine.days + 1ULL;
+        }
+        running = saturating_bars(running + lookback);
+        result = std::max(result, running);
+    }
+    return result;
+}
+
 CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
                                const std::vector<uint8_t>* universe,
                                const MetaResolver* resolver) {
@@ -1289,6 +1314,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
         result.meta_sets.back().source = source.get();
         current = source.get();
         result.pipeline.push_back(current);
+        result.chain_starts.push_back(current);
         result.modules.push_back(std::move(source));
         pending_set = false;
     };
@@ -1333,6 +1359,7 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
             }
             current = parse_expr(expr, panel, result.modules);
             result.pipeline.push_back(current);
+            result.chain_starts.push_back(current);
 
             {
                 auto it = attribs.find("delay");

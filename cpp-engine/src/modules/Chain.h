@@ -2,6 +2,11 @@
 
 // MChain: runs two modules in sequence on the same SignalVector.
 struct MChain : public Module {
+    unsigned lookback(unsigned first_bar) const override
+    {
+        const unsigned head = first->lookback(first_bar);
+        return saturating_bars(0ULL + head + second->lookback(saturating_bars(0ULL + first_bar + head)));
+    }
     void init()
     {
         first->numAssets = numAssets;

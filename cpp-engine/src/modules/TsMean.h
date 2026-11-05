@@ -2,6 +2,7 @@
 
 // MTsMean: rolling mean over a window (O(1) incremental per instrument).
 struct MTsMean : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         input.init(days, numAssets);

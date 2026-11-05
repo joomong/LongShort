@@ -1,6 +1,7 @@
 #pragma once
 
 struct MDelay : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 0 ? (int)days : 0; }
     void init()
     {
         input.init(days, numAssets);

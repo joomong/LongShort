@@ -3,6 +3,8 @@ import captured from '../unit/fixtures/capture.json';
 import type { SearchEvent } from '../../src/types';
 
 const engine = process.env.PLAYWRIGHT_ENGINE_URL;
+// tsmean days="3" needs warmup after simStart; the shared capture has isStart == simStart.
+const isStart = '2025-09-10';
 test.skip(!engine, 'Set PLAYWRIGHT_ENGINE_URL to the synthetic C++ integration server');
 
 // Saved names are removed with a fresh request context so cleanup also runs after a test timeout.
@@ -35,7 +37,7 @@ test('live C++ default GA explicit XML delay and expanded XML save/load roundtri
   const metadata = {
     simStart: captured.settings.simStart,
     simEnd: engineConfig.simEnd,
-    isStart: captured.settings.isStart,
+    isStart,
     osStart: captured.settings.osStart,
     universe: engineConfig.defaultUniverse ?? '',
     executionPrice: engineConfig.executionPrice ?? 'close',
@@ -69,7 +71,7 @@ test('live C++ default GA explicit XML delay and expanded XML save/load roundtri
   {
     await page.goto('/');
     await load(templateName);
-    await page.getByLabel('IS start date').fill(captured.settings.isStart);
+    await page.getByLabel('IS start date').fill(isStart);
     await page.getByLabel('OS start date').fill(captured.settings.osStart);
     await page.getByLabel('Sim start date').fill(captured.settings.simStart);
     await page.getByLabel('Number of threads').fill('2');

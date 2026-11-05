@@ -5,6 +5,7 @@
 // out[ii] = (in[di]*days + in[di-1]*(days-1) + ... + in[di-days+1]*1) / weighted_cnt
 struct MDecay : public Module
 {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         input.init(days, numAssets);

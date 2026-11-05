@@ -64,6 +64,7 @@ struct MetaSet;
 struct CompiledAlpha {
     std::vector<std::unique_ptr<Module>> modules;  // owns all modules
     std::vector<Module*> pipeline;                  // top-level execution order
+    std::vector<const Module*> chain_starts;        // pipeline modules that begin a <data>/<meta> chain
     Module* output;                                 // last module (non-owning)
     std::string source_xml;                         // expanded per-alpha XML
     std::vector<MetaSet> meta_sets;                 // <meta> alpha sets, in pipeline order
@@ -79,6 +80,10 @@ struct MetaSet {
 
 // (path, xml) pairs for a meta name; throws std::runtime_error for unknown name / empty folder.
 using MetaResolver = std::function<std::vector<std::pair<std::string, std::string>>(const std::string& name)>;
+
+// First panel bar with a valid signal when computation starts at `start`; needs no init().
+// Precondition: call before prefetch or bind, which release <meta> members.
+unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start);
 
 // Compile a single pipeline into a CompiledAlpha.
 CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,

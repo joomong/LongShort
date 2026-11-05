@@ -90,7 +90,7 @@ def main():
         "nested/x.xml": '<meta expr="sample"/>',
     }
     # Disconnect test: enough work per member (min_count 1 keeps every rank O(days)) for a few CPU seconds.
-    heavy = '<data expr="close" delay="1"/>' + '<tsrank days="2000" min_count="1"/>' * 100
+    heavy = '<data expr="close" delay="1"/><tsrank days="1800" min_count="1"/>' * 100
     for k in range(3):
         members[f"heavy/m{k}.xml"] = heavy
     # Ten cheap members for member-count checks of the combination methods.

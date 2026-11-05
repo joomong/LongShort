@@ -7,7 +7,8 @@
 // first finite value; NaN when today's input is not finite or fewer than L = len(w) bars have passed
 // since the first finite input. Double accumulation in eight interleaved partial sums, oldest-first.
 struct MFfd : public Module {
-    void init()
+    // Newest-first: w[0] = 1.
+    std::vector<double> newest_first_weights() const
     {
         std::vector<double> w{1.0};
         const double dd = static_cast<double>(d), th = static_cast<double>(thres);
@@ -16,6 +17,12 @@ struct MFfd : public Module {
             if (std::abs(next) < th) break;
             w.push_back(next);
         }
+        return w;
+    }
+    unsigned lookback(unsigned) const override { return static_cast<unsigned>(newest_first_weights().size()) - 1; }
+    void init()
+    {
+        const std::vector<double> w = newest_first_weights();
         // Oldest-first: weights[0] multiplies x~[t-L+1], weights[L-1] = 1 multiplies x~[t].
         weights.assign(w.rbegin(), w.rend());
         L = static_cast<unsigned>(weights.size());

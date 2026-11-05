@@ -19,6 +19,12 @@ struct MPcaResid : public Module {
         int k = 0;
     };
 
+    unsigned lookback(unsigned first_bar) const override
+    {
+        const unsigned long long t = std::max(1, (int)train), r = std::max(1, (int)refit);
+        const unsigned long long earliest = first_bar + t;
+        return saturating_bars(earliest + (r - earliest % r) % r - first_bar);
+    }
     void init()
     {
         T = static_cast<unsigned>(std::max(1, (int)train));

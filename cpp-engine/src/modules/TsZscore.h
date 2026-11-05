@@ -2,6 +2,7 @@
 
 // MTsZscore: rolling z-score (O(1) incremental per instrument).
 struct MTsZscore : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         if (min_count < 0)

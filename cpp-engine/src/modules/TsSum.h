@@ -3,6 +3,7 @@
 // MTsSum: rolling sum of the finite values in the window (O(1) incremental per instrument).
 // NaN if fewer than min_count finite values.
 struct MTsSum : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         if (min_count < 0)

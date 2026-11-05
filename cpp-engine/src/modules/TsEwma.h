@@ -7,12 +7,27 @@
 // the unused ones stay <= 0. Infinite memory: the value depends on the panel start; the
 // difference to a longer history is bounded by (1-alpha)^warmup. O(1) per instrument.
 struct MTsEwma : public Module {
-    void init()
+    double resolved_alpha() const
     {
         const double s = span, h = halflife, a = alpha;
-        if (a > 0.0) alpha_d = a;
-        else if (h > 0.0) alpha_d = 1.0 - std::exp(std::log(0.5) / h);
-        else alpha_d = 2.0 / (s + 1.0);
+        if (a > 0.0) return a;
+        if (h > 0.0) return 1.0 - std::exp(std::log(0.5) / h);
+        return 2.0 / (s + 1.0);
+    }
+    // Bars after first_bar until at most 0.1% of the weight lies before first_bar: the output at
+    // first_bar + b holds b + 1 observations, so b + 1 = ceil(ln(0.001) / ln(1 - alpha)).
+    unsigned lookback(unsigned) const override
+    {
+        const double a = resolved_alpha();
+        if (a >= 1.0) return 0;
+        if (!(a > 0.0)) return kNeverValidBar;
+        const double bars = std::ceil(std::log(0.001) / std::log(1.0 - a));
+        if (!std::isfinite(bars) || bars - 1.0 >= static_cast<double>(kNeverValidBar)) return kNeverValidBar;
+        return bars > 1.0 ? static_cast<unsigned>(bars) - 1 : 0;
+    }
+    void init()
+    {
+        alpha_d = resolved_alpha();
         weighted.assign(numAssets, std::numeric_limits<double>::quiet_NaN());
         old_wt.assign(numAssets, 0.0);
         nobs.assign(numAssets, 0);

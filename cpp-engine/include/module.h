@@ -124,11 +124,19 @@ private:
 // Module: abstract base (STAR ABI)
 // ---------------------------------------------------------------------------
 
+// Lookback or bar meaning "never valid"; bar sums saturate here instead of wrapping.
+constexpr unsigned kNeverValidBar = std::numeric_limits<unsigned>::max() / 2;
+inline unsigned saturating_bars(unsigned long long bars) {
+    return bars < kNeverValidBar ? static_cast<unsigned>(bars) : kNeverValidBar;
+}
+
 struct Module {
     unsigned numAssets = 0;
 
     virtual void init() = 0;
     virtual void calculate(unsigned di, SignalVector& output) = 0;
+    // Bars after first_bar (the panel bar where the input is first valid) until the output is first valid.
+    virtual unsigned lookback(unsigned first_bar) const { return 0; }
     virtual ~Module() = default;
 
     void setting_output_to_nan_is_not_necessary() { skip_nan_init_ = true; }

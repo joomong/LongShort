@@ -2,6 +2,7 @@
 
 // MTsDelta: x[t] - x[t-days]; NaN if either is non-finite or fewer than days+1 bars seen.
 struct MTsDelta : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 0 ? (int)days : 0; }
     void init()
     {
         input.init(days, numAssets);

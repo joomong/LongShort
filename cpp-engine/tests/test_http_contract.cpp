@@ -553,7 +553,7 @@ TEST_F(HttpContractTest, SimEndAlsoCapsCombinedSignalsAndSearchContext) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value req;
     req["xml"] = "<data expr=\"close\"/><tsmean days=\"2|3\"/>";
-    req["simStart"] = "2023-01-02"; req["simEnd"] = "2023-06-30";
+    req["simStart"] = "2022-12-20"; req["simEnd"] = "2023-06-30";
     req["isStart"] = "2023-01-02"; req["osStart"] = "2023-05-01";
     const auto response = simulate(req); ASSERT_EQ(response.status, 200) << response.body;
     Json::Value body; ASSERT_TRUE(parse_json(response.body, &body));
@@ -586,7 +586,7 @@ TEST_F(HttpContractTest, MultiAlphaBatchesContainPerAlphaXml)
 
     Json::Value req;
     req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3\"/>";
-    req["isStart"] = "2000-01-01";
+    req["isStart"] = "2021-01-01";
     req["osStart"] = "2100-01-01";
 
     const HttpResult res = simulate(req);
@@ -624,7 +624,7 @@ TEST_F(HttpContractTest, MultiAlphaDefaultDoesNotIncludeSignalPlot)
 
     Json::Value req;
     req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3\"/>";
-    req["isStart"] = "2000-01-01";
+    req["isStart"] = "2021-01-01";
     req["osStart"] = "2100-01-01";
 
     const HttpResult res = simulate(req);
@@ -654,7 +654,7 @@ TEST_F(HttpContractTest, MultiAlphaBatchesSortedByIsSharpeDesc)
 
     Json::Value req;
     req["xml"] = "<data expr=\"close\" delay=\"1|2|3|4\"/><rank/>";
-    req["isStart"] = "2000-01-01";
+    req["isStart"] = "2021-01-01";
     req["osStart"] = "2100-01-01";
 
     const HttpResult res = simulate(req);
@@ -693,7 +693,7 @@ TEST_F(HttpContractTest, MultiAlphaCombinedDeterministicAcrossRepeatedThreadedCa
 
     Json::Value req;
     req["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4|5\"/><rank/>";
-    req["isStart"] = "2000-01-01";
+    req["isStart"] = "2021-01-01";
     req["osStart"] = "2100-01-01";
     req["threads"] = 4;
 
@@ -896,7 +896,7 @@ TEST_F(HttpContractTest, ResultPayloadsHaveOneCanonicalOwner) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/>";
-    request["isStart"]="2000-01-01";request["osStart"]="2100-01-01";
+    request["isStart"]="2021-01-01";request["osStart"]="2100-01-01";
     request["signalPlotMaxCells"]=12;
     const auto response=simulate(request);ASSERT_EQ(response.status,200)<<response.body;
     Json::Value body;ASSERT_TRUE(parse_json(response.body,&body));
@@ -915,7 +915,7 @@ TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\" delay=\"1\"/>";
-    request["isStart"] = "2000-01-01";
+    request["isStart"] = "2021-01-01";
     request["osStart"] = "2100-01-01";
     auto call = [&](const Json::Value& payload) {
         const auto response = simulate(payload);
@@ -1113,7 +1113,7 @@ TEST_F(HttpContractTest, GaStreamsEveryUniqueCandidateBetweenRoundBoundaries) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\"/><tsmean days=\"1...48\"/>";
-    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
+    request["isStart"] = "2021-01-01"; request["osStart"] = "2100-01-01";
     request["firstSearch"] = 200; request["stopRound"] = 40; request["stopAlphas"] = 400;
     request["threads"] = 20;
     for (int scenario = 0; scenario < 2; ++scenario) {
@@ -1190,7 +1190,7 @@ TEST_F(HttpContractTest, ConcreteCandidateAggregateMatchesOrdinaryCombinedPortfo
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\" delay=\"0\"/><tsmean days=\"2|3|4\"/><rank/>";
-    request["simStart"] = "2023-03-01"; request["simEnd"] = "2023-09-29";
+    request["simStart"] = "2023-02-01"; request["simEnd"] = "2023-09-29";
     request["isStart"] = "2023-03-01"; request["osStart"] = "2023-06-01";
     request["output"] = "performance";
     request["threads"] = 1;
@@ -1412,7 +1412,8 @@ TEST_F(AlphaStorageHttpTest, ResultFilesEqualLiveSimulateBodies) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     const std::string name = unique_alpha_name("results");
     remove(name);
-    const Json::Value metadata = alpha_metadata("ohlc4");
+    Json::Value metadata = alpha_metadata("ohlc4");
+    metadata["isStart"] = "2024-04-01";  // the members need warmup
     Json::Value request;
     request["name"] = name;
     request["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|4\"/><rank/>";
@@ -1506,7 +1507,8 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     const std::string name = unique_alpha_name("positions");
     remove(name);
-    const Json::Value metadata = alpha_metadata("close");
+    Json::Value metadata = alpha_metadata("close");
+    metadata["isStart"] = "2024-01-04";  // the members need warmup
     const std::string xml = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"3\"/><rank/><neutralize group=\"sector\"/>";
     Json::Value request;
     request["name"] = name;
@@ -1564,12 +1566,12 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
     Json::Value row_file;
     ASSERT_TRUE(parse_json(read_text(dir / "results" / "rows" / "5.json"), &row_file));
     const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
-    ASSERT_EQ(cum.size(), static_cast<Json::ArrayIndex>(last_day - first_day + 1));
-    double previous = cum[0].asDouble();
-    EXPECT_EQ(previous, 0.0);  // nothing is held into the first trading bar
+    const int32_t is_day = first_day + 3;  // the performance series starts at isStart (2024-01-04)
+    ASSERT_EQ(cum.size(), static_cast<Json::ArrayIndex>(last_day - is_day + 1));
+    double previous = 0.0;
     std::size_t checked = 0;
-    for (int32_t day = first_day + 1; day <= last_day; ++day) {
-        const double gross = cum[static_cast<Json::ArrayIndex>(day - first_day)].asDouble() - previous;
+    for (int32_t day = is_day; day <= last_day; ++day) {
+        const double gross = cum[static_cast<Json::ArrayIndex>(day - is_day)].asDouble() - previous;
         previous += gross;
         double expected = 0.0;
         for (const auto& [symbol, w] : book[day - 1]) {
@@ -1579,7 +1581,7 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         EXPECT_NEAR(gross, expected, 1e-12) << day;
         ++checked;
     }
-    EXPECT_EQ(checked, 365u);
+    EXPECT_EQ(checked, 363u);
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
 }
 
@@ -1674,7 +1676,7 @@ TEST_F(HttpContractTest, SimulateRejectsThreadsOutside1To32) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request;
     request["xml"] = "<data expr=\"close\"/><tsmean days=\"5\"/>";
-    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
+    request["isStart"] = "2021-01-01"; request["osStart"] = "2100-01-01";
     request["output"] = "performance";
     const auto omitted = simulate(request);
     ASSERT_EQ(omitted.status, 200) << omitted.body;
@@ -1696,7 +1698,7 @@ TEST_F(HttpContractTest, SimulateRejectsThreadsOutside1To32) {
 
     Json::Value ga;
     ga["xml"] = "<data expr=\"close\"/><tsmean days=\"1...4\"/>";
-    ga["isStart"] = "2000-01-01"; ga["osStart"] = "2100-01-01";
+    ga["isStart"] = "2021-01-01"; ga["osStart"] = "2100-01-01";
     ga["threads"] = 33;
     const auto ga_rejected = http_post_json(server_->port(), "/api/ga/stream", ga);
     EXPECT_EQ(ga_rejected.status, 400) << ga_rejected.body;
@@ -1725,10 +1727,10 @@ TEST_F(HttpContractTest, SimulateStopsWhenClientDisconnects) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     std::string xml = "<data expr=\"close\"/>";
     // min_count 1 keeps every rank finite so each module does O(days) work per cell (~3 s total).
-    for (int i = 0; i < 300; ++i) xml += "<tsrank days=\"2000\" min_count=\"1\"/>";
+    for (int i = 0; i < 300; ++i) xml += "<data expr=\"close\"/><tsrank days=\"1800\" min_count=\"1\"/>";
     Json::Value request;
     request["xml"] = xml;
-    request["isStart"] = "2000-01-01"; request["osStart"] = "2100-01-01";
+    request["isStart"] = "2025-01-01"; request["osStart"] = "2100-01-01";
     const pid_t pid = server_->pid();
 
     const double cpu_before = process_cpu_seconds(pid);
@@ -1756,7 +1758,7 @@ Json::Value meta_request(const std::string& xml)
 {
     Json::Value request;
     request["xml"] = xml;
-    request["isStart"] = "2000-01-01";
+    request["isStart"] = "2021-01-01";
     request["osStart"] = "2100-01-01";
     request["signalPlotMaxCells"] = 1000;
     return request;
@@ -1905,11 +1907,33 @@ TEST_F(HttpContractTest, MetaInGAStream) {
     }
 }
 
+TEST_F(AlphaStorageHttpTest, SaveRejectsInsufficientHistoryBeforeWriting) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::string name = unique_alpha_name("short");
+    remove(name);
+    const std::string xml = "<data expr=\"close\"/><tsmean days=\"200\"/>";
+    Json::Value request;
+    request["name"] = name;
+    request["xml"] = xml;
+    request["level"] = "results";
+    request["metadata"] = alpha_metadata();
+    Json::Value row;
+    row["id"] = 0; row["xml"] = xml;
+    request["rows"].append(row);
+    const auto saved = save(request);
+    EXPECT_EQ(saved.status, 400);
+    Json::Value body;
+    ASSERT_TRUE(parse_json(saved.body, &body));
+    EXPECT_EQ(body["error"].asString(), "Insufficient history");
+    EXPECT_FALSE(fs::exists(alphas_dir() / name));
+}
+
 TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     const std::string name = unique_alpha_name("meta");
     remove(name);
-    const Json::Value metadata = alpha_metadata();
+    Json::Value metadata = alpha_metadata();
+    metadata["isStart"] = "2024-04-01";  // the members need warmup
     const std::vector<std::string> xmls = {
         "<meta expr=\"sample\"/>\n<neutralize group=\"sector\"/>",
         "<meta expr=\"sample\"/>\n<neutralize group=\"industry\"/>"};
@@ -1960,6 +1984,7 @@ TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
 TEST_F(HttpContractTest, MetaDisconnectStopsMembers) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"heavy\"/>");
+    request["isStart"] = "2025-01-01";
     request["output"] = "performance";
     // One member worker: the CPU spent before the disconnect is then ~0.3 s regardless of CPU speed,
     // which keeps the 0.6 x cpu_full margin wide.
@@ -2041,7 +2066,7 @@ TEST_F(HttpContractTest, MetaSpecErrors400) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     const std::vector<std::pair<std::string, std::string>> cases = {
         {"<meta expr=\"sample\"/><spca days=\"60\" k=\"4\"/>", "meta 'sample' <spca>: k=4 exceeds the member count 3"},
-        {"<meta expr=\"sample\"/><mvo days=\"5000\"/>", "meta 'sample' <mvo>: days=5000 exceeds the trading bars"},
+        {"<meta expr=\"sample\"/><mvo days=\"5000\"/>", "Insufficient history"},
     };
     for (const auto& [xml, needle] : cases) {
         const auto response = simulate(meta_request(xml));
@@ -2054,11 +2079,142 @@ TEST_F(HttpContractTest, MetaSpecErrors400) {
     EXPECT_NE(batch.body.find("k=4 exceeds the member count 3"), std::string::npos) << batch.body;
 }
 
+// Fixture bars are consecutive days from 2020-01-01; simStart 2020-01-11 is bar 10, computation starts at 9.
+TEST_F(HttpContractTest, InsufficientHistoryBoundary) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const std::vector<std::tuple<std::string, std::string, std::string>> cases = {
+        // delay 1 then tsmean 5: valid at 9 + 1 + 4 = 14, so the first IS bar may be 15.
+        {"<data expr=\"close\" delay=\"1\"/><tsmean days=\"5\"/>", "2020-01-16", "2020-01-15"},
+        // <data> restart: the longer first chain decides (9 + 4 = 13).
+        {"<data expr=\"close\"/><tsmean days=\"5\"/><data expr=\"close\"/><rank/>", "2020-01-15", "2020-01-14"},
+        // pcaresid fits at multiples of refit: 9 + 20 = 29 rounds up to 35.
+        {"<data expr=\"close\"/><pcaresid train=\"20\" refit=\"7\"/>", "2020-02-06", "2020-02-05"},
+    };
+    for (const auto& [xml, enough, short_by_one] : cases) {
+        Json::Value request;
+        request["xml"] = xml;
+        request["simStart"] = "2020-01-11";
+        request["osStart"] = "2100-01-01";
+        request["output"] = "performance";
+        request["isStart"] = enough;
+        const auto ok = simulate(request);
+        EXPECT_EQ(ok.status, 200) << xml << ": " << ok.body.substr(0, 300);
+        request["isStart"] = short_by_one;
+        const auto rejected = simulate(request);
+        EXPECT_EQ(rejected.status, 400) << xml;
+        Json::Value body;
+        ASSERT_TRUE(parse_json(rejected.body, &body));
+        EXPECT_EQ(body["error"].asString(), "Insufficient history") << xml;
+    }
+}
+
+TEST_F(HttpContractTest, InsufficientHistoryAroundSimStart) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    auto run = [&](const std::string& xml, const char* sim_start, const char* is_start, const char* sim_end = "") {
+        Json::Value request;
+        request["xml"] = xml;
+        if (*sim_start) request["simStart"] = sim_start;
+        if (*sim_end) request["simEnd"] = sim_end;
+        request["isStart"] = is_start;
+        request["osStart"] = "2100-01-01";
+        request["output"] = "performance";
+        return simulate(request);
+    };
+    const std::string delayed = "<data expr=\"close\" delay=\"1\"/>";
+    // Valid exactly at simStart: the book is unfunded there, so isStart == simStart runs.
+    EXPECT_EQ(run(delayed, "2020-01-11", "2020-01-11").status, 200);
+    // isStart < simStart: simStart is the bound. Valid at 9 + 4 = 13 > 10.
+    const std::string window = "<data expr=\"close\"/><tsmean days=\"5\"/>";
+    const auto rejected = run(window, "2020-01-11", "2020-01-02");
+    EXPECT_EQ(rejected.status, 400);
+    EXPECT_NE(rejected.body.find("Insufficient history"), std::string::npos);
+    EXPECT_EQ(run("<data expr=\"close\"/><tsmean days=\"2\"/>", "2020-01-11", "2020-01-02").status, 200);
+    // isStart before the panel: delay 0 runs, delay 1 cannot be valid on bar 0.
+    EXPECT_EQ(run("<data expr=\"close\" delay=\"0\"/><rank/>", "", "2000-01-01").status, 200);
+    EXPECT_EQ(run(delayed, "", "2000-01-01").status, 400);
+    // Server panels carry a returns field, so no expr operand has lookback here (see test_lookback for
+    // that case); the binary expr is timed with its delay: valid at bar 2 from simStart 0.
+    EXPECT_EQ(run("<data expr=\"close - returns\" delay=\"2\"/>", "", "2020-01-04").status, 200);
+    EXPECT_EQ(run("<data expr=\"close - returns\" delay=\"2\"/>", "", "2020-01-03").status, 400);
+    // Never valid inside the run, however late IS is: valid at 9 + 99 = 108 > 19.
+    const auto never = run("<data expr=\"close\"/><tsmean days=\"100\"/>", "2020-01-11", "2021-01-01", "2020-01-20");
+    EXPECT_EQ(never.status, 400);
+    EXPECT_NE(never.body.find("Insufficient history"), std::string::npos);
+}
+
+TEST_F(HttpContractTest, InsufficientHistoryRejectsWholeBatch) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xmls"] = Json::Value(Json::arrayValue);
+    request["xmls"].append("<data expr=\"close\"/><tsmean days=\"2\"/>");
+    request["xmls"].append("<data expr=\"close\"/><tsmean days=\"200\"/>");
+    request["isStart"] = "2020-04-10";  // bar 100
+    request["osStart"] = "2100-01-01";
+    request["output"] = "performance";
+    for (const bool combined_only : {false, true}) {
+        request["combinedOnly"] = combined_only;
+        const auto response = simulate(request);
+        EXPECT_EQ(response.status, 400);
+        Json::Value body;
+        ASSERT_TRUE(parse_json(response.body, &body));
+        EXPECT_EQ(body["error"].asString(), "Insufficient history");
+    }
+}
+
+TEST_F(HttpContractTest, GaReportsInsufficientHistoryPerCandidate) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    auto search = [&](const std::string& xml) {
+        Json::Value request;
+        request["xml"] = xml;
+        request["isStart"] = "2020-04-10";  // bar 100
+        request["osStart"] = "2100-01-01";
+        request["threads"] = 2;
+        const auto response = http_post_json(server_->port(), "/api/ga/stream", request);
+        EXPECT_EQ(response.status, 200) << response.body;
+        std::vector<Json::Value> events;
+        std::istringstream stream(response.body);
+        std::string line;
+        while (std::getline(stream, line)) {
+            if (line.empty()) continue;
+            Json::Value event;
+            EXPECT_TRUE(parse_json(line, &event)) << line;
+            events.push_back(event);
+        }
+        return events;
+    };
+    auto failed_count = [](const std::vector<Json::Value>& events) {
+        unsigned failed = 0;
+        for (const auto& event : events) {
+            if (event["type"].asString() != "candidate" || event["candidate"]["status"].asString() != "failed") continue;
+            EXPECT_EQ(event["candidate"]["error"].asString(), "Insufficient history");
+            ++failed;
+        }
+        return failed;
+    };
+    const auto mixed = search("<data expr=\"close\"/><tsmean days=\"2|3|200\"/>");
+    ASSERT_FALSE(mixed.empty());
+    EXPECT_EQ(mixed.back()["type"].asString(), "search_complete") << compact_json(mixed.back());
+    EXPECT_EQ(failed_count(mixed), 1u);
+    EXPECT_NE(mixed.back()["bestXml"].asString().find("tsmean"), std::string::npos);
+
+    const auto all_failed = search("<data expr=\"close\"/><tsmean days=\"200|300\"/>");
+    ASSERT_FALSE(all_failed.empty());
+    EXPECT_EQ(all_failed.back()["type"].asString(), "error") << compact_json(all_failed.back());
+    EXPECT_EQ(all_failed.back()["error"].asString(), "Insufficient history");
+    EXPECT_EQ(failed_count(all_failed), 2u);
+
+    const auto one_candidate = search("<data expr=\"close\"/><tsmean days=\"200\"/>");
+    ASSERT_FALSE(one_candidate.empty());
+    EXPECT_EQ(one_candidate.back()["type"].asString(), "error");
+    EXPECT_EQ(one_candidate.back()["error"].asString(), "Insufficient history");
+}
+
 TEST_F(HttpContractTest, MetaInGAStreamWithMvoGrid) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"sample\"/><mvo days=\"40|60\" shrink=\"0.3|0.7\"/>");
     // Dates used by no other test: the member-return cache is process-wide.
     request["simStart"] = "2021-03-01";
+    request["isStart"] = "2021-06-01";
     request["simEnd"] = "2022-11-30";
     request["firstSearch"] = 4; request["stopRound"] = 1;
     request["threads"] = 4;
@@ -2130,7 +2286,8 @@ std::map<int32_t, std::map<int, double>> read_positions(const fs::path& file)
 
 TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
     if (!available_) GTEST_SKIP() << skip_reason_;
-    const Json::Value metadata = alpha_metadata("close");
+    Json::Value metadata = alpha_metadata("close");
+    metadata["isStart"] = "2024-04-01";  // the members need warmup
     const int32_t first_day = 19723, last_day = 20088;  // 2024-01-01, 2024-12-31
     const unsigned T = static_cast<unsigned>(last_day - first_day + 1);
     std::vector<std::string> xmls(kSampleMembers.begin(), kSampleMembers.end());
@@ -2159,12 +2316,12 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         books.push_back(read_positions(alphas_dir() / name / "positions" / "0.parquet"));
         ASSERT_EQ(books.back().size(), T) << xmls[k];
         if (k == 3) continue;
-        Json::Value row_file;
-        ASSERT_TRUE(parse_json(read_text(alphas_dir() / name / "results" / "rows" / "0.json"), &row_file));
-        const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
-        ASSERT_EQ(cum.size(), T);
-        for (unsigned t = 0; t < T; ++t)
-            returns.rows[t][k] = cum[t].asDouble() - (t ? cum[t - 1].asDouble() : 0.0);
+        // Close execution: gross_ret[t] = sum_i w[t-1,i] * (close[t,i] / close[t-1,i] - 1); the
+        // performance series starts at isStart, so the returns come from the saved book.
+        const long first_t = first_day - 18262;  // 2020-01-01 as days since 1970-01-01
+        for (unsigned t = 1; t < T; ++t)
+            for (const auto& [symbol, w] : books.back().at(first_day + static_cast<int32_t>(t) - 1))
+                returns.rows[t][k] += w * (fixture_close(symbol, first_t + t) / fixture_close(symbol, first_t + t - 1) - 1.0);
     }
     CombineSpec spec;
     spec.method = CombineMethod::Mvo;
@@ -2204,6 +2361,7 @@ TEST_F(HttpContractTest, MetaCrossRequestDisconnectDoesNotFailOthers) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value request = meta_request("<meta expr=\"heavy\"/><mvo days=\"40\"/>");
     request["simStart"] = "2020-04-07";  // used by no other test: the member-return key is new
+    request["isStart"] = "2025-06-01";
     request["output"] = "performance";
     request["threads"] = 1;
     // A computes the shared member returns and disconnects; B waits on the same key and must not

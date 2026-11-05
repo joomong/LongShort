@@ -6,6 +6,7 @@
 // the rolling sums keep absolute error from past large values, so the run of equal finite values
 // (NaNs skipped) is tracked and checked against the window start.
 struct MTsStdDev : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         if (min_count < 0)

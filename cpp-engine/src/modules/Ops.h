@@ -3,6 +3,10 @@
 // MBinaryOp: base for binary operator modules.
 // Composite: owns lhs and rhs sub-modules.
 struct MBinaryOp : public Module {
+    unsigned lookback(unsigned first_bar) const override
+    {
+        return std::max(lhs->lookback(first_bar), rhs->lookback(first_bar));
+    }
     void init()
     {
         lhs_buf.assign(numAssets, std::numeric_limits<float>::quiet_NaN());

@@ -783,6 +783,19 @@ static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, co
     return compile_xml(xml, &g_data, options.universe_mask, &g_meta_resolver);
 }
 
+// Rejects an alpha whose signal is not valid in time for the first IS bar, whose position comes from
+// the previous bar's signal, or never valid in the run. The book is unfunded on simStart, so a signal
+// first valid there loses nothing. Computation starts one bar before simStart.
+static void require_history(const CompiledAlpha& alpha, const RunOptions& options) {
+    const unsigned sim_start = options.sim_start_index;
+    const auto is_index = static_cast<unsigned>(std::lower_bound(
+        g_data.timestamps.begin(), g_data.timestamps.end(), options.is_ms) - g_data.timestamps.begin());
+    const unsigned required = std::max(is_index > 0 ? is_index - 1 : 0u, sim_start);
+    const unsigned first_valid = first_valid_bar(alpha, sim_start > 0 ? sim_start - 1 : 0);
+    if (first_valid > required || first_valid >= options.sim_end_index)
+        throw std::invalid_argument("Insufficient history");
+}
+
 using MetaMatrices = std::vector<std::shared_ptr<const MetaMatrix>>;
 
 static MetaCombineContext meta_context(const RunOptions& options, MetaSetCache& cache,
@@ -1015,6 +1028,7 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
         alphas = compile_request_xml(xml, options);
     }
     if (alphas.empty()) throw std::invalid_argument("No alpha compiled from XML");
+    for (const auto& alpha : alphas) require_history(alpha, options);
     const bool single = alphas.size() == 1;
     if (options.output == "signals" || options.output == "signalSeries") {
         if (!single || combined_only) throw std::invalid_argument("Signal output requires one concrete alpha XML");
@@ -1354,11 +1368,18 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
                 throw invalid("Row round must be a nonnegative integer");
             if (!item["xml"].isString() || item["xml"].asString().empty())
                 throw invalid("Every row needs a nonempty xml string");
+            std::vector<CompiledAlpha> compiled;
             try {
-                if (compile_request_xml(item["xml"].asString(), options).size() != 1)
+                compiled = compile_request_xml(item["xml"].asString(), options);
+                if (compiled.size() != 1)
                     throw std::invalid_argument("must compile to exactly one alpha");
             } catch (const std::exception& error) {
                 throw invalid("Row " + std::to_string(item["id"].asUInt64()) + " xml: " + error.what());
+            }
+            try {
+                require_history(compiled[0], options);
+            } catch (const std::exception& error) {
+                throw invalid(error.what());
             }
             rows.push_back({item["id"].asUInt64(), round, item["xml"].asString()});
         }
@@ -1752,6 +1773,7 @@ int run_http_server(int argc, char* argv[])
                                         require_connection();
                                         auto alphas = compile_request_xml(candidate_xml, options);
                                         if (alphas.size() != 1) throw std::runtime_error("GA candidate must compile to exactly one alpha");
+                                        require_history(alphas[0], options);
                                         auto output = execute_alpha(alphas[0], options, false,
                                             [&](unsigned, const float*, unsigned) { require_connection(); }, {},
                                             meta_cache, disconnected);
@@ -1768,6 +1790,10 @@ int run_http_server(int argc, char* argv[])
                                         }
                                         return metrics.is_summary.sharpe;
                                     };
+                                    std::mutex outcome_mutex;
+                                    bool any_completed = false;
+                                    std::size_t first_failed_id = std::numeric_limits<std::size_t>::max();
+                                    std::string first_error;
                                     GAEvents events;
                                     events.cancelled = [&] { return g_ga_workers.stopping() || !req->connected(); };
                                     // Non-EW set matrices live for one round: drop the previous round's, then
@@ -1785,6 +1811,7 @@ int run_http_server(int argc, char* argv[])
                                             if (!std::regex_search(round_xml, non_ew)) continue;
                                             try {
                                                 auto compiled = compile_request_xml(round_xml, options);
+                                                for (const auto& alpha : compiled) require_history(alpha, options);
                                                 for (auto& alpha : compiled) round_alphas.push_back(std::move(alpha));
                                             } catch (const std::exception&) {
                                                 // The candidate reports its own compile error.
@@ -1801,6 +1828,14 @@ int run_http_server(int argc, char* argv[])
                                         write(event);
                                     };
                                     events.candidate = [&](const GACandidate& candidate) {
+                                        {
+                                            std::lock_guard<std::mutex> lock(outcome_mutex);
+                                            if (candidate.error.empty()) any_completed = true;
+                                            else if (candidate.id < first_failed_id) {
+                                                first_failed_id = candidate.id;
+                                                first_error = candidate.error;
+                                            }
+                                        }
                                         Json::Value payload;
                                         if (candidate.error.empty()) {
                                             std::lock_guard<std::mutex> lock(payload_mutex);
@@ -1830,6 +1865,7 @@ int run_http_server(int argc, char* argv[])
                                     };
                                     GAEngine engine(xml, space, ga_config);
                                     const auto best = engine.run_detailed(evaluate, events);
+                                    if (!any_completed && !first_error.empty()) throw std::runtime_error(first_error);
                                     Json::Value event;
                                     event["type"] = "search_complete";
                                     event["bestXml"] = best.best_xml;

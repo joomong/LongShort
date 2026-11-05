@@ -7,6 +7,7 @@
 // With Value=true the same deque yields the extreme value itself (tsmax / tsmin).
 template <bool IsMax, bool Value = false>
 struct MTsArgExtreme : public Module {
+    unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
         if (min_count < 0)
