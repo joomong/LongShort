@@ -11,7 +11,7 @@ test('single-alpha Signals and Performance load only their active view and reuse
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/config', (route) => route.fulfill({ json: captured.config }));
   const requests: { output: string }[] = [];
-  await mockRun(page, (route) => {
+  const { storedReads } = await mockRun(page, (route) => {
     const request = route.request().postDataJSON();
     if (route.request().url().endsWith('/api/simulate')) requests.push(request);
     const response = structuredClone(fixture) as SimulationResponse;
@@ -33,7 +33,8 @@ test('single-alpha Signals and Performance load only their active view and reuse
   expect(requests.filter((r) => r.output === 'signals')).toHaveLength(1);
   await performance.click();
   await expect(page.getByRole('table', { name: 'Yearly performance' })).toBeVisible();
-  await expect.poll(() => requests.filter((r) => r.output === 'performance').length).toBe(1);
+  await expect.poll(() => storedReads.length).toBe(1);
+  expect(requests.filter((r) => r.output === 'performance')).toHaveLength(0);
   await expect(page.getByLabel('Signal heatmap')).toBeHidden();
   const row = page.getByRole('button', { name: `View alpha_${fixture.alphas[0].id}`, exact: true });
   await row.click();
@@ -45,4 +46,31 @@ test('single-alpha Signals and Performance load only their active view and reuse
   await expect(page.getByLabel('Signal heatmap')).toBeVisible();
   expect(requests.filter((r) => r.output === 'signals')).toHaveLength(1);
   expect(errors).toEqual([]);
+});
+
+test('a row of an evicted run falls back to simulating the candidate', async ({ page }) => {
+  await page.route('**/api/config', (route) => route.fulfill({ json: captured.config }));
+  const requests: { output: string }[] = [];
+  const { storedReads } = await mockRun(
+    page,
+    (route) => {
+      if (route.request().url().endsWith('/api/simulate')) requests.push(route.request().postDataJSON());
+      const response = structuredClone(fixture) as SimulationResponse;
+      response.alphas[0].signals!.logDistribution = {
+        ...response.alphas[0].signals!.distribution!,
+        scale: 'linear',
+      };
+      return route.fulfill({ json: response });
+    },
+    { evicted: true },
+  );
+  await page.goto('/');
+  await page.getByLabel('Run Backtest (Shift+Enter)').click();
+  await page
+    .getByRole('tablist', { name: 'Single alpha view' })
+    .getByRole('tab', { name: 'Performance', exact: true })
+    .click();
+  await expect(page.getByRole('table', { name: 'Yearly performance' })).toBeVisible();
+  await expect.poll(() => storedReads.length).toBe(1);
+  await expect.poll(() => requests.filter((r) => r.output === 'performance').length).toBe(1);
 });

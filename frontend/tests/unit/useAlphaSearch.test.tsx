@@ -64,7 +64,7 @@ describe('alpha search lifecycle', () => {
   });
   it('flushes every candidate before round and terminal transitions', async () => {
     vi.mocked(streamAlphaSearch).mockImplementation(async (_request, receive) => {
-      receive({ type: 'search_start', context: contextFixture });
+      receive({ type: 'search_start', runId: 'run-1', context: contextFixture });
       receive({ type: 'round_start', round: 1, size: 2 });
       receive({ type: 'candidate', candidate: candidateFixture(7) });
       receive({ type: 'candidate', candidate: candidateFixture(2) });

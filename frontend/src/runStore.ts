@@ -21,6 +21,7 @@ interface RunState {
   resultRevision: number;
   isRunning: boolean;
   gaSession: boolean;
+  gaRunId: string | null;
   gaFinished: boolean;
   gaRounds: SearchRound[];
   searchRound: number | null;
@@ -197,7 +198,7 @@ export const useRunStore = create<RunState>((set) => ({
   xmlCode: '<data expr="close" delay="1"/>', alphaName: '', settings: defaultSettings,
   config: null, configRequest: idle, configRevision: 0, backtestError: null,
   result: null, resultRevision: 0, isRunning: false,
-  gaSession: false, gaFinished: false, gaRounds: [], searchRound: null, activeResultTab: 'stats',
+  gaSession: false, gaRunId: null, gaFinished: false, gaRounds: [], searchRound: null, activeResultTab: 'stats',
   gaCombinedKey: '', combinedXmls: [], gaCombinedCache: {}, signalCacheOrder: [],
   viewMode: 'single', selectedAlphaIndex: null, selectedSignalAlphaIndex: null,
   selectedSymbol: null, selectedTimestamp: null, selectedSeries: null,
@@ -221,7 +222,7 @@ export const useRunStore = create<RunState>((set) => ({
   }),
   beginRun: (context, sourceXml) => set(state => ({
     result: { context: Object.freeze({ ...context }), alphas: [], combined: null, sourceXml }, resultRevision: state.resultRevision + 1,
-    isRunning: true, backtestError: null, gaSession: true, gaFinished: false, gaRounds: [], searchRound: null,
+    isRunning: true, backtestError: null, gaSession: true, gaRunId: null, gaFinished: false, gaRounds: [], searchRound: null,
     activeResultTab: 'stats', gaCombinedKey: '', combinedXmls: [], gaCombinedCache: {}, signalCacheOrder: [],
     selectedAlphaIndex: null, selectedSignalAlphaIndex: null, selectedSymbol: null, selectedTimestamp: null, selectedSeries: null,
     selectedAlphaIndices: [], selectedAlphaIndexSet: new Set(), viewMode: 'multi',
@@ -231,7 +232,7 @@ export const useRunStore = create<RunState>((set) => ({
     if (!state.result || state.gaFinished) return state;
     let next = state;
     for (const event of events) {
-      if (event.type === 'search_start') next = { ...next, result: { ...next.result!, context: Object.freeze({ ...event.context }) } };
+      if (event.type === 'search_start') next = { ...next, gaRunId: event.runId, result: { ...next.result!, context: Object.freeze({ ...event.context }) } };
       else if (event.type === 'round_start') {
         if (next.gaRounds.some(round => round.round === event.round)) continue;
         const previous = next.gaRounds.at(-1)?.round;
@@ -257,7 +258,7 @@ export const useRunStore = create<RunState>((set) => ({
       settings: enforceSettingsDates({ ...state.settings, ...alpha.metadata }, state.config?.simStart, state.config?.simEnd) };
     if (!saved) return state.isRunning ? base : {
       ...base, result: null, resultRevision: state.resultRevision + 1,
-      gaSession: false, gaFinished: false, gaRounds: [], searchRound: null, activeResultTab: 'stats',
+      gaSession: false, gaRunId: null, gaFinished: false, gaRounds: [], searchRound: null, activeResultTab: 'stats',
       gaCombinedCache: {}, gaCombinedKey: '', combinedXmls: [], signalCacheOrder: [],
       viewMode: 'single', selectedAlphaIndex: null, selectedSignalAlphaIndex: null,
       selectedSymbol: null, selectedTimestamp: null, selectedSeries: null,
@@ -267,7 +268,7 @@ export const useRunStore = create<RunState>((set) => ({
     const rounds = Array.from(new Set(saved.rows.map(row => row.round ?? 0))).sort((a, b) => a - b);
     const next = combinedView({ ...base,
       result: { context: Object.freeze({ ...saved.context }), alphas: saved.rows, combined: null, sourceXml: alpha.xml, savedSource: alpha.name },
-      resultRevision: state.resultRevision + 1, gaSession: true, gaFinished: true, isRunning: false,
+      resultRevision: state.resultRevision + 1, gaSession: true, gaRunId: null, gaFinished: true, isRunning: false,
       gaRounds: rounds.map(round => ({ round, status: 'completed' })), searchRound: null, activeResultTab: 'stats',
       gaCombinedCache: {}, gaCombinedKey: '', combinedXmls: [], signalCacheOrder: [], backtestError: null,
       selectedAlphaIndex: saved.rows.length ? 0 : null, selectedSignalAlphaIndex: saved.rows.length ? 0 : null,

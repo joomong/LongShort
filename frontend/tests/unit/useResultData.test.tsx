@@ -2,12 +2,13 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRunStore } from '@/runStore';
 import { useResultData } from '@/useResultData';
-import { getConfig, getSavedRow, requestSimulation } from '@/api';
+import { getConfig, getGaCandidatePerformance, getSavedRow, requestSimulation } from '@/api';
 import type { AlphaResult, SimulationResponse } from '@/types';
 import { candidateFixture, contextFixture, engineConfigFixture } from './metricFixtures';
 import { singleResponseFixture, multiResponseFixture } from './pipelineFixtures';
 vi.mock('@/api', () => ({
   getConfig: vi.fn(),
+  getGaCandidatePerformance: vi.fn(),
   getSavedRow: vi.fn(),
   getSavedBatch: vi.fn(),
   requestSimulation: vi.fn(),
@@ -29,6 +30,53 @@ beforeEach(() => {
   useRunStore.getState().setConfig(engineConfigFixture);
 });
 describe('active result data controller', () => {
+  it('answers a GA row click from the stored run without simulating', async () => {
+    vi.mocked(getGaCandidatePerformance).mockResolvedValue(singleResponseFixture);
+    useRunStore.setState({ result: result(candidateFixture(4)), gaRunId: 'run-1', viewMode: 'detail', selectedAlphaIndex: 0 });
+    renderHook(() => useResultData());
+    await waitFor(() => expect(useRunStore.getState().result?.alphas[0].performance).toBeDefined());
+    expect(vi.mocked(getGaCandidatePerformance).mock.calls[0].slice(0, 2)).toEqual(['run-1', 4]);
+    expect(vi.mocked(getGaCandidatePerformance).mock.calls[0][2]).toBeInstanceOf(AbortSignal);
+    expect(requestSimulation).not.toHaveBeenCalled();
+  });
+  it('simulates the candidate when the server evicted the run', async () => {
+    vi.mocked(getGaCandidatePerformance).mockResolvedValue(null);
+    vi.mocked(requestSimulation).mockResolvedValue(singleResponseFixture);
+    const alpha = candidateFixture(4);
+    useRunStore.setState({ result: result(alpha), gaRunId: 'run-1', viewMode: 'detail', selectedAlphaIndex: 0 });
+    renderHook(() => useResultData());
+    await waitFor(() => expect(useRunStore.getState().result?.alphas[0].performance).toBeDefined());
+    expect(requestSimulation).toHaveBeenCalledOnce();
+    expect(vi.mocked(requestSimulation).mock.calls[0][0]).toMatchObject({ output: 'performance', xml: alpha.xml });
+  });
+  it('reports a stored-run error other than eviction without simulating', async () => {
+    vi.mocked(getGaCandidatePerformance).mockRejectedValue(new Error('boom'));
+    useRunStore.setState({ result: result(), gaRunId: 'run-1', viewMode: 'detail', selectedAlphaIndex: 0 });
+    renderHook(() => useResultData());
+    await waitFor(() => expect(useRunStore.getState().detailRequest).toEqual({ status: 'error', error: 'boom' }));
+    expect(requestSimulation).not.toHaveBeenCalled();
+  });
+  it('aborts the stored-run request when the selection goes away', async () => {
+    vi.mocked(getGaCandidatePerformance).mockReturnValue(deferred<SimulationResponse | null>().promise);
+    useRunStore.setState({ result: result(), gaRunId: 'run-1', viewMode: 'detail', selectedAlphaIndex: 0 });
+    const { unmount } = renderHook(() => useResultData());
+    await waitFor(() => expect(getGaCandidatePerformance).toHaveBeenCalledOnce());
+    unmount();
+    expect(vi.mocked(getGaCandidatePerformance).mock.calls[0][2]?.aborted).toBe(true);
+  });
+  it('does not ask the stored run for failed rows or saved alphas', async () => {
+    vi.mocked(getSavedRow).mockResolvedValue(singleResponseFixture);
+    const failed = { ...candidateFixture(1), status: 'failed' as const };
+    useRunStore.setState({ result: result(failed), gaRunId: 'run-1', viewMode: 'detail', selectedAlphaIndex: 0 });
+    const first = renderHook(() => useResultData());
+    first.unmount();
+    expect(getGaCandidatePerformance).not.toHaveBeenCalled();
+    useRunStore.setState({ result: { ...result(), savedSource: 'saved' }, gaRunId: null, viewMode: 'detail', selectedAlphaIndex: 0 });
+    renderHook(() => useResultData());
+    await waitFor(() => expect(getSavedRow).toHaveBeenCalledOnce());
+    expect(getGaCandidatePerformance).not.toHaveBeenCalled();
+    expect(requestSimulation).not.toHaveBeenCalled();
+  });
   it('keeps pending performance requests alive when only signals change', async () => {
     const pending = deferred<SimulationResponse>();
     vi.mocked(requestSimulation).mockReturnValue(pending.promise);

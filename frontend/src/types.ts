@@ -226,7 +226,7 @@ export interface SearchRequest {
 }
 
 export type SearchEvent =
-  | { type: 'search_start'; context: RunContext }
+  | { type: 'search_start'; runId: string; context: RunContext }
   | { type: 'round_start'; round: number; size: number }
   | { type: 'candidate'; candidate: AlphaResult }
   | { type: 'round_end'; round: number; bestSharpe: number | null }

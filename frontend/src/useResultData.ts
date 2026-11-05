@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { getConfig, getSavedBatch, getSavedRow, requestSimulation } from '@/api';
+import { getConfig, getGaCandidatePerformance, getSavedBatch, getSavedRow, requestSimulation } from '@/api';
 import { combinedMembers, selectSignalSource, useRunStore } from '@/runStore';
 import type { RunContext, SelectedSignalSeries, SimulationOutput, SimulationRequest } from '@/types';
 
@@ -25,6 +25,7 @@ export function useResultData() {
   const signalIndex = useRunStore(state => state.selectedSignalAlphaIndex);
   const selectedSymbol = useRunStore(state => state.selectedSymbol);
   const rounds = useRunStore(state => state.gaRounds);
+  const gaRunId = useRunStore(state => state.gaRunId);
   const tab = useRunStore(state => state.activeResultTab);
   const running = useRunStore(state => state.isRunning);
   const key = useRunStore(state => state.gaCombinedKey);
@@ -75,8 +76,10 @@ export function useResultData() {
     if (!savedSource && !config) return;
     const controller = new AbortController();
     state.setRequestState('detail', { status: 'loading' }, revision);
+    const simulate = () => requestSimulation(requestFor(context, 'performance', selectedXml), controller.signal);
     const task = savedSource ? getSavedRow(savedSource, selectedId, controller.signal)
-      : requestSimulation(requestFor(context, 'performance', selectedXml), controller.signal);
+      : gaRunId ? getGaCandidatePerformance(gaRunId, selectedId, controller.signal).then(stored => stored ?? simulate())
+      : simulate();
     task.then(response => {
       if (controller.signal.aborted) return;
       const detail = response.alphas[0];
@@ -86,7 +89,7 @@ export function useResultData() {
       if (!controller.signal.aborted) useRunStore.getState().setRequestState('detail', { status: 'error', error: message(error) }, revision);
     });
     return () => controller.abort();
-  }, [viewMode, selectedIndex, selectedId, selectedXml, selectedStatus, selectedPerformance, detailReady, context, savedSource, revision, config, contextError, retries.detail]);
+  }, [viewMode, selectedIndex, selectedId, selectedXml, selectedStatus, selectedPerformance, detailReady, context, savedSource, gaRunId, revision, config, contextError, retries.detail]);
 
   useEffect(() => {
     const state = useRunStore.getState();

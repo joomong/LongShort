@@ -116,6 +116,14 @@ export function getSavedRow(name: string, id: number, signal?: AbortSignal): Pro
   return requestJson(`${alphaPath(name)}/results/rows/${id}`, { signal });
 }
 
+// Null once the server has evicted the run: the caller simulates the candidate instead.
+export async function getGaCandidatePerformance(runId: string, id: number, signal?: AbortSignal): Promise<SimulationResponse | null> {
+  const response = await fetch(`${API_BASE}/api/ga/runs/${encodeURIComponent(runId)}/candidates/${id}/performance`, { signal });
+  if (response.status === 404) return null;
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
 export function getSavedBatch(name: string, signal?: AbortSignal): Promise<SimulationResponse> {
   return requestJson(`${alphaPath(name)}/results/batch`, { signal });
 }

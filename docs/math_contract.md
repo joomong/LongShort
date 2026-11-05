@@ -385,7 +385,7 @@ candidate order, independent of completion order.
 
 `/api/ga/stream` sends newline-delimited events:
 
-- `search_start {context}`
+- `search_start {runId, context}`
 - `round_start {round, size}`
 - `candidate {candidate: AlphaResult}`
 - `round_end {round, bestSharpe}`
@@ -395,6 +395,15 @@ candidate order, independent of completion order.
 Rounds are one-based. Candidate results contain stable IDs, XML, round, origin, status,
 IS/OS summary and yearly metrics; failed results carry their error. Full performance and
 signals are requested for a selected candidate rather than broadcast for every evaluation.
+
+`GET /api/ga/runs/{runId}/candidates/{id}/performance` answers a row click from what the
+candidate's evaluation kept, without simulating. The body equals `/api/simulate`
+`output=performance` for the candidate's XML and the run's settings (`alphas[0].id` is 0 there
+too); pool correlation is computed at read time. It returns 404 for an unknown or evicted run, a
+failed candidate or an invalid id. Runs share a process-wide 2 GiB store: over the cap whole
+runs are evicted, oldest first, finished runs before any still streaming. A run larger than the
+cap evicts itself and keeps no later candidates. On 404 the web client falls back to
+`/api/simulate` `output=performance`, so those clicks simulate again; other errors are shown.
 
 The web start button and Shift+Enter run the search. Stats contains all evaluated candidates;
 round tabs appear on round start and fill as candidates complete. Stop preserves received

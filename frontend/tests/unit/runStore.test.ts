@@ -60,6 +60,13 @@ describe('run state transitions', () => {
     useRunStore.getState().setSettings({ universe: 'TOP3000', osStart: '2023-01-01' });
     expect(useRunStore.getState().result?.context).toEqual(contextFixture);
   });
+  it('keeps the run id of the stream it belongs to', () => {
+    useRunStore.getState().beginRun(contextFixture, '<x/>');
+    useRunStore.getState().receiveSearchEvents([{ type: 'search_start', runId: 'run-1', context: contextFixture }]);
+    expect(useRunStore.getState().gaRunId).toBe('run-1');
+    useRunStore.getState().beginRun(contextFixture, '<x/>');
+    expect(useRunStore.getState().gaRunId).toBeNull();
+  });
   it('deduplicates stable IDs and preserves received data on Stop', () => {
     useRunStore.getState().beginRun(contextFixture, '<x/>');
     receive(5, 1, 5);

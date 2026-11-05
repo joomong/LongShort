@@ -2337,6 +2337,147 @@ TEST_F(HttpContractTest, GaReportsInsufficientHistoryPerCandidate) {
     EXPECT_EQ(one_candidate.back()["error"].asString(), "Insufficient history");
 }
 
+namespace {
+struct GaRun {
+    std::string run_id;
+    std::vector<Json::Value> candidates;
+};
+
+GaRun run_ga(int port, const Json::Value& request) {
+    GaRun run;
+    const auto response = http_post_json(port, "/api/ga/stream", request);
+    EXPECT_EQ(response.status, 200) << response.body;
+    std::istringstream stream(response.body);
+    std::string line;
+    while (std::getline(stream, line)) {
+        Json::Value event;
+        if (line.empty() || !parse_json(line, &event)) continue;
+        EXPECT_NE(event["type"].asString(), "error") << line;
+        if (event["type"].asString() == "search_start") run.run_id = event["runId"].asString();
+        if (event["type"].asString() == "candidate") run.candidates.push_back(event["candidate"]);
+    }
+    return run;
+}
+
+// Every completed candidate's stored answer equals a fresh /api/simulate of its xml and settings.
+void expect_candidates_equal_simulate(int port, const Json::Value& ga_request, const GaRun& run) {
+    ASSERT_FALSE(run.run_id.empty());
+    for (const auto& candidate : run.candidates) {
+        ASSERT_EQ(candidate["status"].asString(), "completed") << compact_json(candidate);
+        const auto stored = http_get(port, "/api/ga/runs/" + run.run_id + "/candidates/" +
+                                           candidate["id"].asString() + "/performance");
+        ASSERT_EQ(stored.status, 200) << stored.body;
+        Json::Value live_request = ga_request;
+        live_request["xml"] = candidate["xml"];
+        live_request["output"] = "performance";
+        const auto live = http_post_json(port, "/api/simulate", live_request);
+        ASSERT_EQ(live.status, 200) << live.body;
+        Json::Value stored_body, live_body;
+        ASSERT_TRUE(parse_json(stored.body, &stored_body));
+        ASSERT_TRUE(parse_json(live.body, &live_body));
+        EXPECT_TRUE(stored_body == live_body) << candidate["xml"].asString();
+        EXPECT_EQ(compact_json(stored_body), compact_json(live_body));
+        EXPECT_TRUE(stored_body["alphas"][0]["performance"].isObject());
+    }
+}
+}  // namespace
+
+TEST_F(HttpContractTest, GaCandidatePerformanceEqualsSimulate) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/><tsmean days=\"2|3|5\"/>";
+    request["simStart"] = "2021-02-01";
+    request["isStart"] = "2021-03-01";
+    request["osStart"] = "2022-01-03";
+    request["simEnd"] = "2022-09-30";
+    request["executionPrice"] = "ohlc4";
+    request["threads"] = 3;
+    const auto run = run_ga(server_->port(), request);
+    ASSERT_EQ(run.candidates.size(), 3u);
+    expect_candidates_equal_simulate(server_->port(), request, run);
+}
+
+TEST_F(HttpContractTest, GaCandidatePerformanceEqualsSimulateForMeta) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    for (const char* xml : {"<meta expr=\"sample\"/><neutralize group=\"sector|industry\"/>",
+                            "<meta expr=\"sample\"/><mvo days=\"40|60\" shrink=\"0.3|0.7\"/>"}) {
+        Json::Value request = meta_request(xml);
+        request["simStart"] = "2021-03-15";
+        request["isStart"] = "2021-06-15";
+        request["simEnd"] = "2022-10-31";
+        request["threads"] = 4;
+        const auto run = run_ga(server_->port(), request);
+        ASSERT_GE(run.candidates.size(), 2u) << xml;
+        for (const auto& candidate : run.candidates) EXPECT_TRUE(candidate.isMember("meta"));
+        expect_candidates_equal_simulate(server_->port(), request, run);
+    }
+}
+
+TEST_F(HttpContractTest, GaCandidatePerformanceIs404WhenUnknownOrFailed) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    const auto missing = [&](const std::string& run, const std::string& id) {
+        return http_get(server_->port(), "/api/ga/runs/" + run + "/candidates/" + id + "/performance");
+    };
+    EXPECT_EQ(missing("nosuchrun", "0").status, 404);
+    Json::Value request;
+    // days=5000 has no valid bar in the fixture: that candidate fails, the other completes.
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|5000\"/>";
+    request["simStart"] = "2021-02-01";
+    request["isStart"] = "2021-03-01";
+    const auto run = run_ga(server_->port(), request);
+    ASSERT_EQ(run.candidates.size(), 2u);
+    int failed = 0;
+    for (const auto& candidate : run.candidates) {
+        const auto response = missing(run.run_id, candidate["id"].asString());
+        if (candidate["status"].asString() == "failed") {
+            ++failed;
+            EXPECT_EQ(response.status, 404);
+            Json::Value body;
+            ASSERT_TRUE(parse_json(response.body, &body));
+            EXPECT_FALSE(body["error"].asString().empty());
+        } else EXPECT_EQ(response.status, 200);
+    }
+    EXPECT_EQ(failed, 1);
+    EXPECT_EQ(missing(run.run_id, "99").status, 404);
+    EXPECT_EQ(missing(run.run_id, "abc").status, 404);
+}
+
+TEST(HttpGaRunPool, CandidatePerformanceEqualsSimulateIncludingPoolCorrelation) {
+    const fs::path cfg = find_config_path();
+    const fs::path bin = find_server_binary();
+    if (cfg.empty() || bin.empty()) GTEST_SKIP() << "LONGSHORT_TEST_CONFIG not set";
+    const fs::path run_dir = fs::temp_directory_path() / ("longshort_http_ga_pool_" + std::to_string(::getpid()));
+    fs::create_directories(run_dir / "pool" / "a");
+    struct RemoveDir { fs::path dir; ~RemoveDir() { std::error_code error; fs::remove_all(dir, error); } } remove_dir{run_dir};
+    std::ofstream(run_dir / "pool" / "a" / "alpha.xml") << "<data expr=\"close\" delay=\"1\"/><rank/>";
+    Json::Value config;
+    std::ostringstream text;
+    text << std::ifstream(cfg).rdbuf();
+    ASSERT_TRUE(parse_json(text.str(), &config));
+    config["alphas_dir"] = (run_dir / "alphas").string();
+    config["alpha_pool"] = (run_dir / "pool").string();
+    const fs::path run_cfg = run_dir / "config.yaml";
+    std::ofstream(run_cfg) << compact_json(config);
+    ServerProcess server(bin, run_cfg, test_port() + 3);
+    ASSERT_TRUE(server.start());
+    Json::Value request;
+    request["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3|5\"/>";
+    request["simStart"] = "2021-02-01";
+    request["isStart"] = "2021-03-01";
+    request["threads"] = 2;
+    const auto run = run_ga(server.port(), request);
+    ASSERT_EQ(run.candidates.size(), 3u);
+    expect_candidates_equal_simulate(server.port(), request, run);
+    const auto stored = http_get(server.port(), "/api/ga/runs/" + run.run_id + "/candidates/0/performance");
+    Json::Value body;
+    ASSERT_TRUE(parse_json(stored.body, &body));
+    EXPECT_GT(body["alphas"][0]["poolCorrelation"]["days"].asInt(), 60) << stored.body;
+    // A pool alpha added after the search counts on the next read, as it does in /api/simulate.
+    fs::create_directories(run_dir / "pool" / "b");
+    std::ofstream(run_dir / "pool" / "b" / "alpha.xml") << "<data expr=\"open\" delay=\"1\"/><rank/>";
+    expect_candidates_equal_simulate(server.port(), request, run);
+}
+
 TEST_F(HttpContractTest, MetaRebalanceGridBoundsInsufficientHistory) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     // Sample lookback 10 from simStart - 1: the window must start at simStart + 10, so the grid

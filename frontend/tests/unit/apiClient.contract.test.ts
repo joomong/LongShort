@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AlphaExistsError,
   getAlphaList,
+  getGaCandidatePerformance,
   getSavedResults,
   getSavedRow,
   getSavedBatch,
@@ -93,6 +94,19 @@ describe('canonical API transport', () => {
     await getSavedBatch('desk a', c.signal);
     for (const [, init] of vi.mocked(fetch).mock.calls) expect(init?.signal).toBe(c.signal);
     expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain('desk%20a/results');
+  });
+  it('reads a stored GA candidate and reports eviction as null', async () => {
+    const body = { context: contextFixture, alphas: [], combined: null };
+    const c = new AbortController();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, status: 200, json: async () => body } as Response);
+    await expect(getGaCandidatePerformance('run 1', 7, c.signal)).resolves.toEqual(body);
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain('/api/ga/runs/run%201/candidates/7/performance');
+    expect(init?.signal).toBe(c.signal);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: 'gone' }) } as Response);
+    await expect(getGaCandidatePerformance('run', 7)).resolves.toBeNull();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'bad' }) } as Response);
+    await expect(getGaCandidatePerformance('run', 7)).rejects.toThrow('bad');
   });
   it('reports engine errors and preserves conflict distinction', async () => {
     vi.mocked(fetch).mockResolvedValue({

@@ -20,6 +20,13 @@ test('one start button runs search; repeated candidate selection does not refetc
           },
     });
   });
+  await page.route('**/api/ga/runs/mock-run/candidates/*/performance', (route) => {
+    const id = Number(route.request().url().split('/candidates/')[1].split('/')[0]);
+    details.push({ id });
+    return route.fulfill({
+      json: { ...fixture, combined: null, alphas: [fixture.alphas.find((a) => a.id === id)] },
+    });
+  });
   await page.addInitScript(
     ({ alphas, context }) => {
       const original = window.fetch,
@@ -36,7 +43,7 @@ test('one start button runs search; repeated candidate selection does not refetc
           start(controller) {
             const send = (event: unknown) =>
               controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
-            send({ type: 'search_start', context });
+            send({ type: 'search_start', runId: 'mock-run', context });
             send({ type: 'round_start', round: 1, size: 2 });
             send(candidate(0));
             setTimeout(() => {

@@ -24,6 +24,7 @@
 #include "alpha_storage.h"
 #include "modules/MetaSource.h"
 #include "alpha_search.h"
+#include "ga_run_store.h"
 #include <thread>
 #include <fstream>
 #include <future>
@@ -535,6 +536,7 @@ static fs::path g_meta_dir;  // optional; never created by the engine
 static MemberReturnsCache g_member_returns;  // member gross returns of non-EW sets, shared by requests
 static MissingClosePolicy g_missing_close_policy = MissingClosePolicy::Carry;
 static std::unique_ptr<alpha_pool::Cache> g_alpha_pool;  // set when the config names an alpha_pool
+static GaRunStore g_ga_runs(std::size_t{2} << 30);  // answers GA row clicks without simulating again
 
 static bool supports_exact_fields(std::initializer_list<const char*> names) {
     return std::all_of(names.begin(), names.end(), [](const char* name) { return g_data.has_column(name); });
@@ -1046,6 +1048,19 @@ static void append_signal_payload(
     payload["range"]["max"] = maximum;
 }
 
+static Json::Value completed_alpha_json(const FullMetricsResult& metrics, const Json::Value& missing_data,
+                                        std::size_t id, const std::string& xml, const Json::Value& meta,
+                                        const Json::Value& pool_corr) {
+    Json::Value entry = metrics_payload(metrics);
+    entry["missingData"] = missing_data;
+    entry["id"] = static_cast<Json::UInt64>(id);
+    entry["xml"] = xml;
+    entry["status"] = "completed";
+    if (!meta.isNull()) entry["meta"] = meta;
+    if (!pool_corr.isNull()) entry["poolCorrelation"] = pool_corr;
+    return entry;
+}
+
 // Shared by /api/simulate and saved alpha results so both produce the same body.
 // `accounting` observes a single-alpha run only (saved positions); it does not change the body.
 static Json::Value simulate_response(const Json::Value& body, const std::function<bool()>& cancelled,
@@ -1238,13 +1253,8 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     response["combined"] = Json::nullValue;
     for (std::size_t i = 0; !combined_only && i < batches.size(); ++i) {
         const auto& batch = batches[i];
-        Json::Value entry = metrics_payload(batch.metrics);
-        entry["missingData"] = batch.diagnostics["missingData"];
-        entry["id"] = static_cast<Json::UInt64>(batch.index);
-        entry["xml"] = batch.xml;
-        entry["status"] = "completed";
-        if (!batch.meta.isNull()) entry["meta"] = batch.meta;
-        if (!batch.pool_corr.isNull()) entry["poolCorrelation"] = batch.pool_corr;
+        Json::Value entry = completed_alpha_json(batch.metrics, batch.diagnostics["missingData"], batch.index,
+                                                 batch.xml, batch.meta, batch.pool_corr);
         if (single && options.output == "full")
             append_signal_payload(entry["signals"], single_output.signals, single_output.timestamps, options);
         response["alphas"].append(std::move(entry));
@@ -1313,6 +1323,24 @@ static void run_alpha_request(std::function<void(const drogon::HttpResponsePtr&)
     } catch (const std::exception& error) {
         (*respond)(json_error_response(drogon::k503ServiceUnavailable, error.what()));
     }
+}
+
+// The /api/simulate output=performance body of a GA candidate, from what its evaluation kept.
+static drogon::HttpResponsePtr ga_candidate_response(const std::string& run_id, const std::string& id) {
+    const bool numeric = !id.empty() && id.size() <= 19 &&
+        std::all_of(id.begin(), id.end(), [](unsigned char ch) { return std::isdigit(ch); });
+    const auto found = numeric ? g_ga_runs.find(run_id, std::stoull(id)) : GaRunStore::Found{};
+    if (!found.entry) throw AlphaRequestError(drogon::k404NotFound, "GA candidate result is not available");
+    refresh_alpha_pool(found.run->threads);
+    const Json::Value pool_corr = g_alpha_pool
+        ? g_alpha_pool->correlation_json(found.entry->net_returns, found.run->sim_start_index, found.run->sim_end_index)
+        : Json::Value();
+    Json::Value response;
+    response["context"] = found.run->context;
+    response["alphas"].append(completed_alpha_json(found.entry->metrics, found.entry->missing_data, 0,
+                                                   found.entry->xml, found.entry->meta, pool_corr));
+    response["combined"] = Json::nullValue;
+    return drogon::HttpResponse::newHttpJsonResponse(response);
 }
 
 static constexpr Json::UInt64 kMaxRowId = (Json::UInt64(1) << 53) - 1; // JavaScript-safe
@@ -1811,8 +1839,16 @@ int run_http_server(int argc, char* argv[])
                                     const auto space = extract_search_space(xml);
                                     std::mutex payload_mutex;
                                     std::unordered_map<std::string, Json::Value> payloads;
+                                    std::unordered_map<std::string, GaCandidateEntry> entries;
+                                    const std::string run_id = g_ga_runs.begin_run(
+                                        {run_context(options), options.sim_start_index, options.sim_end_index, options.threads});
+                                    struct FinishRun {
+                                        const std::string& id;
+                                        ~FinishRun() { g_ga_runs.finish_run(id); }
+                                    } finish_run{run_id};
                                     Json::Value start_event;
                                     start_event["type"] = "search_start";
+                                    start_event["runId"] = run_id;
                                     start_event["context"] = run_context(options);
                                     write(start_event);
                                     // One set cache for the whole search: the first candidate needing a set
@@ -1827,7 +1863,8 @@ int run_http_server(int argc, char* argv[])
                                         auto output = execute_alpha(alphas[0], options, false,
                                             [&](unsigned, const float*, unsigned) { require_connection(); }, {},
                                             meta_cache, disconnected);
-                                        const auto metrics = full_metrics(output, options);
+                                        auto metrics = full_metrics(output, options);
+                                        const double sharpe = metrics.is_summary.sharpe;
                                         {
                                             Json::Value payload;
                                             payload["summary"]["is"] = summary_to_json(metrics.is_summary);
@@ -1835,10 +1872,17 @@ int run_http_server(int argc, char* argv[])
                                             payload["yearly"] = yearly_to_json(metrics.yearly);
                                             payload["missingData"] = missing_data_payload(output);
                                             if (!alphas[0].meta_sets.empty()) payload["meta"] = meta_payload(alphas[0], meta_cache);
+                                            GaCandidateEntry entry;
+                                            entry.xml = alphas[0].source_xml;
+                                            entry.metrics = std::move(metrics);
+                                            entry.missing_data = payload["missingData"];
+                                            entry.meta = payload.get("meta", Json::Value());
+                                            if (g_alpha_pool) entry.net_returns = std::move(output.ret);
                                             std::lock_guard<std::mutex> lock(payload_mutex);
                                             payloads.emplace(candidate_xml, std::move(payload));
+                                            entries.emplace(candidate_xml, std::move(entry));
                                         }
-                                        return metrics.is_summary.sharpe;
+                                        return sharpe;
                                     };
                                     std::mutex outcome_mutex;
                                     bool any_completed = false;
@@ -1888,11 +1932,18 @@ int run_http_server(int argc, char* argv[])
                                         }
                                         Json::Value payload;
                                         if (candidate.error.empty()) {
-                                            std::lock_guard<std::mutex> lock(payload_mutex);
-                                            auto found = payloads.find(candidate.xml);
-                                            if (found == payloads.end()) throw std::runtime_error("Missing evaluated candidate payload");
-                                            payload = std::move(found->second);
-                                            payloads.erase(found);
+                                            GaCandidateEntry entry;
+                                            {
+                                                std::lock_guard<std::mutex> lock(payload_mutex);
+                                                auto found = payloads.find(candidate.xml);
+                                                if (found == payloads.end()) throw std::runtime_error("Missing evaluated candidate payload");
+                                                payload = std::move(found->second);
+                                                payloads.erase(found);
+                                                auto kept = entries.find(candidate.xml);
+                                                entry = std::move(kept->second);
+                                                entries.erase(kept);
+                                            }
+                                            g_ga_runs.put(run_id, candidate.id, std::move(entry));  // before the row can be clicked
                                         }
                                         payload["id"] = static_cast<Json::UInt64>(candidate.id);
                                         payload["xml"] = candidate.xml;
@@ -1952,6 +2003,16 @@ int run_http_server(int argc, char* argv[])
                 callback(response);
             }
         }, {drogon::Post});
+
+    // GET /api/ga/runs/{runId}/candidates/{id}/performance — a GA row click; 404 once the run is evicted
+    drogon::app().registerHandler(
+        "/api/ga/runs/{runId}/candidates/{id}/performance",
+        [](const drogon::HttpRequestPtr&,
+           std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+           const std::string& run_id, const std::string& id) {
+            run_alpha_request(std::move(callback), [run_id, id] { return ga_candidate_response(run_id, id); });
+        },
+        {drogon::Get});
 
     // GET/POST /api/alphas — list or save alphas
     drogon::app().registerHandler(
