@@ -1,4 +1,6 @@
 #include "alpha_storage.h"
+#include "xml_compiler.h"
+#include <pugixml.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -109,6 +111,75 @@ void prepare_directory(const fs::path& dir) {
     }
 }
 
+std::string document_xml(const std::string& xml, const Metadata& metadata) {
+    const auto operations = pipeline_xml(xml);
+    pugi::xml_document doc;
+    auto root = doc.append_child("alpha");
+    auto pipeline = root.append_child("pipeline");
+    pugi::xml_document fragment;
+    if (!fragment.load_string(operations.c_str(), pugi::parse_full | pugi::parse_fragment))
+        throw std::runtime_error("Invalid pipeline XML");
+    for (auto node : fragment.children())
+        if (node.type() != pugi::node_declaration) pipeline.append_copy(node);
+    auto meta = root.append_child("metadata");
+    // Preserve descriptive metadata when a document is saved again.
+    pugi::xml_document previous;
+    if (previous.load_string(xml.c_str())) {
+        for (auto node : previous.child("alpha").child("metadata").children())
+            if (std::string(node.name()) != "simulation" && std::string(node.name()) != "storage")
+                meta.append_copy(node);
+    }
+    auto simulation = meta.prepend_child("simulation");
+    Metadata copy = metadata;
+    for (const char* key : kMetadataKeys)
+        if (std::string(key) != "level")
+            simulation.append_attribute(key).set_value(metadata_field(copy, key)->c_str());
+    simulation.append_attribute("threads").set_value(metadata.threads);
+    std::ostringstream out;
+    doc.print(out, "  ");
+    return out.str();
+}
+
+bool read_document(const std::string& xml, Metadata* out) {
+    try {
+        (void)pipeline_xml(xml);  // validate envelope before accepting settings
+        pugi::xml_document doc;
+        if (!doc.load_string(xml.c_str())) return false;
+        auto meta = doc.child("alpha").child("metadata");
+        auto simulation = meta.child("simulation");
+        if (!simulation || simulation.next_sibling("simulation")) return false;
+        Metadata metadata;
+        for (const char* key : kMetadataKeys) {
+            if (std::string(key) == "level") continue;
+            if (!simulation.attribute(key)) return false;
+            *metadata_field(metadata, key) = simulation.attribute(key).value();
+        }
+        if (auto threads = simulation.attribute("threads")) {
+            const std::string value = threads.value();
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return false;
+            const auto count = std::stoul(value);
+            if (count < 1 || count > 32) return false;
+            metadata.threads = static_cast<unsigned>(count);
+        }
+        *out = std::move(metadata);
+        return true;
+    } catch (const std::exception&) { return false; }
+}
+
+// Never silently fall back to stale YAML when embedded metadata is malformed.
+static bool load_saved(const fs::path& dir, const std::string& xml, Metadata* out) {
+    pugi::xml_document doc;
+    doc.load_string(xml.c_str(), pugi::parse_full | pugi::parse_fragment);
+    const bool embedded = static_cast<bool>(doc.child("alpha").child("metadata"));
+    if (embedded) {
+        if (!read_document(xml, out)) return false;
+        out->level = fs::is_directory(dir / "positions") && fs::is_regular_file(dir / "results/index.json")
+            ? "positions" : fs::is_regular_file(dir / "results/index.json") ? "results" : "xml";
+        return true;
+    }
+    return read_metadata(dir / "metadata.yml", out);
+}
+
 std::string metadata_yaml(const Metadata& metadata) {
     Metadata copy = metadata;
     YAML::Emitter out;
@@ -155,9 +226,16 @@ std::vector<SavedAlpha> list(const fs::path& dir, std::vector<std::string>* malf
         if (!is_valid_name(name) || !entry.is_directory(error)) continue;
         SavedAlpha alpha;
         alpha.name = name;
-        if (!read_file(entry.path() / "alpha.xml", &alpha.xml) || !fs::exists(entry.path() / "metadata.yml", error))
+        if (!read_file(entry.path() / "alpha.xml", &alpha.xml)) continue;
+        pugi::xml_document probe;
+        probe.load_string(alpha.xml.c_str(), pugi::parse_full | pugi::parse_fragment);
+        if (!probe.child("alpha").child("metadata") && !fs::exists(entry.path() / "metadata.yml", error)) continue;
+        if (!load_saved(entry.path(), alpha.xml, &alpha.metadata)) {
+            if (malformed) malformed->push_back(name);
             continue;
-        if (!read_metadata(entry.path() / "metadata.yml", &alpha.metadata)) {
+        }
+        try { alpha.xml = pipeline_xml(alpha.xml); }
+        catch (const std::exception&) {
             if (malformed) malformed->push_back(name);
             continue;
         }
@@ -178,9 +256,10 @@ bool remove(const fs::path& dir, const std::string& name) {
     const fs::path target = dir / name;
     const auto status = fs::symlink_status(target, error);
     if (error || !fs::is_directory(status)) return false;  // symlinks and files are never followed
-    if (!fs::is_regular_file(fs::symlink_status(target / "alpha.xml", error)) ||
-        !fs::is_regular_file(fs::symlink_status(target / "metadata.yml", error)))
-        return false;
+    if (!fs::is_regular_file(fs::symlink_status(target / "alpha.xml", error))) return false;
+    std::string xml;
+    Metadata metadata;
+    if (!read_file(target / "alpha.xml", &xml) || !load_saved(target, xml, &metadata)) return false;
     fs::remove_all(dir / name);
     return true;
 }

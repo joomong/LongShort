@@ -52,4 +52,5 @@ Installs C++ libraries in `../dependencies/` and prepares the shared frontend pa
 └── portfolio/             # Portfolio definitions
 
 ~/longshort_workspace/     # Per-user settings, modules, builds, and results
+└── research/notebook/     # Research notebooks by topic
 ```

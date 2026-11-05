@@ -1376,3 +1376,18 @@ TEST(XmlCompiler, AffineDefaultsExplicitAttributesAndErrors) {
     expect_compile_error_contains(R"(<data expr="close"/><affine factor="x"/>)", dp,
                                   {"Invalid value for <affine> attribute 'factor'"});
 }
+
+TEST(XmlFormatting, SavedEnvelopeCompilesOnlyPipelineAndPreservesExpansion) {
+    auto panel = make_panel();
+    const std::string operations = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"5|10\"/><rank/>";
+    const std::string document = "<?xml version=\"1.0\"?><alpha><pipeline>" + operations +
+        "</pipeline><metadata><simulation universe=\"DO_NOT_EXPAND|ME\"/><author>name</author></metadata></alpha>";
+    auto old = compile_xml(operations, &panel);
+    auto saved = compile_xml(document, &panel);
+    ASSERT_EQ(saved.size(), old.size());
+    for (size_t i = 0; i < saved.size(); ++i) EXPECT_EQ(saved[i].source_xml, old[i].source_xml);
+    EXPECT_THROW(parse_xml("<alpha><metadata/></alpha>"), std::runtime_error);
+    EXPECT_THROW(parse_xml("<alpha><pipeline/><pipeline/></alpha>"), std::runtime_error);
+    EXPECT_THROW(parse_xml("<alpha><pipeline/><typo/></alpha>"), std::runtime_error);
+    EXPECT_THROW(parse_xml("<alpha><pipeline/></alpha><rank/>"), std::runtime_error);
+}

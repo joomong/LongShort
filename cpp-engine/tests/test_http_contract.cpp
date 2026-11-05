@@ -5,6 +5,8 @@
 #include <parquet/arrow/reader.h>
 #include "meta.h"
 #include "loader.h"
+#include "xml_compiler.h"
+#include "alpha_storage.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1571,13 +1573,17 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresFormattedXmlAndToolbarMetadataOnly) {
     EXPECT_EQ(body["level"].asString(), "xml");
     const fs::path dir = alphas_dir() / name;
     EXPECT_EQ(fs::weakly_canonical(body["path"].asString()), fs::weakly_canonical(dir));
-    EXPECT_EQ(read_text(dir / "alpha.xml"), formatted);
-    EXPECT_EQ(read_text(dir / "metadata.yml"),
-              "level: xml\nsimStart: 2024-01-01\nsimEnd: 2024-12-31\nisStart: 2024-01-01\n"
-              "osStart: 2024-07-01\nuniverse: \"\"\nexecutionPrice: vwap\nthreads: 7\n");
+    EXPECT_EQ(pipeline_xml(read_text(dir / "alpha.xml")), formatted);
+    EXPECT_FALSE(fs::exists(dir / "metadata.yml"));
+    alpha_storage::Metadata embedded;
+    ASSERT_TRUE(alpha_storage::read_document(read_text(dir / "alpha.xml"), &embedded));
+    EXPECT_EQ(embedded.sim_start, "2024-01-01");
+    EXPECT_EQ(embedded.universe, "");
+    EXPECT_EQ(embedded.execution_price, "vwap");
+    EXPECT_EQ(embedded.threads, 7u);
     std::set<std::string> files;
     for (const auto& entry : fs::directory_iterator(dir)) files.insert(entry.path().filename().string());
-    EXPECT_EQ(files, (std::set<std::string>{"alpha.xml", "metadata.yml"}));
+    EXPECT_EQ(files, (std::set<std::string>{"alpha.xml"}));
 
     const auto listed = http_get(server_->port(), "/api/alphas");
     ASSERT_EQ(listed.status, 200);
@@ -1598,7 +1604,7 @@ TEST_F(AlphaStorageHttpTest, XmlLevelStoresFormattedXmlAndToolbarMetadataOnly) {
     request["xml"] = "<data expr=\"close\"/>";
     const auto duplicate = save(request);
     EXPECT_EQ(duplicate.status, 409) << duplicate.body;
-    EXPECT_EQ(read_text(dir / "alpha.xml"), formatted);
+    EXPECT_EQ(pipeline_xml(read_text(dir / "alpha.xml")), formatted);
 
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
     EXPECT_FALSE(fs::exists(dir));
@@ -2206,7 +2212,7 @@ TEST_F(AlphaStorageHttpTest, MetaSaveResultsLevel) {
     }
     const auto saved = save(request);
     ASSERT_EQ(saved.status, 200) << saved.body;
-    EXPECT_EQ(read_text(alphas_dir() / name / "alpha.xml"),
+    EXPECT_EQ(pipeline_xml(read_text(alphas_dir() / name / "alpha.xml")),
               "<meta expr=\"sample\" />\n<neutralize group=\"sector|industry\" />\n");
     const auto index_response = http_get(server_->port(), "/api/alphas/" + name + "/results");
     ASSERT_EQ(index_response.status, 200) << index_response.body;
@@ -2924,4 +2930,26 @@ TEST_F(HttpContractTest, MetaCrossRequestDisconnectDoesNotFailOthers) {
     first.join();
     EXPECT_EQ(second.status, 200) << second.body.substr(0, 300);
     std::cout << "[ meta cross-request ] B status " << second.status << "\n";
+}
+
+TEST_F(HttpContractTest, SavedXmlEnvelopeProducesIdenticalSignalsAndPerformance) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    Json::Value request;
+    const std::string operations = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"5\"/><rank/><neutralize group=\"sector\"/>";
+    request["xml"] = operations;
+    request["simStart"] = "2023-10-02";
+    request["isStart"] = "2024-01-01";
+    request["osStart"] = "2025-01-01";
+    request["signalPlotMaxCells"] = 1000;
+    const auto legacy = simulate(request);
+    ASSERT_EQ(legacy.status, 200) << legacy.body;
+    request["xml"] = "<alpha><pipeline>" + operations + "</pipeline><metadata>"
+        "<simulation simStart=\"2000-01-01\" universe=\"metadata-is-not-a-gene|nor-an-override\"/>"
+        "<author>jgo</author></metadata></alpha>";
+    const auto document = simulate(request);
+    ASSERT_EQ(document.status, 200) << document.body;
+    Json::Value before, after;
+    ASSERT_TRUE(parse_json(legacy.body, &before));
+    ASSERT_TRUE(parse_json(document.body, &after));
+    EXPECT_EQ(after, before);  // includes raw signals, daily PnL, metrics and operation-only XML
 }

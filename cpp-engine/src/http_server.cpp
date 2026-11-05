@@ -1406,7 +1406,7 @@ static drogon::HttpResponsePtr list_alphas_response() {
         list.append(std::move(item));
     }
     for (const auto& name : skipped)
-        LOG_WARN << "Skipping saved alpha with malformed metadata.yml: " << name;
+        LOG_WARN << "Skipping saved alpha with malformed metadata: " << name;
     return drogon::HttpResponse::newHttpJsonResponse(list);
 }
 
@@ -1499,13 +1499,12 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
 
     std::string formatted_xml;
     try {
-        formatted_xml = format_xml(xml);
+        formatted_xml = alpha_storage::document_xml(xml, metadata);
     } catch (const std::exception& error) {
         throw invalid(error.what());
     }
     alpha_storage::SaveTransaction save(g_alphas_dir, name);
     save.write("alpha.xml", formatted_xml);
-    save.write("metadata.yml", alpha_storage::metadata_yaml(metadata));
     if (!rows.empty()) {
         const auto cancelled = [] { return g_alpha_workers.stopping(); };
         const bool positions = metadata.level == "positions";

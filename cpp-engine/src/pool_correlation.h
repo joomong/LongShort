@@ -10,8 +10,8 @@
 
 #include <json/json.h>
 
-// Alpha pool (2026-10-29): the approved alphas in <alpha_pool>/<name>/alpha.xml (a README.md sits beside
-// each; the engine reads the XML only and never writes into the pool). Every pool alpha is simulated once
+// Approved alphas use <alpha_pool>/<name>/{alpha.xml} (pipeline and embedded metadata).
+// Pool correlation reads the XML only and never writes into the pool. Every pool alpha is simulated once
 // with the pool's standard settings (the config's default universe and execution price, the whole panel)
 // and its daily net return is kept, together with the equal-weight (EW) combination of the alphas that are
 // already active on each bar. /api/simulate reports one number per run: the Pearson correlation of the

@@ -218,10 +218,12 @@ add_engine_test(test_execution_price  tests/test_execution_price.cpp)
 add_engine_test(test_discovered_modules tests/test_discovered_modules.cpp)
 longshort_discover_modules(test_discovered_modules
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/discovered_modules")
-foreach(tool_test test_longshort_launcher test_module_build)
+foreach(tool_test test_longshort_launcher test_module_build test_alpha_xml_migration)
     add_test(NAME ${tool_test}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${tool_test}.py")
 endforeach()
+
+set_tests_properties(test_alpha_xml_migration PROPERTIES SKIP_RETURN_CODE 77)
 
 # The weights oracle needs numpy/scipy/scikit-learn, which ${Python3_EXECUTABLE} need not have.
 # The test exits 77 when its Python dependencies are unavailable.

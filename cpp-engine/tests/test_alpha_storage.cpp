@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "alpha_storage.h"
+#include "xml_compiler.h"
 
 #include <arrow/api.h>
 #include <arrow/io/file.h>
@@ -130,7 +131,7 @@ TEST(AlphaStorage, ListSkipsHiddenIncompleteAndFlatEntriesAndSortsByName) {
     TempDir temp;
     auto make = [&](const std::string& name, bool metadata) {
         fs::create_directories(temp.dir / name);
-        std::ofstream(temp.dir / name / "alpha.xml") << "<" << name << "/>";
+        std::ofstream(temp.dir / name / "alpha.xml") << "<data expr=\"close\"/>";
         if (metadata) std::ofstream(temp.dir / name / "metadata.yml") << alpha_storage::metadata_yaml(sample_metadata());
     };
     make("zeta", true);
@@ -141,7 +142,7 @@ TEST(AlphaStorage, ListSkipsHiddenIncompleteAndFlatEntriesAndSortsByName) {
     const auto alphas = alpha_storage::list(temp.dir);
     ASSERT_EQ(alphas.size(), 2u);
     EXPECT_EQ(alphas[0].name, "alpha");
-    EXPECT_EQ(alphas[0].xml, "<alpha/>");
+    EXPECT_EQ(alphas[0].xml, "<data expr=\"close\"/>");
     EXPECT_EQ(alphas[0].metadata.os_start, "2024-01-01");
     EXPECT_EQ(alphas[1].name, "zeta");
 
@@ -297,4 +298,55 @@ TEST(AlphaStorage, WriteFailsClosedWhenStagingRemoved) {
     }
     EXPECT_FALSE(fs::exists(temp.dir / "gone"));
     EXPECT_EQ(entry_count(temp.dir), 0u);
+}
+
+TEST(AlphaStorage, EmbeddedMetadataRoundTripsAndFrontendGetsOnlyOperations) {
+    TempDir temp;
+    auto metadata = sample_metadata();
+    metadata.threads = 7;
+    const auto xml = alpha_storage::document_xml("<!-- keep --><data expr=\"close / adj_factor\" delay=\"1\"/><rank/>", metadata);
+    EXPECT_EQ(xml.find("version="), std::string::npos);
+    EXPECT_EQ(xml.find("<storage"), std::string::npos);
+    EXPECT_EQ(xml.find("level="), std::string::npos);
+    fs::create_directories(temp.dir / "saved");
+    std::ofstream(temp.dir / "saved/alpha.xml") << xml;
+    // Stale YAML must not override embedded settings.
+    auto stale = metadata;
+    stale.universe = "WRONG";
+    std::ofstream(temp.dir / "saved/metadata.yml") << alpha_storage::metadata_yaml(stale);
+    auto rows = alpha_storage::list(temp.dir);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].metadata.universe, "TOP3000");
+    EXPECT_EQ(rows[0].metadata.threads, 7u);
+    EXPECT_EQ(rows[0].metadata.level, "xml");
+    EXPECT_EQ(rows[0].xml.find("metadata"), std::string::npos);
+    EXPECT_NE(rows[0].xml.find("<!-- keep -->"), std::string::npos);
+    fs::create_directories(temp.dir / "saved/results");
+    std::ofstream(temp.dir / "saved/results/index.json") << "{}";
+    EXPECT_EQ(alpha_storage::list(temp.dir)[0].metadata.level, "results");
+    fs::create_directories(temp.dir / "saved/positions");
+    EXPECT_EQ(alpha_storage::list(temp.dir)[0].metadata.level, "positions");
+    fs::remove(temp.dir / "saved/metadata.yml");
+    EXPECT_TRUE(alpha_storage::remove(temp.dir, "saved"));
+}
+
+TEST(AlphaStorage, MalformedEmbeddedMetadataDoesNotFallBackToYaml) {
+    TempDir temp;
+    fs::create_directories(temp.dir / "bad");
+    std::ofstream(temp.dir / "bad/alpha.xml") << "<alpha><pipeline><rank/></pipeline><metadata><simulation/></metadata></alpha>";
+    std::ofstream(temp.dir / "bad/metadata.yml") << alpha_storage::metadata_yaml(sample_metadata());
+    std::vector<std::string> malformed;
+    EXPECT_TRUE(alpha_storage::list(temp.dir, &malformed).empty());
+    EXPECT_EQ(malformed, std::vector<std::string>{"bad"});
+}
+
+TEST(AlphaStorage, ResavePreservesDescriptiveMetadataAndReplacesSimulation) {
+    const std::string xml = "<alpha><pipeline><rank/></pipeline><metadata><simulation simStart=\"old\"/>"
+                            "<author>jgo</author><description>A &amp; B</description><research>/notes/a.md</research></metadata></alpha>";
+    const auto saved = alpha_storage::document_xml(xml, sample_metadata());
+    EXPECT_NE(saved.find("<author>jgo</author>"), std::string::npos);
+    EXPECT_NE(saved.find("A &amp; B"), std::string::npos);
+    alpha_storage::Metadata read;
+    ASSERT_TRUE(alpha_storage::read_document(saved, &read));
+    EXPECT_EQ(read.sim_start, sample_metadata().sim_start);
 }

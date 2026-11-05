@@ -16,7 +16,9 @@ longshort_workspace/
   alphas/               개인 저장 알파와 실행 결과
   meta/                 현재 엔진이 읽는 메타 구성원
   modules/              개인 C++ 모듈
-  research/             연구 노트북·분석 파일
+  research/
+    notebook/           주제별 연구 노트북과 설명 기록
+    themes/             실험 패키지·분석 자료
   .longshort/
     build/              개인 엔진 빌드
     frontend/           개인 Next.js 출력·타입·캐시

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-// Saved alphas: <alphas_dir>/<name>/{alpha.xml, metadata.yml, results/, positions/}.
+// Saved alphas: <alphas_dir>/<name>/{alpha.xml, results/, positions/} (legacy metadata.yml is readable).
 // A save is staged in a hidden sibling directory and renamed into place once complete.
 namespace alpha_storage {
 
@@ -35,14 +35,20 @@ bool is_valid_level(const std::string& level);
 // staging directories whose lock is free.
 void prepare_directory(const std::filesystem::path& dir);
 
+// New saves embed simulation settings in XML; level is inferred from artifacts.
+std::string document_xml(const std::string& xml, const Metadata& metadata);
+bool read_document(const std::string& xml, Metadata* out);
+
+// Legacy YAML reader/writer for compatibility and migration.
 std::string metadata_yaml(const Metadata& metadata);
 bool read_metadata(const std::filesystem::path& file, Metadata* out);
 bool read_file(const std::filesystem::path& file, std::string* out);
 
-// Directories with alpha.xml and metadata.yml, by name; unreadable metadata names go to `malformed`.
+// Saved directories by name; returned XML contains only pipeline operations for the frontend.
+// Embedded metadata takes precedence; malformed names go to `malformed`.
 std::vector<SavedAlpha> list(const std::filesystem::path& dir, std::vector<std::string>* malformed = nullptr);
 bool exists(const std::filesystem::path& dir, const std::string& name);
-// Removes a real saved-alpha directory (not a symlink, with alpha.xml and metadata.yml).
+// Removes a real saved-alpha directory (not a symlink, with alpha.xml and valid embedded or legacy metadata).
 bool remove(const std::filesystem::path& dir, const std::string& name);
 
 // Invariant: the transaction holds flock(LOCK_EX) on staging() from construction until

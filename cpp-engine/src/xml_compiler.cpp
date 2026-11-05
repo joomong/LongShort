@@ -114,6 +114,41 @@ std::string format_xml(const std::string& xml) {
     return out.str();
 }
 
+std::string pipeline_xml(const std::string& xml) {
+    pugi::xml_document doc;
+    const auto result = doc.load_string(xml.c_str(), pugi::parse_full | pugi::parse_fragment);
+    if (!result) throw std::runtime_error(std::string("XML parse error: ") + result.description());
+    auto root = doc.child("alpha");
+    if (!root) return xml;
+    unsigned roots = 0;
+    for (auto node : doc.children()) if (node.type() == pugi::node_element) ++roots;
+    if (roots != 1 || root.first_attribute())
+        throw std::runtime_error("Expected one <alpha> root without attributes");
+    unsigned pipelines = 0, metadata = 0;
+    for (auto node : root.children()) {
+        if (node.type() != pugi::node_element) continue;
+        const std::string name = node.name();
+        if (name == "pipeline") ++pipelines;
+        else if (name == "metadata") ++metadata;
+        else throw std::runtime_error("Unexpected <alpha> child: " + name);
+    }
+    if (pipelines != 1 || metadata > 1 || root.child("pipeline").first_attribute())
+        throw std::runtime_error("Expected one <pipeline> and at most one <metadata>");
+    std::ostringstream out;
+    for (auto node : root.child("pipeline").children()) {
+        if (node.type() == pugi::node_pcdata) {
+            // Envelope indentation must not accumulate on editor text notes.
+            const auto text = range_parser::trim_copy(node.value());
+            if (!text.empty()) {
+                node.set_value(text.c_str());
+                node.print(out, "  ");
+                out << '\n';
+            }
+        } else node.print(out, "  ");
+    }
+    return out.str();
+}
+
 static XmlElement node_to_element(const pugi::xml_node& node) {
     XmlElement el;
     el.tag = node.name();
@@ -128,7 +163,7 @@ static XmlElement node_to_element(const pugi::xml_node& node) {
 
 std::vector<XmlElement> parse_xml(const std::string& xml) {
     // Wrap in a root element so multiple sibling tags parse correctly.
-    std::string wrapped = "<alpha>" + xml + "</alpha>";
+    std::string wrapped = "<alpha>" + pipeline_xml(xml) + "</alpha>";
 
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_string(wrapped.c_str());

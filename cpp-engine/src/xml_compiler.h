@@ -24,6 +24,10 @@ std::vector<XmlElement> parse_xml(const std::string& xml);
 // Keeps comments, attribute values and sibling elements; throws on invalid XML.
 std::string format_xml(const std::string& xml);
 
+// Extract editor/compiler operations from a saved <alpha><pipeline> document.
+// Legacy operation fragments are accepted unchanged. Metadata never becomes a module.
+std::string pipeline_xml(const std::string& xml);
+
 using Op = std::pair<std::string, std::map<std::string, std::string>>;
 using Pipeline = std::vector<Op>;
 

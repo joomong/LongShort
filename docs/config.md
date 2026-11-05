@@ -68,11 +68,13 @@ sector·industry·모든 universe 마스크는 로딩 시 이전 거래일 기�
 
 `missing_close_policy: carry`는 체결할 수 없는 주문을 보류하고 기존 노출을 동결·예약한다. `error`는 필요한 거래를 수행할 수 없으면 실행을 실패시킨다. 지연과 체결·수수료의 상세 규칙은 [계산 계약](math_contract.md)을 따른다.
 
-`alphas_dir`는 웹에서 저장할 알파 디렉터리이며 기본값은 설정 옆 `alphas`다. 저장 형태는 `<name>/{alpha.xml, metadata.yml, results/, positions/}`다. `meta_dir`는 `<meta expr="이름"/>`이 읽을 구성원 XML 디렉터리이며 기본값은 설정 옆 `meta`다. 저장 결과는 실행 당시 context를 보존한다. 현재 엔진에 원래 유니버스가 없으면 그 기준의 상세 조회를 사용할 수 없으며, 저장한 지표에 다른 유니버스의 신호를 결합하지 않는다. 다른 설정으로 실행하면 별도의 새 결과가 된다.
+`alphas_dir`는 웹에서 저장할 알파 디렉터리이며 기본값은 설정 옆 `alphas`다. 저장 형태는 `<name>/{alpha.xml, results/, positions/}`다. `meta_dir`는 `<meta expr="이름"/>`이 읽을 구성원 XML 디렉터리이며 기본값은 설정 옆 `meta`다. 저장 결과는 실행 당시 context를 보존한다. 현재 엔진에 원래 유니버스가 없으면 그 기준의 상세 조회를 사용할 수 없으며, 저장한 지표에 다른 유니버스의 신호를 결합하지 않는다. 다른 설정으로 실행하면 별도의 새 결과가 된다.
 
 웹에서 저장하는 `alpha.xml`은 태그별 줄바꿈과 2칸 들여쓰기를 사용한다. `<meta>`를 사용하는 알파도 같은 형식으로 저장하며 주석과 수식의 의미를 유지한다. 기존 저장 파일을 일괄 재작성하지 않는다.
 
 `alpha_pool`은 승인 알파 풀 경로다. 엔진이 `<이름>/alpha.xml`을 읽어 풀의 동일가중 일별 손익과 실행 결과의 상관관계를 계산하고 화면의 `Corr`에 표시한다. 풀에는 쓰지 않는다. `alpha_pool_universe`는 풀 평가 유니버스이며 생략하면 기본 유니버스를 사용한다.
+
+풀의 각 알파는 수식과 메타데이터를 함께 담은 `alpha.xml`로 구성한다. 메타데이터는 개인 저장 알파와 같은 실행 설정에 `author`, `description`, `research`를 추가한다. `research`는 상세 연구 기록의 경로다. Corr는 개별 메타데이터의 실행 설정 대신 공용 설정의 유니버스·체결가·비용으로 평가한다.
 
 승인 알파는 `/home/base/longshort/alpha_pool/`에 둔다. Git은 `longshort_platform/` 코드 저장소에서만 사용한다. 예제의 상대 경로는 설정 파일 위치를 기준으로 해석한다. `longshort`가 새 workspace 설정을 만들 때는 플랫폼 옆 `../alpha_pool/`의 절대 경로를 기록한다. `meta_pool/`과 `portfolio/`는 전략 정의를 둘 디렉터리이며 현재 실행 경로에는 연결하지 않았다.
 
@@ -83,3 +85,41 @@ UI 종목 라벨은 캐시의 `master.parquet`에서 `symbol`, 없으면 `compan
 ```
 
 빌드와 시작 방법은 [빌드 안내](build_and_validation.md), 파일별 의미는 [데이터 계약](data_contract.md)을 따른다.
+
+### 저장 알파 XML
+
+새 저장은 `alpha.xml` 하나에 수식과 실행 설정을 보관한다. `version` 속성과
+`storage` 태그는 사용하지 않으며 저장 수준은 `results/index.json`과 `positions/`로 판단한다.
+
+```xml
+<alpha>
+  <pipeline>
+    <data expr="close / adj_factor" delay="1" />
+    <tsmean days="20" />
+    <rank />
+  </pipeline>
+  <metadata>
+    <simulation simStart="2015-01-01" simEnd="2026-10-15"
+                isStart="2016-01-01" osStart="2024-01-01"
+                universe="TOP1000" executionPrice="vwap" threads="20" />
+  </metadata>
+</alpha>
+```
+
+저장 목록 API는 `pipeline`의 수식 조각과 복원할 실행 설정을 분리해서 전달한다.
+프론트 XML 편집기에는 메타데이터가 표시되지 않는다. 작성자·설명·연구 경로는
+`metadata` 아래 `author`, `description`, `research` 텍스트 태그로 보관할 수 있다.
+컴파일러와 GA는 `pipeline`만 처리한다. 풀과 메타 구성원도 같은 XML을 읽으며,
+풀은 기존처럼 공통 `alpha_pool_universe`와 실행 설정으로 평가한다.
+기존 수식 조각과 별도 `metadata.yml`도 읽을 수 있으나 새 저장은 YAML을 만들지 않는다.
+
+기존 저장본을 변환할 때는 먼저 dry run으로 확인하고 백업 위치를 지정한다.
+이 도구는 지정한 루트의 바로 아래 저장 디렉터리만 변환하며 연구 기록은 재귀 탐색하지 않는다.
+모든 입력을 검증하고 원본 XML·YAML을 백업한 뒤 XML을 원자적으로 교체하고 YAML을 제거한다.
+PyYAML은 이 일회성 변환 도구에만 필요하다.
+
+```bash
+python3 cpp-engine/tools/migrate_alpha_xml.py /path/to/alphas /path/to/alpha_pool
+python3 cpp-engine/tools/migrate_alpha_xml.py /path/to/alphas /path/to/alpha_pool \
+  --apply --backup-dir /path/to/backups
+```
