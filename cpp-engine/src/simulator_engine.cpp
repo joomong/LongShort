@@ -85,8 +85,8 @@ public:
 
     void advance(unsigned di, const float* signal) {
         const float* close = data_.row("close", di);
-        // The bar before simStart sets marks and intent without holdings or costs.
-        const bool trading = di >= config_.sim_start_index;
+        // Bars before the first trading bar set marks and intent without holdings or costs.
+        const bool trading = di >= config_.first_trading_bar();
         MissingDataDiagnostics diagnostics;
         double pnl = 0.0;
         double turnover = 0.0;
@@ -1060,7 +1060,7 @@ FullMetricsResult compute_full_metrics(
         timestamps, net_ret, gross_ret, turnover, max_weight, position_count, begin,
         frozen_gross);
     result.yearly = compute_yearly(
-        timestamps, gross_ret, turnover, long_weight, short_weight, bars_per_year, begin);
+        timestamps, gross_ret, turnover, long_weight, short_weight, bars_per_year, is_idx);
     result.is_start_index = is_idx - begin;
     result.os_start_index = os_idx - begin;
 

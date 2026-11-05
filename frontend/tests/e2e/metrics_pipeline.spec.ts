@@ -112,9 +112,13 @@ for (const kind of ['single', 'multi'] as const) {
         fullPage: true,
       });
       await page.getByRole('button', { name: `View alpha_${batch.id}`, exact: true }).click();
-      await expect(page.getByTestId('alpha-detail')).toBeVisible();
-      if (kind === 'multi') await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
-      else await expect(page.getByLabel('Signal heatmap')).not.toBeVisible();
+      if (kind === 'multi') {
+        await expect(page.getByTestId('alpha-detail')).toBeVisible();
+        await expect(page.getByTestId('signal-analysis')).toHaveCount(0);
+      } else {
+        await expect(page.getByTestId('alpha-detail')).toBeHidden();
+        await expect(page.getByLabel('Signal heatmap')).toBeVisible();
+      }
     }
     expect(requests).toBeGreaterThanOrEqual(1);
     expect(errors).toEqual([]);

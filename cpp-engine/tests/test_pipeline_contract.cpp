@@ -193,6 +193,37 @@ TEST(PipelineContract, SingleDayLikeSplitDoesNotCrashAndKeepsIndicesValid)
     EXPECT_LE(metrics.os_start_index, metrics.timeseries.timestamps.size());
 }
 
+TEST(PipelineContract, BookEntersOnFirstTradingBarAfterWarmUp)
+{
+    auto dp = make_panel(12, 3);
+    auto alphas = compile_xml(R"(<data expr="close" delay="1"/><rank/>)", &dp);
+    SimulatorConfig cfg{};
+    cfg.T = dp.T;
+    cfg.N = dp.N;
+    cfg.fee_rate = 0.001;
+    cfg.sim_start_index = 2;
+    cfg.trading_start_index = 7;
+    ASSERT_EQ(cfg.history_start(), 1u);
+    ASSERT_EQ(cfg.first_trading_bar(), 7u);
+    unsigned signal_rows = 0;
+    cfg.signal_row_callback = [&](unsigned, const float*, unsigned) { ++signal_rows; };
+    Simulator sim(dp, cfg);
+    auto out = sim.run(alphas[0].pipeline);
+    EXPECT_EQ(signal_rows, dp.T - 1);  // modules run from history_start
+    for (unsigned di = 0; di < 7; ++di) {
+        EXPECT_EQ(out.turnover[di], 0.0) << di;
+        EXPECT_EQ(out.ret[di], 0.0) << di;
+        EXPECT_EQ(out.gross_ret[di], 0.0) << di;
+        EXPECT_EQ(out.position_count[di], 0) << di;
+    }
+    EXPECT_GT(out.turnover[7], 0.0);
+    EXPECT_GT(out.position_count[7], 0);
+    EXPECT_NEAR(out.ret[7], out.gross_ret[7] - out.turnover[7] * cfg.fee_rate, 1e-15);
+    EXPECT_LT(out.ret[7], out.gross_ret[7]);
+    cfg.trading_start_index = 1;  // before simStart: simStart wins
+    EXPECT_EQ(cfg.first_trading_bar(), 2u);
+}
+
 TEST(PipelineContract, SignalPlotPreservesNullForWarmupNaN)
 {
     auto dp = make_panel(8, 3);

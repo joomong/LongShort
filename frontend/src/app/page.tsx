@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useEffect } from 'react';
+import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import MainLayout from '@/components/MainLayout';
 import RunControls, { AlphaStorageButtons } from '@/components/RunControls';
@@ -77,57 +77,20 @@ function XmlPanel() {
   );
 }
 
-// Reclicking the selected row does nothing, so a finished single-alpha result switches views here.
-const SINGLE_VIEWS = [
-  { id: 'signals', label: 'Signals', select: () => useRunStore.getState().exitDetailView() },
-  { id: 'performance', label: 'Performance', select: () => useRunStore.getState().enterDetailView(0) },
-] as const;
-
-function SingleAlphaViewTabs({ isDetail }: { isDetail: boolean }) {
-  const activeIndex = isDetail ? 1 : 0;
-  const choose = (index: number, focus = false) => {
-    startTransition(SINGLE_VIEWS[index].select);
-    if (focus) document.getElementById(`single-alpha-tab-${SINGLE_VIEWS[index].id}`)?.focus();
-  };
-  return (
-    <div role="tablist" aria-label="Single alpha view" className="flex shrink-0 items-center gap-2 px-2 border-b border-border bg-background-secondary">
-      {SINGLE_VIEWS.map((view, index) => (
-        <button key={view.id} role="tab" id={`single-alpha-tab-${view.id}`} aria-controls={`single-alpha-${view.id}`}
-          aria-selected={index === activeIndex} tabIndex={index === activeIndex ? 0 : -1}
-          onClick={() => choose(index)}
-          onKeyDown={event => {
-            const next = event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? 1 - index
-              : event.key === 'Home' ? 0 : event.key === 'End' ? SINGLE_VIEWS.length - 1 : -1;
-            if (next < 0) return;
-            event.preventDefault();
-            choose(next, true);
-          }}
-          className={'shrink-0 text-[10px] py-1 border-b-2 whitespace-nowrap transition-colors ' +
-            (index === activeIndex ? 'border-accent text-foreground font-semibold' : 'border-transparent text-foreground-secondary hover:text-foreground')}>
-          {view.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // Only single-alpha runs expose instrument-level signal analysis.
 function ChartArea() {
   const isDetail = useRunStore(s => s.viewMode === 'detail');
   const alphaCount = useRunStore(s => s.result?.alphas.length ?? 0);
   const signalRequest = useRunStore(s => s.signalRequest);
-  const views = useRunStore(s => (!s.gaSession || s.gaFinished) && s.result?.alphas.length === 1 && !s.result.alphas[0].error);
-  const panel = (id: string) => views ? { role: 'tabpanel', id: `single-alpha-${id}`, 'aria-labelledby': `single-alpha-tab-${id}` } : {};
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-background">
-      {views ? <SingleAlphaViewTabs isDetail={isDetail} /> : null}
-      <div className={isDetail ? 'flex-1 min-h-0 flex flex-row' : 'hidden'} data-testid="alpha-detail" {...panel('performance')}>
+      <div className={isDetail ? 'flex-1 min-h-0 flex flex-row' : 'hidden'} data-testid="alpha-detail">
         <div className="flex-1 min-h-0 min-w-0"><PerformanceReport /></div>
         <div className="w-[28%] min-w-0 max-w-[440px] shrink-0 min-h-0"><AlphaXmlPanel /></div>
       </div>
       {alphaCount === 1 ? (
-        <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col overflow-y-auto'} data-testid="signal-analysis" {...panel('signals')}>
+        <div className={isDetail ? 'hidden' : 'flex-1 min-h-0 flex flex-col overflow-y-auto'} data-testid="signal-analysis">
           {signalRequest.status === 'loading' ? <div role="status" className="px-2 py-1 text-xs text-foreground-muted">Loading signals…</div> : null}
           {signalRequest.status === 'error' ? <div role="alert" className="px-2 py-1 text-xs text-metric-negative">{signalRequest.error}
             <button onClick={() => useRunStore.getState().retryResultData('signals')} className="ml-2 underline">Retry signals</button>

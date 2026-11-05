@@ -23,7 +23,7 @@ function MetricValue({ metric, value, children }: { metric: string; value: numbe
 // Hoisted static thead — column labels never change (rendering-hoist-jsx)
 // Order: avgBet | avgMaxWeight | maxWeight | minBet | quality | return | sharpe | sharpe400 | turnover
 const QUALITY_DESCRIPTION = 'Sharpe × sqrt(abs(1 − max net exposure)) × (1 − max single-symbol weight). Net exposure = abs(long − absolute short); both maxima are taken over this IS/OS period, with weights as fractions of the gross=1 book.';
-const POOL_CORR_DESCRIPTION = 'Correlation of daily net returns with the equal-weight alpha pool over the whole sim window (IS and OS).';
+const POOL_CORR_DESCRIPTION = 'Correlation of daily net returns with the equal-weight alpha pool from isStart to simEnd (IS and OS).';
 
 const TABLE_HEADER = (
   <thead className="sticky top-0 bg-white dark:bg-background-secondary">
@@ -161,9 +161,9 @@ const RankRow = React.memo(function RankRow({ item, index, displayIndex }: { ite
           ? 'bg-[#e0ddf5] dark:bg-[#38354d]'
           : 'bg-white dark:bg-background-tertiary hover:bg-[#f1effa] dark:hover:bg-row-hover')
       }
-      onClick={() => startTransition(() => useRunStore.getState().enterDetailView(index))}
+      onClick={() => startTransition(() => useRunStore.getState().toggleDetailView(index))}
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startTransition(() => useRunStore.getState().enterDetailView(index)); } }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startTransition(() => useRunStore.getState().toggleDetailView(index)); } }}
       role="button"
       aria-expanded={isActiveDetail}
       aria-label={`View ${`alpha_${item.id}`}`}

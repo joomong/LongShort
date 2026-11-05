@@ -37,7 +37,7 @@ struct GaCandidateEntry {
 
 struct GaRunInfo {
     Json::Value context;
-    std::size_t sim_start_index = 0;
+    std::size_t first_reported_bar = 0;
     std::size_t sim_end_index = 0;
     unsigned threads = 1;
 };

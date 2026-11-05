@@ -36,7 +36,7 @@ sector·industry·모든 universe 마스크는 입력 준비 시 **고정 1 bar*
 
 고정 명목금액 근사의 보유 손익에 실제 시장 매매의 execution leg를 더하고 편도 turnover 비용을 뺀다. 체결은 Close/OHLC4/VWAP를 지원한다. OHLC4/VWAP는 해당 날짜의 관측을 사용하며 종가나 전일 값으로 대체하지 않는다.
 
-`missing_close_policy: carry`는 필요한 관측이 없는 보유의 매매를 동결하고 노출 예산을 예약한다. `error`는 필요한 거래를 수행할 수 없으면 실패한다. simStart 하루 전 bar는 의도와 평가가격만 준비하고 보유·손익·비용을 만들지 않는다.
+`missing_close_policy: carry`는 필요한 관측이 없는 보유의 매매를 동결하고 노출 예산을 예약한다. `error`는 필요한 거래를 수행할 수 없으면 실패한다. 계산은 simStart 하루 전 bar부터 시작하고 첫 매매는 첫 IS bar(`max(isStart, simStart)`)에서 일어난다. 그 전 bar는 의도와 평가가격만 준비하고 보유·손익·비용을 만들지 않는다.
 
 API 성과 지표와 GA 적합도는 gross 기준이고 시계열에는 gross/net이 함께 있다. 누적손익과 drawdown은 단리이며 초기 0 고점을 포함한다. `avgPositionCount`는 평균, `minPositionCount`는 최소 보유 종목 수다.
 

@@ -36,7 +36,7 @@ workspace를 복사할 때 생성 파일인 `.longshort/`는 제외한다.
 
 기본 모듈 경로는 설정 파일 옆 `modules/`, 빌드 경로는 `.longshort/build/`다. 모듈 추가나 수정은 다음 프로그램 시작 때 반영된다. 모듈 생성이나 빌드가 실패하면 이전 실행 파일로 기동하지 않는다.
 
-알파 저장 위치는 YAML 최상위 `alphas_dir`(기본 `alphas`, 상대경로는 YAML 폴더 기준)이며 시작할 때 생성·쓰기 확인에 실패하면 엔진이 뜨지 않는다. 저장 형식은 `<alphas_dir>/<name>/{alpha.xml, metadata.yml, results/, positions/}`이며, `positions/<id>.parquet`은 체결 후 보유 비중이 아니라 매 거래 bar의 주문 목표 비중(정규화된 target, AlphaPos 대응)이다. `alphas_dir`는 renameat2(RENAME_NOREPLACE)를 지원하는 로컬 파일시스템(ext4/xfs/btrfs/tmpfs)이어야 하며 sshfs/NFS는 시작 시 거부된다. 진행 중인 저장은 자기 `.<name>.tmp-*` 폴더에 flock을 잡고, 시작 시에는 잠금이 풀린 것만 지우므로 여러 엔진이 한 `alphas_dir`를 공유할 수 있다. 진행 중인 저장은 `lslocks`로 보이며, 엔진이 도는 동안 `.tmp-*` 폴더를 손으로 지우지 않는다. 내장 모듈은 플랫폼의 `cpp-engine/src/modules/`에 있다. workspace를 복사할 때 `.longshort/`는 제외하고 새 빌드를 생성한다. YAML의 데이터·카탈로그 상대경로는 YAML 폴더를 기준으로 하므로, 현재 workspace의 AFL 카탈로그는 플랫폼 파일의 절대경로로 지정한다.
+알파 저장 위치는 YAML 최상위 `alphas_dir`(기본 `alphas`, 상대경로는 YAML 폴더 기준)이며 시작할 때 생성·쓰기 확인에 실패하면 엔진이 뜨지 않는다. 저장 형식은 `<alphas_dir>/<name>/{alpha.xml, metadata.yml, results/, positions/}`이며, `positions/<id>.parquet`은 체결 후 보유 비중이 아니라 `max(simStart, isStart)` 이후 매 거래 bar의 주문 목표 비중(정규화된 target, AlphaPos 대응)이다. `alphas_dir`는 renameat2(RENAME_NOREPLACE)를 지원하는 로컬 파일시스템(ext4/xfs/btrfs/tmpfs)이어야 하며 sshfs/NFS는 시작 시 거부된다. 진행 중인 저장은 자기 `.<name>.tmp-*` 폴더에 flock을 잡고, 시작 시에는 잠금이 풀린 것만 지우므로 여러 엔진이 한 `alphas_dir`를 공유할 수 있다. 진행 중인 저장은 `lslocks`로 보이며, 엔진이 도는 동안 `.tmp-*` 폴더를 손으로 지우지 않는다. 내장 모듈은 플랫폼의 `cpp-engine/src/modules/`에 있다. workspace를 복사할 때 `.longshort/`는 제외하고 새 빌드를 생성한다. YAML의 데이터·카탈로그 상대경로는 YAML 폴더를 기준으로 하므로, 현재 workspace의 AFL 카탈로그는 플랫폼 파일의 절대경로로 지정한다.
 
 HTTP 프레임워크의 큰 요청 처리용 임시 파일은 `.longshort/uploads/`에 생성된다. workspace 루트에 별도 `uploads/`를 만들지 않는다. 연구 노트북과 분석 파일은 workspace의 `research/`에 둔다.
 

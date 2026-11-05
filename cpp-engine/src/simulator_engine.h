@@ -53,7 +53,8 @@ struct SimulatorConfig {
     double fee_rate;        // fraction (e.g., 0.0005)
     bool collect_signals = false;  // run() stores the T×N raw signal matrix
     SignalRowCallback signal_row_callback{}; // run() observes raw rows before normalization
-    unsigned sim_start_index = 0; // first trading bar; computation starts at history_start()
+    unsigned sim_start_index = 0; // computation starts at history_start()
+    unsigned trading_start_index = 0; // no holdings or costs before it; see first_trading_bar()
     MissingClosePolicy missing_close_policy = MissingClosePolicy::Carry;
     AccountingRowCallback accounting_row_callback{}; // opt-in for either execution path
     // Run-selected signal-date mask (universe.names); null = data.universe_mask.
@@ -61,8 +62,9 @@ struct SimulatorConfig {
     ExecutionPrice execution_price = ExecutionPrice::Close;
     unsigned sim_end_index = std::numeric_limits<unsigned>::max(); // exclusive; default = panel end
     unsigned module_threads = 1; // includes caller; outer alpha/member workers use one
-    // First bar computed: one bar before sim_start_index sets intent and marks without trading.
+    // First bar computed: bars before first_trading_bar() set intent and marks without trading.
     unsigned history_start() const { return sim_start_index > 0 ? sim_start_index - 1 : 0; }
+    unsigned first_trading_bar() const { return std::max(sim_start_index, trading_start_index); }
 };
 
 struct SimulatorOutput {
@@ -206,8 +208,9 @@ struct FullMetricsResult {
     size_t os_start_index;                   // index into timeseries where OS starts
 };
 
-// Timeseries/yearly cover [start_index, end); IS/OS summary ranges are clamped
-// to that trading span. The default includes the first trading bar.
+// Timeseries covers [start_index, end); yearly covers [max(start_index, IS start), end);
+// IS/OS summary ranges are clamped to the trading span. The default includes the first
+// trading bar.
 // is_timestamp_ms: first bar of IS metrics period
 // os_timestamp_ms: first bar of OS period
 // Performance metrics (summary, yearly, drawdown) use gross_ret; net_ret only

@@ -167,6 +167,34 @@ describe('separate result payloads and bounded caches', () => {
     expect(useRunStore.getState().result?.alphas[0].signals).toBeUndefined();
     expect(useRunStore.getState().result?.alphas[0].performance).toBeUndefined();
   });
+  it('toggles the single-alpha view on reclick; several alphas stay on the selected row', () => {
+    const store = useRunStore.getState();
+    useRunStore.setState({ viewMode: 'single', selectedAlphaIndex: null,
+      result: { ...singleAlphaMetricFixture, alphas: [candidateFixture(0)] } });
+    store.toggleDetailView(0);
+    expect(useRunStore.getState().viewMode).toBe('detail');
+    store.toggleDetailView(0);
+    expect(useRunStore.getState().viewMode).toBe('single');
+    useRunStore.setState({ result: { ...singleAlphaMetricFixture, alphas: [candidateFixture(0), candidateFixture(1)] } });
+    store.toggleDetailView(1);
+    store.toggleDetailView(1);
+    expect(useRunStore.getState().viewMode).toBe('detail');
+    expect(useRunStore.getState().selectedAlphaIndex).toBe(1);
+  });
+  it('keeps the performance view on reclick during a running GA or for an errored alpha', () => {
+    const store = useRunStore.getState();
+    const open = (alpha: ReturnType<typeof candidateFixture>, gaSession: boolean, gaFinished: boolean) => {
+      useRunStore.setState({ viewMode: 'single', selectedAlphaIndex: null, gaSession, gaFinished,
+        result: { ...singleAlphaMetricFixture, alphas: [alpha] } } as never);
+      store.toggleDetailView(0);
+      store.toggleDetailView(0);
+      return useRunStore.getState().viewMode;
+    };
+    expect(open(candidateFixture(0), true, false)).toBe('detail');
+    expect(open({ ...candidateFixture(0), error: 'failed' }, false, false)).toBe('detail');
+    expect(open(candidateFixture(0), true, true)).toBe('single');
+    useRunStore.setState({ gaSession: false, gaFinished: false } as never);
+  });
   it('bounds signal matrices and preserves all computed summaries', () => {
     useRunStore.setState({
       result: {

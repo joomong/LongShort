@@ -56,7 +56,7 @@ XML에서는 `AFL.EPSNumRevFY1C`, `AFL.10DMACD`처럼 카탈로그의 필드 이
 
 sector·industry·모든 universe 마스크는 로딩 시 이전 거래일 기준으로 구성한다. 화요일 실행에는 월요일 기준 분류·멤버십을 사용한다. 첫 로드 bar는 그룹 NaN·멤버십 비포함이다. XML의 `delay=0`, `1`, `5` 중 무엇을 사용하더라도 이 메타데이터 규칙은 같다. 가격·수익률·이벤트는 발생 날짜 그대로 보관한다.
 
-`backtest.start_date`는 로드할 데이터의 시작일이다. 각 실행의 Sim period는 UI/API에서 별도로 선택한다. 계산은 simStart 하루 전 bar부터 시작하며 그 이전 bar는 건드리지 않는다. 이 한 bar는 의도와 평가가격만 준비하고 매매·보유 손익·비용은 만들지 않는다. 신호는 `max(isStart, simStart)` 전 bar까지 유효해야 하며 아니면 `Insufficient history`로 거부된다. `delay="1"`이나 lookback이 있으면 isStart를 simStart보다 그만큼 뒤로 잡는다.
+`backtest.start_date`는 로드할 데이터의 시작일이다. 각 실행의 Sim period는 UI/API에서 별도로 선택한다. 계산은 simStart 하루 전 bar부터 시작하며 그 이전 bar는 건드리지 않는다. 첫 매매는 첫 IS bar(`max(isStart, simStart)`)에서 일어나며, 그 전 bar는 의도와 평가가격만 준비하고 매매·보유 손익·비용은 만들지 않는다. 신호는 `max(isStart, simStart)` 전 bar까지 유효해야 하며 아니면 `Insufficient history`로 거부된다. `delay="1"`이나 lookback이 있으면 isStart를 simStart보다 그만큼 뒤로 잡는다.
 
 `end_date: latest` 또는 생략은 엔진 시작 시 선택한 종목들의 종가가 전부 NaN인 끝행을 제외하고 종료일을 정한다. 명시적인 종료일은 그 날짜까지 읽는다. 캐시가 갱신되면 엔진을 재시작해 새 데이터를 읽고 화면을 새로고침한다.
 

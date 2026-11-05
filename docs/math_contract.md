@@ -24,7 +24,8 @@ This document is the single source of truth for C++ engine test math.
   data panel. `simEnd` is inclusive by calendar day and maps to an exclusive
   `SimulatorConfig.sim_end_index`; omission uses the loaded panel end. Computation
   starts at `history_start = max(simStart - 1, 0)`; earlier bars are never read by
-  modules or the book, and that one bar sets intent and marks without trading. Execution, signals, metrics and diagnostics stop
+  modules or the book. Bars before the first IS bar `max(simStart, isStart)` set intent and marks
+  without trading; the first trade is on that bar. Execution, signals, metrics and diagnostics stop
   at that end, with no added terminal liquidation. A capped run must equal the
   same-start uncapped run through the selected end.
 - A run is rejected with `Insufficient history` when the signal's first valid bar is later than
@@ -35,7 +36,7 @@ This document is the single source of truth for C++ engine test math.
   before `history_start`, `NaN` across it and restarting later (`NaN` for up to `L-1` bars after the
   restart; accepted, the desk math is kept). A non-EW `<meta>` is valid from the first grid bar
   `simStart + days + k·rebalance` whose window lies wholly on real member returns.
-- `missingData.retirements` counts kept sources ending on trading bars only. A run computes only the
+- `missingData.retirements` counts kept sources ending on reported trading bars only. A run computes only the
   columns of its run panel: symbols in the universe on some bar in `[history_start, simEnd]`, plus the
   successors they can move into. "Move to a retired destination" no longer fires for a dropped source.
 - An initially empty book has no holding return on its first trading bar. It pays
@@ -132,7 +133,19 @@ This document is the single source of truth for C++ engine test math.
 
 - Summary slices use the requested trading span. IS begins at
   `max(simStart, isStart)` and ends before `osStart`; OS uses its part of the requested
-  trading interval. Yearly metrics cover the requested trading interval.
+  trading interval. Yearly metrics begin at `max(simStart, isStart)` and stop at `simEnd`,
+  so bars before isStart are warm-up and the first year row holds only the bars from that start.
+- Everything reported starts at that same first reported bar, `max(simStart, isStart)`: the yearly
+  table, performance series, signal plot and heatmap rows, `signalSeries`, `distribution`,
+  `logDistribution`, `range` and their examples, `poolCorrelation`, `missingData` totals and saved
+  `positions/` rows, in `/api/simulate`, batch, combined, saved results and GA. simStart only warms up:
+  modules still run from `history_start`, but the top-level book is flat until that bar. Its first
+  entry, turnover and fee land on that bar (the bar before it sets the intent), and there are no holdings,
+  PnL or fees earlier, so IS summary and GA fitness include the entry. Combined batches follow the same
+  rule. Members of non-EW meta sets alone trade from simStart, so estimation keeps its pre-isStart
+  returns. Whole-panel alpha pool runs are unchanged. `context` keeps both dates. `isStart` with no bar
+  on or before `simEnd` is rejected with HTTP 400. `meta[].fallbackBars` is an estimation diagnostic: it
+  counts warm-up bars too and does not start at the first reported bar.
 - The performance report begins at `max(simStart, isStart)` and stops at `simEnd`
   inclusive by calendar day. Its cumulative net/gross return is rebased at that
   report start; the gross high-water mark starts at zero before the first reported return.
@@ -163,8 +176,9 @@ optional `error`, `summary: {is, os}`, `yearly`, `performance`, `signals`, `pool
   Dollar presentation multiplies cumulative return by `context.reportNotional` ($20M).
   That reporting notional is distinct from YAML `initial_capital`.
 - `signals` contains optional `plot`, `range`, `distribution` and `logDistribution`. `distribution`,
-  `logDistribution` and `range` cover the run panel's columns only; compared with counting every panel
-  symbol, only unmasked final signals and the zero population of meta or combined signals differ.
+  `logDistribution` and `range` cover the plot's columns: symbols that are universe members on at least
+  one reported row. Names in the run panel only for warm-up or as successors stay out, so these outputs do
+  not depend on simStart.
   Plot values stay raw; membership and heatmap center/scale are separate fields.
 - Browser code renders the engine's financial results. It does not reconstruct daily
   returns from cumulative PnL, reconstruct gross returns from fees, or recalculate drawdown.
@@ -295,7 +309,7 @@ signal values, plot sampling and tooltip values remain raw.
 
 - Affine: `<affine factor="1" offset="0"/>` maps each finite x to `factor * x + offset`, computed in double and stored as float; a non-finite input or result becomes NaN (the unary chain rule). Stateless, no universe mask.
 
-- Alpha pool correlation (config `alpha_pool`): each `<alpha_pool>/<name>/alpha.xml` is simulated once at startup (new or changed entries on the next request) with `alpha_pool_universe` (default: the config default universe) and the config execution price over the whole panel; its daily net return by panel row is cached. The EW pool return on bar t is the mean of the pool alphas already active on t (first nonzero return <= t). `/api/simulate` adds `poolCorrelation: {ew, days}` to each alpha and combined result: the Pearson correlation of the daily net return of the run with the EW pool over the sim window [simStart, simEnd], using only bars at or after the first nonzero return of both sides; null below 60 overlapping bars or with zero variance. One number per run; nothing per pool alpha. The frontend shows `ew` right of the OS block. The pool is read-only for the engine.
+- Alpha pool correlation (config `alpha_pool`): each `<alpha_pool>/<name>/alpha.xml` is simulated once at startup (new or changed entries on the next request) with `alpha_pool_universe` (default: the config default universe) and the config execution price over the whole panel; its daily net return by panel row is cached. The EW pool return on bar t is the mean of the pool alphas already active on t (first nonzero return <= t). `/api/simulate` adds `poolCorrelation: {ew, days}` to each alpha and combined result: the Pearson correlation of the daily net return of the run with the EW pool over the reported window [max(simStart, isStart), simEnd], using only bars at or after the first nonzero return of both sides; null below 60 overlapping bars or with zero variance. One number per run; nothing per pool alpha. The frontend shows `ew` right of the OS block. The pool is read-only for the engine.
 
 ## Regression Test Mapping
 

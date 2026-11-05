@@ -59,11 +59,11 @@ export default function PerformanceReport() {
         </div>
       </div>
 
-      {/* WQ reference: a bounded landscape chart followed immediately by all years.
-          Extra viewport height stays below the report, rather than stretching the plot. */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto" data-testid="performance-report">
+      {/* A landscape chart sized only by the report width, followed by all years.
+          A long table scrolls the report; it never squeezes the chart. */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto [scrollbar-gutter:stable]" data-testid="performance-report">
         {/* Chart */}
-        <div className="w-full aspect-[2/1] flex-[0_1_auto] min-h-[140px] max-h-[480px] min-w-0 overflow-hidden bg-chart-background" data-testid="performance-chart-panel">
+        <div className="w-full aspect-[2/1] shrink-0 min-h-[140px] max-h-[480px] min-w-0 overflow-hidden bg-chart-background" data-testid="performance-chart-panel">
           <PerformanceChart
             alpha={alpha}
             metric={metric}

@@ -50,9 +50,11 @@ def write_compact_cache(output):
         pq.write_table(pa.table({"date": dates, "tradingItemId": ids,
                                 column: pa.array(returns.ravel(), type=pa.float64())}), output / filename)
     small = ["1", "2", "5"]
-    members = [("ALL", s) for s in symbols] + [("SMALL", s) for s in small]
+    # SHRINK loses its highest-priced name 4 during a warm-up.
+    members = [("ALL", s) for s in symbols] + [("SMALL", s) for s in small] + [("SHRINK", s) for s in ["1", "2", "4"]]
     first = pa.array([index[0]] * len(members), type=pa.timestamp("ns"))
-    last = pa.array([index[-1]] * len(members), type=pa.timestamp("ns"))
+    last = pa.array([np.datetime64("2021-02-01", "ns") if m == ("SHRINK", "4") else index[-1] for m in members],
+                    type=pa.timestamp("ns"))
     pq.write_table(pa.table({"universe": [m[0] for m in members],
                              "tradingItemId": pa.array([int(m[1]) for m in members], type=pa.int64()),
                              "fromDate": first, "toDate": last}), output / "universe.parquet")
@@ -72,7 +74,7 @@ def write_compact_cache(output):
     for name in ("sector", "industry"):
         write_wide(output / "groups" / f"{name}.parquet", index,
                    {s: np.full(len(days), 1.0) for s in symbols})
-    config = {"base": {"cache": str(output), "groups": str(output / "groups")}, "universe": {"names": ["ALL", "SMALL"]},
+    config = {"base": {"cache": str(output), "groups": str(output / "groups")}, "universe": {"names": ["ALL", "SMALL", "SHRINK"]},
               "backtest": {"start_date": "2020-01-01", "end_date": "2021-12-31",
                            "initial_capital": 1000000, "transaction_fee": 5}}
     (output / "config.yaml").write_text(json.dumps(config, indent=2))

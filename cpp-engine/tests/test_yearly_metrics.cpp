@@ -217,3 +217,43 @@ TEST(YearlyMetrics, DefaultIncludesTheFirstTradingBar) {
     EXPECT_DOUBLE_EQ(yearly[0].pnl_pct, 2.0);
     EXPECT_DOUBLE_EQ(yearly[0].daily_tvr, 1.0);
 }
+
+namespace {
+struct YearlyRangeFixture {
+    // Bars 0-1 in 2020, 2-5 in 2021, 6-7 in 2022, 2021 split at bar 4 (2021-07-01).
+    std::vector<int64_t> dates = {
+        1577836800000LL, 1593561600000LL,  // 2020-01-01, 2020-07-01
+        1609459200000LL, 1612137600000LL, 1625097600000LL, 1627776000000LL,  // 2021-01-01, -02-01, -07-01, -08-01
+        1640995200000LL, 1643673600000LL};  // 2022-01-01, -02-01
+    std::vector<double> ret = {0.5, 0.5, 0.25, 0.25, 0.01, 0.02, 0.03, 0.04};
+    std::vector<double> turnover = {9.0, 9.0, 7.0, 7.0, 0.2, 0.4, 0.6, 0.8};
+    std::vector<double> weights = std::vector<double>(8, 0.5);
+    std::vector<int> counts = std::vector<int>(8, 2);
+
+    FullMetricsResult run(int64_t is_ms, std::size_t start_index) const {
+        return compute_full_metrics(dates, ret, ret, turnover, weights, weights, weights, counts,
+            is_ms, dates[6], 252, start_index);
+    }
+};
+}
+
+TEST(YearlyMetrics, FullMetricsYearlyBeginsAtIsStartAfterWarmUp) {
+    const YearlyRangeFixture f;
+    const auto yearly = f.run(f.dates[4], 0).yearly;
+    ASSERT_EQ(yearly.size(), 2u);
+    EXPECT_EQ(yearly[0].year, 2021);
+    EXPECT_NEAR(yearly[0].pnl_pct, 3.0, 1e-10);  // bars 4-5 only
+    EXPECT_NEAR(yearly[0].daily_tvr, 0.3, 1e-10);
+    EXPECT_EQ(yearly[1].year, 2022);
+    EXPECT_NEAR(yearly[1].pnl_pct, 7.0, 1e-10);
+    EXPECT_NEAR(yearly[1].daily_tvr, 0.7, 1e-10);
+}
+
+TEST(YearlyMetrics, FullMetricsYearlyBeginsAtSimStartWhenIsStartIsEarlier) {
+    const YearlyRangeFixture f;
+    const auto yearly = f.run(f.dates[0], 4).yearly;
+    ASSERT_EQ(yearly.size(), 2u);
+    EXPECT_EQ(yearly[0].year, 2021);
+    EXPECT_NEAR(yearly[0].pnl_pct, 3.0, 1e-10);
+    EXPECT_NEAR(yearly[0].daily_tvr, 0.3, 1e-10);
+}

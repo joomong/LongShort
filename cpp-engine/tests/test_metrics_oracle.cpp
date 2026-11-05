@@ -361,20 +361,21 @@ TEST(MetricsOracle, FullMetricsSplitMatchesReferenceSlices)
     EXPECT_GT(std::fabs(actual.is_summary.sharpe - is_net.sharpe), 1e-6);
 
     // Timeseries carries both cumulative series; drawdown follows gross.
-    double cum_net = 0.0, cum_gross = 0.0, peak = 0.0;
+    double cum_net = 0.0, cum_gross = 0.0, peak = 0.0, reported_net = 0.0, reported_gross = 0.0;
     ASSERT_EQ(actual.timeseries.cum_pnl.size(), T - 1);
     for (size_t i = 1; i < T; ++i) {
         cum_net += net[i];
         cum_gross += ret[i];
+        if (i >= 2) { reported_net += net[i]; reported_gross += ret[i]; }
         peak = std::max(peak, cum_gross);
         EXPECT_NEAR(actual.timeseries.cum_pnl[i - 1], cum_net, 1e-12);
         EXPECT_NEAR(actual.timeseries.cum_pnl_gross[i - 1], cum_gross, 1e-12);
         EXPECT_NEAR(actual.timeseries.drawdown[i - 1], cum_gross - peak, 1e-12);
     }
-    // Yearly (single year 2024) pnl is gross in percent.
+    // Yearly (single year 2024, from IS) pnl is gross in percent.
     ASSERT_EQ(actual.yearly.size(), 1u);
-    EXPECT_NEAR(actual.yearly[0].pnl_pct, cum_gross * 100.0, 1e-9);
-    EXPECT_GT(std::fabs(actual.yearly[0].pnl_pct - cum_net * 100.0), 1e-6);
+    EXPECT_NEAR(actual.yearly[0].pnl_pct, reported_gross * 100.0, 1e-9);
+    EXPECT_GT(std::fabs(actual.yearly[0].pnl_pct - reported_net * 100.0), 1e-6);
 }
 
 TEST(MetricsOracle, SingleDayInputIncludesItsTradingBar)

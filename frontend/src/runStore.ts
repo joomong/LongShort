@@ -61,6 +61,7 @@ interface RunState {
   selectResultTab: (tab: 'stats' | number) => void;
   enterDetailView: (index: number) => void;
   exitDetailView: () => void;
+  toggleDetailView: (index: number) => void;
   setSelectedCell: (symbol: string | null, timestamp: number | null) => void;
   cachePerformance: (index: number, alpha: AlphaResult, revision: number) => void;
   cacheSignals: (index: number, signals: SignalPayload, revision: number) => void;
@@ -194,7 +195,7 @@ const defaultSettings: RunSettings = {
   executionPrice: 'close', universe: '', threads: 20, firstSearch: 200, roundSize: 50, stopRound: 40, stopAlphas: 400,
 };
 
-export const useRunStore = create<RunState>((set) => ({
+export const useRunStore = create<RunState>((set, get) => ({
   xmlCode: '<data expr="close" delay="1"/>', alphaName: '', settings: defaultSettings,
   config: null, configRequest: idle, configRevision: 0, backtestError: null,
   result: null, resultRevision: 0, isRunning: false,
@@ -298,6 +299,14 @@ export const useRunStore = create<RunState>((set) => ({
       detailRequest: idle, seriesRequest: idle };
   }),
   exitDetailView: () => set(state => (state.result?.alphas.length ?? 0) > 1 ? state : { viewMode: 'single', selectedAlphaIndex: null }),
+  // Reclicking the row of a finished single-alpha result returns to its signals.
+  toggleDetailView: index => {
+    const state = get();
+    const reclick = state.viewMode === 'detail' && state.selectedAlphaIndex === index;
+    const signalsAvailable = (!state.gaSession || state.gaFinished) && !state.result?.alphas[index]?.error;
+    if (reclick && signalsAvailable) state.exitDetailView();
+    else state.enterDetailView(index);
+  },
   setSelectedCell: (selectedSymbol, selectedTimestamp) => set(state => ({ selectedSymbol, selectedTimestamp,
     ...(selectedSymbol !== state.selectedSymbol ? { selectedSeries: null, seriesRequest: idle } : {}) })),
   cachePerformance: (index, alpha, revision) => set(state => {

@@ -551,6 +551,66 @@ TEST(HttpCompactPanel, RunKeepsMembersAndSuccessorsAndTheSuccessorsReceiveTheirP
     ASSERT_EQ(late.size(), 2u);
     EXPECT_NEAR(late.at("1"), 1.0 / 3.0, 1e-6);
     EXPECT_NEAR(late.at("2"), 2.0 / 3.0, 1e-6);
+
+    const auto simulate_compact = [&](Json::Value request, int status = 200) {
+        const auto response = http_post_json(server.port(), "/api/simulate", request);
+        EXPECT_EQ(response.status, status) << response.body.substr(0, 300);
+        Json::Value body;
+        EXPECT_TRUE(parse_json(response.body, &body));
+        return body;
+    };
+    const auto dated = [&](const std::string& xml, const char* universe, const char* sim, const char* is) {
+        auto request = run(xml, "full");
+        request["universe"] = universe;
+        request["simStart"] = sim;
+        request["isStart"] = is;
+        return request;
+    };
+    // Thin panel: a distribution in the warm-up (2 -> 3 on 03-01) reaches no book, the first trade is on isStart.
+    const auto warm = simulate_compact(dated(ranked, "SMALL", "2021-01-04", "2021-03-15"));
+    const auto& warm_alpha = warm["alphas"][0];
+    EXPECT_EQ(iso_date(warm_alpha["performance"]["timestamps"][0].asInt64()), "2021-03-15");
+    EXPECT_EQ(warm_alpha["performance"]["positionCount"][0].asInt(), 3);  // no received 3
+    EXPECT_GT(warm_alpha["performance"]["turnover"][0].asDouble(), 0.0);
+    EXPECT_NEAR(warm_alpha["performance"]["cumulativeGross"][0].asDouble(), 0.0, 1e-12);
+    EXPECT_EQ(warm_alpha["missingData"]["successorConversions"].asUInt(), 1u);  // only 5 -> 6 on 04-01
+
+    // 6 has no quote from 04-01, with a signal from 03-31: on the entry bar its order cannot fill; it enters later.
+    const auto gap = simulate_compact(dated(ranked, "ALL", "2021-01-04", "2021-04-01"));
+    const auto& gap_alpha = gap["alphas"][0];
+    EXPECT_EQ(iso_date(gap_alpha["performance"]["timestamps"][0].asInt64()), "2021-04-01");
+    EXPECT_GT(gap_alpha["missingData"]["missingEntries"].asUInt(), 0u);
+    EXPECT_GT(gap_alpha["performance"]["turnover"][0].asDouble(), 0.0);
+    EXPECT_LT(gap_alpha["performance"]["positionCount"][0].asInt(),
+              gap_alpha["performance"]["positionCount"][5].asInt());
+
+    // A freeze before isStart is outside the totals: the same name frozen in the report is counted.
+    const auto frozen_in = simulate_compact(dated(ranked, "ALL", "2021-01-04", "2021-03-15"));
+    const auto frozen_out = simulate_compact(dated(ranked, "ALL", "2021-01-04", "2021-04-10"));
+    EXPECT_GT(frozen_in["alphas"][0]["missingData"]["frozenGrossSum"].asDouble(), 0.0);
+    EXPECT_EQ(frozen_out["alphas"][0]["missingData"]["frozenGrossSum"].asDouble(), 0.0);
+
+    // SHRINK loses 4 on 02-01, in one run's warm-up only: reported signals must not see it.
+    const auto invariant = [&](const std::string& xml) {
+        const auto wide = simulate_compact(dated(xml, "SHRINK", "2021-01-04", "2021-03-15"));
+        const auto narrow = simulate_compact(dated(xml, "SHRINK", "2021-03-01", "2021-03-15"));
+        const auto& a = wide["combined"].isNull() ? wide["alphas"][0] : wide["combined"];
+        const auto& b = narrow["combined"].isNull() ? narrow["alphas"][0] : narrow["combined"];
+        for (const char* key : {"range", "distribution", "logDistribution", "plot"})
+            EXPECT_EQ(a["signals"][key], b["signals"][key]) << xml << " " << key;
+        EXPECT_EQ(a["summary"], b["summary"]) << xml;
+    };
+    invariant(raw);
+    invariant(raw + "<tsmean days=\"2|3\"/>");
+    const auto shrink_raw = simulate_compact(dated(raw, "SHRINK", "2021-01-04", "2021-03-15"));
+    EXPECT_LT(shrink_raw["alphas"][0]["signals"]["range"]["max"].asDouble(), 100 + 15 * 3);  // no 4 in the range
+
+    auto past_end = dated(ranked, "SMALL", "2021-01-04", "2021-06-01");
+    past_end["simEnd"] = "2021-05-31";
+    const auto rejected = simulate_compact(past_end, 400);
+    EXPECT_EQ(rejected["error"].asString(), "isStart must be on or before simEnd");
+    past_end["simEnd"] = "2021-06-01";
+    simulate_compact(past_end);
     server.stop();
 }
 
@@ -1053,11 +1113,11 @@ TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
     const auto initial = call(request);
     ASSERT_GT(initial["alphas"][0]["performance"]["timestamps"].size(), 3u);
     request["simStart"] = date_string(initial["alphas"][0]["performance"]["timestamps"][3].asInt64());
-    // delay 1 needs isStart after simStart; the performance series starts at isStart, plot row 1.
+    // delay 1 needs isStart after simStart; the performance series and the plot start at isStart.
     request["isStart"] = date_string(initial["alphas"][0]["performance"]["timestamps"][4].asInt64());
     const auto delayed = call(request);
     double gross = 0.0, maximum = 0.0;
-    for (const auto& value : delayed["alphas"][0]["signals"]["plot"]["values"][1]) {
+    for (const auto& value : delayed["alphas"][0]["signals"]["plot"]["values"][0]) {
         if (value.isNull()) continue;
         const double absolute = std::fabs(value.asDouble());
         gross += absolute;
@@ -1066,6 +1126,69 @@ TEST_F(HttpContractTest, XmlDelayOwnsTimingWithoutAnotherShift) {
     EXPECT_NEAR(delayed["alphas"][0]["performance"]["maxWeight"][0].asDouble(), maximum / gross, 1e-8);
 }
 
+
+TEST_F(HttpContractTest, ReportedOutputsAndTheBookStartAtIsStart) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    auto run = [&](Json::Value request, const char* sim, const char* is) {
+        request["simStart"] = sim;
+        request["isStart"] = is;
+        request["osStart"] = "2023-10-01";
+        request["simEnd"] = "2023-12-31";
+        request["missingClose"] = "carry";
+        request["signalPlotMaxCells"] = 1000000;
+        const auto response = simulate(request);
+        EXPECT_EQ(response.status, 200) << response.body.substr(0, 300);
+        Json::Value body;
+        EXPECT_TRUE(parse_json(response.body, &body));
+        return body;
+    };
+    const auto bins = [](const Json::Value& signals) {
+        Json::UInt64 total = 0;
+        for (const auto& count : signals["distribution"]["counts"]) total += count.asUInt64();
+        return total;
+    };
+    Json::Value single;
+    single["xml"] = "<data expr=\"close\" delay=\"1\"/><rank/>";
+    const auto early = run(single, "2023-01-02", "2023-01-03");
+    const auto late = run(single, "2023-01-02", "2023-04-03");
+    const auto& alpha = late["alphas"][0];
+    EXPECT_EQ(late["context"]["simStart"].asString(), "2023-01-02");
+    EXPECT_EQ(late["context"]["isStart"].asString(), "2023-04-03");
+    EXPECT_EQ(alpha["signals"]["plot"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+    EXPECT_EQ(alpha["performance"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+    EXPECT_LT(bins(alpha["signals"]), bins(early["alphas"][0]["signals"]));
+    EXPECT_GT(bins(alpha["signals"]), 0u);
+    // Same targets once both have entered: OS, past both starts, is identical.
+    const auto& performance = alpha["performance"];
+    EXPECT_NEAR(performance["cumulativeGross"][0].asDouble(), 0.0, 1e-12);
+    EXPECT_GT(performance["turnover"][0].asDouble(), 0.0);
+    EXPECT_LT(performance["cumulativeNet"][0].asDouble(), 0.0);  // the entry fee
+    EXPECT_EQ(alpha["summary"]["os"], early["alphas"][0]["summary"]["os"]);
+    ASSERT_EQ(alpha["yearly"].size(), 1u);
+    EXPECT_LT(alpha["signals"]["plot"]["values"].size(), early["alphas"][0]["signals"]["plot"]["values"].size());
+
+    Json::Value series = single;
+    series["output"] = "signalSeries";
+    series["signalPlotSymbols"].append(alpha["signals"]["plot"]["symbols"][0]);
+    const auto late_series = run(series, "2023-01-02", "2023-04-03");
+    EXPECT_EQ(late_series["alphas"][0]["signals"]["plot"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+
+    Json::Value batch;
+    batch["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2|3\"/><rank/>";
+    const auto batch_early = run(batch, "2023-01-02", "2023-01-10");
+    const auto batch_late = run(batch, "2023-01-02", "2023-04-03");
+    EXPECT_EQ(batch_late["combined"]["signals"]["plot"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+    EXPECT_LT(bins(batch_late["combined"]["signals"]), bins(batch_early["combined"]["signals"]));
+    EXPECT_EQ(batch_late["combined"]["summary"]["os"], batch_early["combined"]["summary"]["os"]);
+
+    // isStart before simStart: the first reported bar is simStart.
+    Json::Value no_lookback;
+    no_lookback["xml"] = "<data expr=\"close\"/><rank/>";
+    const auto before = run(no_lookback, "2023-04-03", "2022-01-03");
+    EXPECT_EQ(before["context"]["isStart"].asString(), "2022-01-03");
+    EXPECT_EQ(before["alphas"][0]["signals"]["plot"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+    EXPECT_EQ(before["alphas"][0]["performance"]["timestamps"][0].asInt64(), config_date_ms("2023-04-03"));
+}
 
 TEST_F(HttpContractTest, ConfigPublishesMissingClosePolicy) {
     if (!available_) GTEST_SKIP() << skip_reason_;
@@ -1682,9 +1805,10 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         ASSERT_EQ(id.size(), 1u);
         book[dates->Value(i)][std::stoi(id) - 1] = w;
     }
-    // Computation starts at simStart - 1: tsmean 3 emits from simStart + 1, its oldest row NaN from delay 1.
-    EXPECT_EQ(book.size(), static_cast<std::size_t>(last_day - first_day));
-    EXPECT_EQ(book.begin()->first, first_day + 1);
+    // Saved rows start at isStart (2024-01-04), although the book runs from simStart.
+    const int32_t is_day = first_day + 3;
+    EXPECT_EQ(book.size(), static_cast<std::size_t>(last_day - is_day + 1));
+    EXPECT_EQ(book.begin()->first, is_day);
     for (const auto& [day, positions] : book) {
         double gross = 0.0;
         for (const auto& [symbol, w] : positions) gross += std::fabs(w);
@@ -1696,11 +1820,11 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
     Json::Value row_file;
     ASSERT_TRUE(parse_json(read_text(dir / "results" / "rows" / "5.json"), &row_file));
     const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
-    const int32_t is_day = first_day + 3;  // the performance series starts at isStart (2024-01-04)
     ASSERT_EQ(cum.size(), static_cast<Json::ArrayIndex>(last_day - is_day + 1));
+    EXPECT_NEAR(cum[0].asDouble(), 0.0, 1e-12);  // close execution: the entry on isStart earns nothing
     double previous = 0.0;
     std::size_t checked = 0;
-    for (int32_t day = is_day; day <= last_day; ++day) {
+    for (int32_t day = is_day + 1; day <= last_day; ++day) {
         const double gross = cum[static_cast<Json::ArrayIndex>(day - is_day)].asDouble() - previous;
         previous += gross;
         double expected = 0.0;
@@ -1711,7 +1835,7 @@ TEST_F(AlphaStorageHttpTest, PositionsAreExecutedTargetsThatReproduceGrossPnl) {
         EXPECT_NEAR(gross, expected, 1e-12) << day;
         ++checked;
     }
-    EXPECT_EQ(checked, 363u);
+    EXPECT_EQ(checked, 362u);
     EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
 }
 
@@ -2272,8 +2396,8 @@ TEST_F(HttpContractTest, InsufficientHistoryAroundSimStart) {
     // that case); the binary expr is timed with its delay: valid at bar 2 from simStart 0.
     EXPECT_EQ(run("<data expr=\"close - returns\" delay=\"2\"/>", "", "2020-01-04").status, 200);
     EXPECT_EQ(run("<data expr=\"close - returns\" delay=\"2\"/>", "", "2020-01-03").status, 400);
-    // Never valid inside the run, however late IS is: valid at 9 + 99 = 108 > 19.
-    const auto never = run("<data expr=\"close\"/><tsmean days=\"100\"/>", "2020-01-11", "2021-01-01", "2020-01-20");
+    // Never valid inside the run, even with IS on its last bar: valid at 9 + 99 = 108 > 19.
+    const auto never = run("<data expr=\"close\"/><tsmean days=\"100\"/>", "2020-01-11", "2020-01-20", "2020-01-20");
     EXPECT_EQ(never.status, 400);
     EXPECT_NE(never.body.find("Insufficient history"), std::string::npos);
 }
@@ -2479,11 +2603,50 @@ TEST(HttpGaRunPool, CandidatePerformanceEqualsSimulateIncludingPoolCorrelation) 
     const auto stored = http_get(server.port(), "/api/ga/runs/" + run.run_id + "/candidates/0/performance");
     Json::Value body;
     ASSERT_TRUE(parse_json(stored.body, &body));
-    EXPECT_GT(body["alphas"][0]["poolCorrelation"]["days"].asInt(), 60) << stored.body;
+    const int days = body["alphas"][0]["poolCorrelation"]["days"].asInt();
+    EXPECT_GT(days, 60) << stored.body;
+    // The window starts at isStart: 30 days later is 30 fewer overlapping days.
+    Json::Value later = request;
+    later["isStart"] = "2021-03-31";
+    later.removeMember("threads");
+    later["xml"] = "<data expr=\"close\" delay=\"1\"/><tsmean days=\"2\"/>";
+    later["output"] = "performance";
+    const auto later_response = http_post_json(server.port(), "/api/simulate", later);
+    Json::Value later_body;
+    ASSERT_TRUE(parse_json(later_response.body, &later_body));
+    EXPECT_EQ(later_body["alphas"][0]["poolCorrelation"]["days"].asInt(), days - 30) << later_response.body;
     // A pool alpha added after the search counts on the next read, as it does in /api/simulate.
     fs::create_directories(run_dir / "pool" / "b");
     std::ofstream(run_dir / "pool" / "b" / "alpha.xml") << "<data expr=\"open\" delay=\"1\"/><rank/>";
     expect_candidates_equal_simulate(server.port(), request, run);
+}
+
+TEST_F(HttpContractTest, EwMetaBookEntersOnALaterIsStartWithItsSignalsUnchanged) {
+    if (!available_) GTEST_SKIP() << skip_reason_;
+    auto request = meta_request("<meta expr=\"sample\"/>");
+    request["simStart"] = "2021-01-04";
+    request["simEnd"] = "2021-12-31";
+    request["signalPlotMaxCells"] = 1000000;
+    const auto call = [&](const char* is) {
+        request["isStart"] = is;
+        const auto response = simulate(request);
+        EXPECT_EQ(response.status, 200) << response.body.substr(0, 300);
+        Json::Value body;
+        EXPECT_TRUE(parse_json(response.body, &body));
+        return body;
+    };
+    const auto early = call("2021-03-01"), late = call("2021-06-01");
+    const auto& performance = late["alphas"][0]["performance"];
+    EXPECT_EQ(performance["timestamps"][0].asInt64(), config_date_ms("2021-06-01"));
+    EXPECT_GT(performance["turnover"][0].asDouble(), 0.0);
+    EXPECT_NEAR(performance["cumulativeGross"][0].asDouble(), 0.0, 1e-12);
+    const auto& a = early["alphas"][0]["signals"]["plot"];
+    const auto& b = late["alphas"][0]["signals"]["plot"];
+    EXPECT_EQ(b["timestamps"][0].asInt64(), config_date_ms("2021-06-01"));
+    const Json::ArrayIndex offset = a["values"].size() - b["values"].size();
+    ASSERT_GT(offset, 0u);
+    for (Json::ArrayIndex row = 0; row < b["values"].size(); ++row)
+        EXPECT_EQ(a["values"][row + offset], b["values"][row]) << row;
 }
 
 TEST_F(HttpContractTest, MetaRebalanceGridBoundsInsufficientHistory) {
@@ -2525,13 +2688,14 @@ TEST_F(HttpContractTest, EveryPathRunsWithSimStartMidPanel) {
         if (std::string(output) != "performance") {
             const auto& plot = body["alphas"][0]["signals"]["plot"];
             ASSERT_GT(plot["values"].size(), 0u);
-            // Row 0 is simStart; tsmean emits only once 5 rows were pushed (simStart + 3). Rows are sampled.
+            // Row 0 is isStart, long after tsmean's 5 warm-up rows from simStart. Rows are sampled.
+            EXPECT_EQ(plot["timestamps"][0].asInt64(), config_date_ms("2021-11-01"));
             const auto finite_in = [&](Json::ArrayIndex row) {
                 Json::UInt finite = 0;
                 for (const auto& value : plot["values"][row]) finite += !value.isNull();
                 return finite;
             };
-            EXPECT_EQ(finite_in(0), 0u);
+            EXPECT_GT(finite_in(0), 0u);
             EXPECT_GT(finite_in(plot["values"].size() - 1), 0u);
             single["signalPlotSymbols"] = Json::Value(Json::arrayValue);
             single["signalPlotSymbols"].append(plot["symbols"][0]);
@@ -2668,12 +2832,13 @@ std::map<int32_t, std::map<int, double>> read_positions(const fs::path& file)
 TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
     if (!available_) GTEST_SKIP() << skip_reason_;
     Json::Value metadata = alpha_metadata("close");
-    metadata["isStart"] = "2024-04-01";  // the members need warmup
     const int32_t first_day = 19723, last_day = 20088;  // 2024-01-01, 2024-12-31
     const unsigned T = static_cast<unsigned>(last_day - first_day + 1);
     std::vector<std::string> xmls(kSampleMembers.begin(), kSampleMembers.end());
     xmls.push_back("<meta expr=\"sample\"/><mvo days=\"60\"/>");
-    const unsigned first_book[4] = {0, 3, 9, 0};
+    // Each saved member reports from a bar past its warm-up. Its first return (bar 15) is an entry, so the meta
+    // alpha is checked from bar 76, whose 60-bar window lies on real returns.
+    const unsigned first_book[4] = {15, 15, 15, 76};
     std::vector<std::map<int32_t, std::map<int, double>>> books;
     MemberReturns returns;
     returns.T = T;
@@ -2690,24 +2855,24 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         request["xml"] = xmls[k];
         request["level"] = "positions";
         request["metadata"] = metadata;
+        request["metadata"]["isStart"] = date_string((first_day + first_book[k]) * 86400000LL);
         Json::Value row;
         row["id"] = 0; row["xml"] = xmls[k];
         request["rows"].append(row);
         const auto saved = save(request);
         ASSERT_EQ(saved.status, 200) << saved.body;
         books.push_back(read_positions(alphas_dir() / name / "positions" / "0.parquet"));
-        // From simStart - 1: rank has a signal on simStart, tsmean 5 emits at +3, tsrank 10 needs 10 finite rows
-        // (+9). The combined book holds rank from the first bar.
         const unsigned offset = first_book[k];
         ASSERT_EQ(books.back().size(), T - offset) << xmls[k];
         ASSERT_EQ(books.back().begin()->first, first_day + static_cast<int32_t>(offset)) << xmls[k];
         if (k == 3) continue;
-        // Close execution: gross_ret[t] = sum_i w[t-1,i] * (close[t,i] / close[t-1,i] - 1); the
-        // performance series starts at isStart, so the returns come from the saved book.
-        const long first_t = first_day - 18262;  // 2020-01-01 as days since 1970-01-01
-        for (unsigned t = offset + 1; t < T; ++t)
-            for (const auto& [symbol, w] : books.back().at(first_day + static_cast<int32_t>(t) - 1))
-                returns.rows[t][k] += w * (fixture_close(symbol, first_t + t) / fixture_close(symbol, first_t + t - 1) - 1.0);
+        // Member returns are the saved gross series from the member's isStart.
+        Json::Value row_file;
+        ASSERT_TRUE(parse_json(read_text(alphas_dir() / name / "results" / "rows" / "0.json"), &row_file));
+        const Json::Value& cum = row_file["alphas"][0]["performance"]["cumulativeGross"];
+        ASSERT_EQ(cum.size(), T - offset);
+        for (unsigned t = offset; t < T; ++t)
+            returns.rows[t][k] = cum[t - offset].asDouble() - (t > offset ? cum[t - offset - 1].asDouble() : 0.0);
     }
     CombineSpec spec;
     spec.method = CombineMethod::Mvo;
@@ -2716,12 +2881,11 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
     EXPECT_EQ(weights.first_estimated_bar, 60u);
     std::size_t checked = 0;
     double max_diff = 0.0;
-    for (unsigned t = 0; t < T; ++t) {
+    for (unsigned t = first_book[3]; t < T; ++t) {
         const int32_t day = first_day + static_cast<int32_t>(t);
         double combined[4] = {0, 0, 0, 0}, gross = 0.0;
         for (int i = 0; i < 4; ++i) {
             for (int k = 0; k < 3; ++k) {
-                if (t < first_book[k]) continue;
                 const auto& book = books[k].at(day);
                 const auto found = book.find(i);
                 if (found != book.end()) combined[i] += weights.rows[t][k] * found->second;
@@ -2741,7 +2905,7 @@ TEST_F(AlphaStorageHttpTest, MetaMvoMatchesOracleOnFixture) {
         }
     }
     std::cout << "[ meta mvo oracle ] cells=" << checked << " max|diff|=" << max_diff << "\n";
-    EXPECT_EQ(checked, 4u * T);
+    EXPECT_EQ(checked, 4u * (T - first_book[3]));
     for (const auto& name : names) EXPECT_EQ(http_delete(server_->port(), "/api/alphas/" + name).status, 200);
 }
 
