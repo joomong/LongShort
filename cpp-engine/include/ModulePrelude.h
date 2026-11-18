@@ -15,6 +15,7 @@
 #include "module.h"
 #include "simulation_data.h"
 #include "module_registration.h"
+#include "SignalInputs.h"
 
 using std::isfinite;
 using std::isnan;

@@ -206,6 +206,7 @@ add_engine_test(test_run_panel        tests/test_run_panel.cpp)
 add_engine_test(test_ga_run_store     tests/test_ga_run_store.cpp)
 add_engine_test(test_ts_modules       tests/test_ts_modules.cpp)
 add_engine_test(test_cs_modules       tests/test_cs_modules.cpp)
+add_engine_test(test_signal_inputs    tests/test_signal_inputs.cpp)
 add_engine_test(test_ffd_pcaresid     tests/test_ffd_pcaresid.cpp)
 
 # Test-only CLI for the Python oracle of the combination weights.

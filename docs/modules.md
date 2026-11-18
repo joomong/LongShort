@@ -57,3 +57,21 @@ XML에서 `<mysignal factor="2" days="10"/>`으로 사용한다. `REGISTER_MODUL
 ```cpp
 unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
 ```
+
+## 저장 신호 입력 (signal_N)
+
+모듈이 앞에서 `<signal id>`로 저장한 신호 여러 개를 받으려면 `SignalInputs`를 함께 상속한다. 컴파일러가 `signal_1`, `signal_2`, … 속성을 해석해 같은 bar의 저장 행을 넘겨준다. 출력은 저장 행만으로 정하며 현재 chain 값은 덮어쓴다.
+
+```cpp
+struct MSpread : Module, SignalInputs {
+    unsigned min_signal_inputs() const override { return 2; }
+    unsigned max_signal_inputs() const override { return 2; }
+    void init() override {}
+    void calculate(unsigned, SignalVector& output) override {
+        for (unsigned i = 0; i < numAssets; ++i) output[i] = signal_row(0)[i] - signal_row(1)[i];
+    }
+};
+REGISTER_MODULE(Spread, MSpread, "spread")
+```
+
+XML: `<spread signal_1="a" signal_2="b"/>`. `signal_N`은 `MODULE_PARAMETER`로 등록하지 않는다. 번호 누락, 없는 id, 개수 범위 밖은 컴파일 오류다. 내장 `add/sub/mul/div/min/max/mean/nanmean`, `gate`, `csresid`, `bucketdemean`이 같은 방식이다(`math_contract.md`).

@@ -16,6 +16,7 @@
 #include <vector>
 #include <memory>
 #include <charconv>
+#include <set>
 #include "modules/MetaSource.h"
 #include "modules/TsMean.h"
 #include "modules/TsRank.h"
@@ -41,6 +42,12 @@
 #include "modules/Ffd.h"
 #include "modules/Affine.h"
 #include "modules/PcaResid.h"
+#include "modules/SignalBinary.h"
+#include "modules/Gate.h"
+#include "modules/CsResid.h"
+#include "modules/BucketDemean.h"
+#include "modules/CsDemedian.h"
+#include "modules/CsWinsorQ.h"
 #include <cstdlib>
 #include <string>
 
@@ -927,6 +934,64 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             return m;
         });
 
+        // Saved-signal inputs (signal_1 .. signal_K are bound by compile_pipeline, not here)
+        r.register_module("gate", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"gt", "ge", "lt", "le"}, "gate");
+            (void)panel;
+            auto m = std::make_unique<MGate>();
+            const auto bound = [&](const char* key, bool& has, float& value) {
+                const auto it = a.find(key);
+                if (it != a.end()) { has = true; value = module_attributes::parse_float(it->second, "gate", key); }
+            };
+            bound("gt", m->has_gt, m->gt);
+            bound("ge", m->has_ge, m->ge);
+            bound("lt", m->has_lt, m->lt);
+            bound("le", m->has_le, m->le);
+            return m;
+        });
+        r.register_module("csresid", [group_attr](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"group"}, "csresid");
+            auto m = std::make_unique<MCsResid>();
+            m->panel = panel;
+            if (a.count("group")) m->group = group_attr(a, "csresid", panel);
+            return m;
+        });
+        r.add_universe_binder([](Module& module, const std::vector<uint8_t>* universe) {
+            if (auto* m = dynamic_cast<MCsResid*>(&module)) m->universe = universe;
+        });
+        r.register_module("bucketdemean", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"n"}, "bucketdemean");
+            auto m = std::make_unique<MBucketDemean>();
+            m->panel = panel;
+            m->n_buckets = get_bounded_int(a, "bucketdemean", "n", 5, 1, 1000);
+            return m;
+        });
+        r.add_universe_binder([](Module& module, const std::vector<uint8_t>* universe) {
+            if (auto* m = dynamic_cast<MBucketDemean*>(&module)) m->universe = universe;
+        });
+        r.register_module("csdemedian", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {}, "csdemedian");
+            auto m = std::make_unique<MCsDemedian>();
+            m->panel = panel;
+            return m;
+        });
+        r.add_universe_binder([](Module& module, const std::vector<uint8_t>* universe) {
+            if (auto* m = dynamic_cast<MCsDemedian*>(&module)) m->universe = universe;
+        });
+        r.register_module("cswinsorq", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"lo", "hi"}, "cswinsorq");
+            auto m = std::make_unique<MCsWinsorQ>();
+            m->panel = panel;
+            m->lo = opt_float(a, "cswinsorq", "lo", 0.01f);
+            m->hi = opt_float(a, "cswinsorq", "hi", 0.99f);
+            if (!(m->lo >= 0.0f && m->lo < m->hi && m->hi <= 1.0f))
+                throw CompileError("Invalid <cswinsorq> bounds: expected 0 <= lo < hi <= 1");
+            return m;
+        });
+        r.add_universe_binder([](Module& module, const std::vector<uint8_t>* universe) {
+            if (auto* m = dynamic_cast<MCsWinsorQ*>(&module)) m->universe = universe;
+        });
+
         r.register_module("affine", [](const auto& a, const auto* panel) {
             module_attributes::validate_keys(a, {"factor", "offset"}, "affine");
             (void)panel;
@@ -1307,6 +1372,13 @@ unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start) {
         if (const auto* save = dynamic_cast<const MSignalSave*>(module)) saved_by_module[save] = running;
         else if (const auto* load = dynamic_cast<const MSignalLoad*>(module)) running = saved_by_module.at(load->source);
         else if (dynamic_cast<const MEvent*>(module)) running = result;
+        else if (const auto* in = dynamic_cast<const SignalInputs*>(module)) {
+            // Output depends only on the saved rows: valid from the latest of their first valid bars.
+            unsigned latest = 0;
+            for (const Module* src : in->signal_sources)
+                latest = std::max(latest, saved_by_module.at(static_cast<const MSignalSave*>(src)));
+            running = latest;
+        }
         unsigned long long lookback = module->lookback(running);
         for (const MetaSet& set : alpha.meta_sets) {
             if (set.source != module) continue;
@@ -1490,6 +1562,70 @@ CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
             result.pipeline.push_back(current);
             result.modules.push_back(std::move(mod));
             continue;
+        }
+
+        {
+            // signal_1 .. signal_K: saved <signal id> rows handed to a SignalInputs module.
+            std::map<unsigned, std::string> sig_ids;
+            std::map<std::string, std::string> rest;
+            for (const auto& [key, value] : attribs) {
+                if (key.rfind("signal_", 0) != 0) { rest.emplace(key, value); continue; }
+                const std::string num = key.substr(7);
+                unsigned k = 0;
+                const auto res = std::from_chars(num.data(), num.data() + num.size(), k, 10);
+                if (num.empty() || res.ec != std::errc() || res.ptr != num.data() + num.size() || k == 0 || num[0] == '0')
+                    throw CompileError("<" + tag + ">: invalid attribute '" + key + "' (expected signal_1, signal_2, ...)");
+                sig_ids.emplace(k, module_attributes::detail::trim(value));
+            }
+            static const std::set<std::string> kSignalArith = {"add", "sub", "mul", "div", "mean", "nanmean"};
+            if (sig_ids.empty() && kSignalArith.count(tag))
+                throw CompileError("<" + tag + "> requires signal_1 and signal_2");
+            if (!sig_ids.empty()) {
+                if (rest.count("input"))
+                    throw CompileError("<" + tag + ">: signal_N cannot be combined with input=");
+                if (sig_ids.rbegin()->first != sig_ids.size())
+                    throw CompileError("<" + tag + ">: signal_N attributes must be numbered 1.." + std::to_string(sig_ids.size()) + " without gaps");
+                std::vector<MSignalSave*> saves;
+                for (const auto& [k, id] : sig_ids) {
+                    auto it = cache_registry.find(id);
+                    if (it == cache_registry.end())
+                        throw CompileError("<" + tag + ">: unknown signal id '" + id + "' in signal_" + std::to_string(k));
+                    saves.push_back(it->second);
+                }
+                std::unique_ptr<Module> mod;
+                if (kSignalArith.count(tag) || tag == "min" || tag == "max") {
+                    auto m = std::make_unique<MSignalBinary>();
+                    const std::map<std::string, MSignalBinary::Op> ops = {
+                        {"add", MSignalBinary::Op::Add}, {"sub", MSignalBinary::Op::Sub}, {"mul", MSignalBinary::Op::Mul},
+                        {"div", MSignalBinary::Op::Div}, {"min", MSignalBinary::Op::Min}, {"max", MSignalBinary::Op::Max},
+                        {"mean", MSignalBinary::Op::Mean}, {"nanmean", MSignalBinary::Op::NanMean}};
+                    m->op = ops.at(tag);
+                    if (tag == "nanmean") module_attributes::validate_keys(rest, {"min_count"}, tag, false);
+                    else module_attributes::validate_keys(rest, {}, tag, false);
+                    if (rest.count("min_count")) {
+                        m->min_count = module_attributes::parse_int(rest.at("min_count"), tag, "min_count");
+                        if (m->min_count < 1) throw CompileError("<nanmean>: min_count must be >= 1");
+                    }
+                    mod = std::move(m);
+                } else {
+                    mod = reg.create(tag, rest, panel);
+                }
+                auto* in = dynamic_cast<SignalInputs*>(mod.get());
+                if (!in)
+                    throw CompileError("<" + tag + "> does not take signal_N attributes");
+                const unsigned lo = in->min_signal_inputs(), hi = in->max_signal_inputs();
+                if (saves.size() < lo || (hi && saves.size() > hi))
+                    throw CompileError("<" + tag + "> takes " + (hi == lo ? std::to_string(lo) : std::to_string(lo) + (hi ? ".." + std::to_string(hi) : " or more")) +
+                                       " signal_N inputs, got " + std::to_string(saves.size()));
+                for (MSignalSave* save : saves) {
+                    in->signal_rows.push_back(&save->cache);
+                    in->signal_sources.push_back(save);
+                }
+                current = mod.get();
+                result.pipeline.push_back(current);
+                result.modules.push_back(std::move(mod));
+                continue;
+            }
         }
 
         {

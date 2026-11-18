@@ -245,6 +245,25 @@ signal values, plot sampling and tooltip values remain raw.
   - cross-sectional z-score on finite values
   - if finite count `< min_count` or `scale < eps`: all `NaN`
 - `<signal id>` names are unique within a pipeline: a second `<signal id="x">` is a compile error (`Duplicate signal id 'x'`); expanded alternatives (`|`, `<choice>`) compile separately.
+- Saved-signal inputs `signal_1 .. signal_K` (2026-11-09, `include/SignalInputs.h`): ids saved earlier in the same pipeline by
+  `<signal id>`, numbered from 1 without gaps; an unknown id, a gap, `signal_0`/leading zeros, a count outside the module's
+  range, `input=` on the same tag, or `signal_N` on a module that is not `SignalInputs` is a compile error. The module reads the
+  saved rows of the same bar and overwrites the current chain value (the current chain is not an operand); name the result
+  with a following `<signal id>`. First valid bar: the latest first valid bar of the inputs. User modules inherit
+  `SignalInputs` (visible through `ModulePrelude.h`) and receive the rows through the same compiler path.
+  - `MSignalBinary` (`src/modules/SignalBinary.h`): `<add|sub|mul|div|min|max signal_1 signal_2/>` exactly two inputs, NaN if
+    either is not finite, `sub` = s1 − s2, `div` = s1 / s2 (±inf → NaN); `<mean .../>` two or more, NaN unless all finite;
+    `<nanmean ... min_count="1"/>` mean of finite inputs, NaN below `min_count` (≥ 1). Double arithmetic, one float rounding.
+    `min`/`max` without `signal_N` are the unary `<min value>`/`<max value>`.
+  - `MGate` (`Gate.h`): `<gate signal_1 signal_2 gt= ge= lt= le=/>` s1 where s2 is finite and passes every given bound, else NaN.
+  - `MCsResid` (`CsResid.h`): `<csresid signal_1 signal_2 [signal_3 ...] [group]/>` per-bar OLS residual of s1 on s2..sK (column-
+    pivoted QR) over run-universe cells with every input finite (and a finite group code ≥ 0); intercept without `group`,
+    within-group demeaning and no intercept with it; fewer than 2 cells → all NaN.
+  - `MBucketDemean` (`BucketDemean.h`): `<bucketdemean signal_1 signal_2 n="5"/>` s1 minus its mean within buckets
+    ceil(pct·n) of s2's per-bar average-tie rank / count, over run-universe cells with both finite.
+  - Single input (current chain), run-universe masked: `MCsDemedian` `<csdemedian/>` minus the cross-sectional median (mean of
+    the middle two for an even count); `MCsWinsorQ` `<cswinsorq lo="0.01" hi="0.99"/>` clip to linearly interpolated
+    cross-sectional quantiles, 0 ≤ lo < hi ≤ 1.
 - inf is never a value: a ±inf cell read from a data file is NaN (missing); after every module call (each pipeline
   step and each `MChain` step, user modules included) ±inf in the output is replaced by `NaN`, so downstream modules
   and the gross-1 target normalization treat it exactly like `NaN` (the `(t, i)` cell gets no position).
