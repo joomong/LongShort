@@ -1,6 +1,8 @@
 #pragma once
 
 // MTsZscore: rolling z-score (O(1) incremental per instrument).
+// NaN if the window holds fewer than min_count finite values or the current value is not finite (pandas
+// rolling(n) convention, same as MTsStdDev; before 2026-11-12 a short window gave 0).
 struct MTsZscore : public Module {
     unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
@@ -41,7 +43,7 @@ struct MTsZscore : public Module {
 
             int n = running_count[ii];
             if (n < min_count) {
-                output[ii] = 0.0f;
+                output[ii] = std::numeric_limits<float>::quiet_NaN();
                 continue;
             }
             if (!std::isfinite(new_val)) {

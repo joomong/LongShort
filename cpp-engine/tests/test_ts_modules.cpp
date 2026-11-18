@@ -1,5 +1,5 @@
 // Oracle tests for the time-series modules tsdelta, tssum, tsstddev, tsargmax, tsargmin, tsfill,
-// tsmax, tsmin, tsewma.
+// tsmax, tsmin, tsewma, and the min_count rule of tsmean and decay.
 // Expectations are recomputed by brute force from the stored input history.
 #include <gtest/gtest.h>
 
@@ -24,6 +24,8 @@
 #include "modules/TsArgExtreme.h"
 #include "modules/TsFill.h"
 #include "modules/TsEwma.h"
+#include "modules/TsMean.h"
+#include "modules/Decay.h"
 
 namespace {
 
@@ -145,6 +147,70 @@ TEST(TsModules, TsSumMatchesOracle) {
                     expect_same(out[t][n], want, 1e-5, "tssum", t, n);
                 }
         }
+}
+
+// tsmean: mean of the finite window values once `days` bars were seen; NaN below min_count.
+TEST(TsModules, TsMeanMatchesOracle) {
+    auto h = make_history(kT, kN, 21);
+    for (unsigned days : kDays)
+        for (unsigned mc : {1u, days > 1 ? days - 1 : 1u, days}) {
+            MTsMean m; m.days = IntParameter((int)days); m.min_count = IntParameter((int)mc);
+            auto out = run_module(m, h);
+            for (unsigned t = 0; t < kT; ++t)
+                for (unsigned n = 0; n < kN; ++n) {
+                    auto w = window(h, t, n, days);
+                    float want = kNaN;
+                    if (t + 1 >= days && !w.empty() && w.size() >= mc) {
+                        double s = 0; for (auto& e : w) s += e.second;
+                        want = (float)(s / (double)w.size());
+                    }
+                    expect_same(out[t][n], want, 1e-5, "tsmean", t, n);
+                }
+        }
+}
+
+// decay: weights days - lag over the finite window values; NaN below min_count.
+TEST(TsModules, DecayMatchesOracle) {
+    auto h = make_history(kT, kN, 22);
+    for (unsigned days : kDays)
+        for (unsigned mc : {1u, days > 1 ? days - 1 : 1u, days}) {
+            MDecay m; m.days = IntParameter((int)days); m.min_count = IntParameter((int)mc);
+            auto out = run_module(m, h);
+            for (unsigned t = 0; t < kT; ++t)
+                for (unsigned n = 0; n < kN; ++n) {
+                    auto w = window(h, t, n, days);
+                    float want = kNaN;
+                    if (!w.empty() && w.size() >= mc) {
+                        double s = 0, total = 0;
+                        for (auto& e : w) { s += e.second * (double)(days - e.first); total += (double)(days - e.first); }
+                        want = (float)(s / total);
+                    }
+                    expect_same(out[t][n], want, 1e-5, "decay", t, n);
+                }
+        }
+}
+
+// The default is a full finite window, as pandas rolling(n) requires (min_periods = n).
+TEST(TsModules, TsMeanAndDecayDefaultMinCountIsDays) {
+    auto h = make_history(kT, kN, 4);
+    MTsMean mean; mean.days = IntParameter(5);
+    MDecay decay; decay.days = IntParameter(5);
+    auto a = run_module(mean, h);
+    auto b = run_module(decay, h);
+    for (unsigned t = 0; t < 4; ++t) { EXPECT_TRUE(std::isnan(a[t][1])); EXPECT_TRUE(std::isnan(b[t][1])); }
+    EXPECT_FLOAT_EQ(a[4][1], 7.25f);
+    EXPECT_FLOAT_EQ(b[4][1], 7.25f);
+    // Long gap (bars 100..179): NaN while the window holds fewer than 5 finite values.
+    for (unsigned t = 100; t < 184; ++t) { EXPECT_TRUE(std::isnan(a[t][2])) << t; EXPECT_TRUE(std::isnan(b[t][2])) << t; }
+    EXPECT_TRUE(std::isfinite(a[184][2])); EXPECT_TRUE(std::isfinite(b[184][2]));
+    // min_count = 1 keeps every window holding a finite value.
+    MTsMean loose; loose.days = IntParameter(5); loose.min_count = IntParameter(1);
+    MDecay loose_decay; loose_decay.days = IntParameter(5); loose_decay.min_count = IntParameter(1);
+    auto c = run_module(loose, h);
+    auto d = run_module(loose_decay, h);
+    for (unsigned t = 100; t < 104; ++t) { EXPECT_TRUE(std::isfinite(c[t][2])) << t; EXPECT_TRUE(std::isfinite(d[t][2])) << t; }
+    for (unsigned t = 104; t < 180; ++t) { EXPECT_TRUE(std::isnan(c[t][2])) << t; EXPECT_TRUE(std::isnan(d[t][2])) << t; }
+    EXPECT_TRUE(std::isfinite(c[180][2])); EXPECT_TRUE(std::isfinite(d[180][2]));
 }
 
 TEST(TsModules, TsSumDefaultMinCountIsDays) {
@@ -479,6 +545,15 @@ TEST(TsModulesXml, DefaultsAndExplicitAttributes) {
     m2 = compile_one<MTsSum>(d + R"(<tssum days="10" min_count="3"/>)", dp); ASSERT_TRUE(m2);
     EXPECT_EQ((int)m2->days, 10); EXPECT_EQ((int)m2->min_count, 3);
 
+    auto* mean = compile_one<MTsMean>(d + "<tsmean/>", dp); ASSERT_TRUE(mean);
+    EXPECT_EQ((int)mean->days, 20); EXPECT_EQ((int)mean->min_count, 20);
+    mean = compile_one<MTsMean>(d + R"(<tsmean days="10" min_count="1"/>)", dp); ASSERT_TRUE(mean);
+    EXPECT_EQ((int)mean->days, 10); EXPECT_EQ((int)mean->min_count, 1);
+    auto* decay = compile_one<MDecay>(d + "<decay/>", dp); ASSERT_TRUE(decay);
+    EXPECT_EQ((int)decay->days, 20); EXPECT_EQ((int)decay->min_count, 20);
+    decay = compile_one<MDecay>(d + R"(<decay days="8" min_count="3"/>)", dp); ASSERT_TRUE(decay);
+    EXPECT_EQ((int)decay->days, 8); EXPECT_EQ((int)decay->min_count, 3);
+
     auto* m3 = compile_one<MTsStdDev>(d + "<tsstddev/>", dp); ASSERT_TRUE(m3);
     EXPECT_EQ((int)m3->days, 20); EXPECT_EQ((int)m3->ddof, 1); EXPECT_EQ((int)m3->min_count, 20);
     m3 = compile_one<MTsStdDev>(d + R"(<tsstddev days="8" ddof="0" min_count="2"/>)", dp); ASSERT_TRUE(m3);
@@ -508,7 +583,7 @@ TEST(TsModulesXml, Errors) {
         expect_error(d + "<" + tag + R"( days="61"/>)", dp, "days");
         expect_error(d + "<" + tag + R"( days="abc"/>)", dp, "days");
     }
-    for (const char* tag : {"tssum", "tsstddev", "tsargmax", "tsargmin"}) {
+    for (const char* tag : {"tssum", "tsstddev", "tsargmax", "tsargmin", "tsmean", "decay"}) {
         expect_error(d + "<" + tag + R"( days="5" min_count="0"/>)", dp, "min_count");
         expect_error(d + "<" + tag + R"( days="5" min_count="6"/>)", dp, "min_count");
     }

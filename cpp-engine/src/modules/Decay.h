@@ -3,11 +3,15 @@
 
 // MDecay: linear decay weighted average (O(1) incremental per instrument).
 // out[ii] = (in[di]*days + in[di-1]*(days-1) + ... + in[di-days+1]*1) / weighted_cnt
+// Non-finite window values are left out of numerator and denominator. NaN if fewer than min_count finite
+// window values; min_count defaults to days (a full finite window, as pandas rolling(n) requires).
 struct MDecay : public Module
 {
     unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
+        if (min_count < 0)
+            min_count = IntParameter(days);
         input.init(days, numAssets);
         weights.assign(numAssets, 0);
         num.assign(numAssets, 0);
@@ -39,6 +43,11 @@ struct MDecay : public Module
         }
         for (; ii < (unsigned)numAssets; ++ii)
             process_1instrument(ii, curr, past, output);
+        // The kernels emit a value whenever one finite value is in the window; apply min_count on top.
+        if (min_count > 1) {
+            for (ii = 0; ii < (unsigned)numAssets; ++ii)
+                if (num[ii] < min_count) output[ii] = std::numeric_limits<float>::quiet_NaN();
+        }
     }
 
     std::vector<double> div;
@@ -46,6 +55,7 @@ struct MDecay : public Module
     StarVector<double> sum, diff;
     ModuleInput input;
     IntParameter days;
+    IntParameter min_count{-1};
     bool use_avx2_kernel = false;
     //TEST days:"10"
     //TEST days:"50"

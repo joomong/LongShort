@@ -224,21 +224,27 @@ signal values, plot sampling and tooltip values remain raw.
 
 - `MDelay(days)`:
   - output at `t` is input at `t-days`; unavailable lookback -> `NaN`
-- `MTsMean(days)`:
+- `MTsMean(days, min_count=days)`:
   - fewer than `days` bars computed -> `NaN`
+  - fewer than `min_count` finite values in the rolling window -> `NaN`
   - otherwise: mean of finite values in rolling window
+  - the default `min_count=days` needs a full finite window, as pandas `rolling(days).mean()` does (`min_periods = days`);
+    `min_count="1"` is the rule before 2026-11-11 (any window holding a finite value)
 - `MTsZscore(days, ddof, min_count, eps)`:
   - rolling stats over finite window values
-  - if valid count `< min_count`: output `0`
+  - if valid count `< min_count`: output `NaN` (pandas `rolling(days)` convention; before 2026-11-12 the output
+    was `0`, also where the current value is non-finite)
   - if current value is non-finite: `NaN`
   - if `std < eps`: `0`
 - `MTsRank(days, pct, min_count)`:
   - ascending percentile rank of current value in rolling window finite values (higher value → higher rank)
   - if current is non-finite or valid count `< min_count`: `NaN`
   - tie handling: average rank
-- `MDecay(days)`:
+- `MDecay(days, min_count=days)`:
   - linear weighted average with newest weight `days`, oldest weight `1`
   - ignore non-finite values in numerator and denominator
+  - fewer than `min_count` finite values in the rolling window -> `NaN`; the default `min_count=days` needs a full finite
+    window, `min_count="1"` is the rule before 2026-11-11 (partial weights over whatever is finite, also during warm-up)
 - `MRank(pct)`:
   - cross-sectional rank per bar on finite values, tie-aware
 - `MZscore(ddof, min_count, eps)`:

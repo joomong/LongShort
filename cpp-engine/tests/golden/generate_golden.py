@@ -66,7 +66,7 @@ def golden_tszscore(arr: np.ndarray, days: int, ddof: int, min_count: int, eps: 
             n_valid = len(valid)
 
             if n_valid < min_count:
-                out[t, n] = 0.0
+                out[t, n] = np.nan
                 continue
             if not np.isfinite(arr[t, n]):
                 out[t, n] = np.nan

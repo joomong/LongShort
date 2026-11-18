@@ -183,6 +183,7 @@ TEST_F(GoldenCrossval, TsMeanMatchesNumpy)
 
     MTsMean mod;
     mod.days = IntParameter(entry["params"]["days"].asInt());
+    mod.min_count = IntParameter(1);  // golden_tsmean is NaN-tolerant (mean of the finite window values)
     Matrix actual = run_module(mod, input);
 
     expect_matrix_match(actual, expected, "TsMean(3)");
@@ -236,6 +237,7 @@ TEST_F(GoldenCrossval, DecayMatchesNumpy)
 
     MDecay mod;
     mod.days = IntParameter(entry["params"]["days"].asInt());
+    mod.min_count = IntParameter(1);  // golden_decay is NaN-tolerant (weights of the finite window values)
     Matrix actual = run_module(mod, input);
 
     expect_matrix_match(actual, expected, "Decay(3)");

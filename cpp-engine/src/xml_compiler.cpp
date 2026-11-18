@@ -799,10 +799,11 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         ModuleRegistry r;
 
         r.register_module("tsmean", [](const auto& a, const auto* panel) {
-            module_attributes::validate_keys(a, {"days"}, "tsmean");
+            module_attributes::validate_keys(a, {"days", "min_count"}, "tsmean");
             auto m = std::make_unique<MTsMean>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tsmean", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "tsmean", "min_count", m->days, 1, m->days));
             return m;
         });
 
@@ -829,10 +830,11 @@ ModuleRegistry& ModuleRegistry::default_registry() {
         });
 
         r.register_module("decay", [](const auto& a, const auto* panel) {
-            module_attributes::validate_keys(a, {"days"}, "decay");
+            module_attributes::validate_keys(a, {"days", "min_count"}, "decay");
             auto m = std::make_unique<MDecay>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "decay", "days", 20, 1, max_days));
+            m->min_count = IntParameter(get_bounded_int(a, "decay", "min_count", m->days, 1, m->days));
             return m;
         });
 

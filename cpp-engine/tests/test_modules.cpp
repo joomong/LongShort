@@ -157,6 +157,21 @@ TEST(MTsZscore, BasicZscore) {
     EXPECT_NEAR(sv[0], 1.0f, 1e-4f);
 }
 
+TEST(MTsZscore, ShortWindowIsNaN) {
+    MTsZscore mod;
+    mod.days = IntParameter(3);
+    mod.numAssets = 1;
+    mod.init();
+    std::vector<float> buf(1);
+    SignalVector sv{buf.data(), 1};
+    buf = {10.0f}; mod.calculate(0, sv);
+    EXPECT_TRUE(std::isnan(sv[0]));
+    buf = {20.0f}; mod.calculate(1, sv);
+    EXPECT_TRUE(std::isnan(sv[0]));
+    buf = {30.0f}; mod.calculate(2, sv);
+    EXPECT_NEAR(sv[0], 1.0f, 1e-4f);
+}
+
 // ======== MDecay ========
 TEST(MDecay, LinearDecay) {
     MDecay mod;

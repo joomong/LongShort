@@ -164,7 +164,7 @@ TEST(ComputeRange, FirstFiniteSignalIsHistoryStartPlusLookback) {
               200u);  // only 99 rows before bar 150
 }
 
-// Decay and tszscore emit finite partial values: the boundary is where they match a longer history.
+// Decay and tszscore need their full window: the first valid bar is where they match a longer history.
 TEST(ComputeRange, PartialWindowModulesMatchLongerHistoryAtLookback) {
     const DataPanel dp = make_panel();
     for (const std::string op : {"<decay days=\"5\"/>", "<tszscore days=\"5\"/>"}) {

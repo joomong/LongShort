@@ -1,10 +1,13 @@
 #pragma once
 
-// MTsMean: rolling mean over a window (O(1) incremental per instrument).
+// MTsMean: rolling mean of the finite values in the window (O(1) incremental per instrument).
+// NaN if fewer than min_count finite values. min_count defaults to days (pandas rolling(n).mean()).
 struct MTsMean : public Module {
     unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
     void init()
     {
+        if (min_count < 0)
+            min_count = IntParameter(days);
         input.init(days, numAssets);
         running_sum.assign(numAssets, 0.0);
         running_count.assign(numAssets, 0);
@@ -31,7 +34,7 @@ struct MTsMean : public Module {
                     running_count[ii] -= 1;
                 }
             }
-            if (bar_count < w)
+            if (bar_count < w || running_count[ii] < min_count)
                 output[ii] = std::numeric_limits<float>::quiet_NaN();
             else if (running_count[ii] > 0)
                 output[ii] = (float)(running_sum[ii] / running_count[ii]);
@@ -45,4 +48,5 @@ struct MTsMean : public Module {
     unsigned bar_count = 0;
     ModuleInput input;
     IntParameter days;
+    IntParameter min_count{-1};
 };

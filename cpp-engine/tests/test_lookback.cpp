@@ -81,13 +81,14 @@ void expect_oracle(const std::string& tag, const Attribs& attribs, std::vector<u
 
 std::string days(unsigned d) { return std::to_string(d); }
 
-// These two emit finite values on a partly filled window (decay: partial weights, tszscore: 0), so the
+// Decay with min_count below days emits finite values on a partly filled window (partial weights), so the
 // boundary is where a run from first_bar first equals a run with longer history.
-void expect_full_window_at_lookback(const std::string& tag, unsigned window) {
+void expect_full_window_at_lookback(const std::string& tag, unsigned window, Attribs attribs = {}) {
     const DataPanel dp = make_panel();
     const unsigned first_bar = 50;
-    auto late = make(tag, {{"days", days(window)}}, dp);
-    auto early = make(tag, {{"days", days(window)}}, dp);
+    attribs["days"] = days(window);
+    auto late = make(tag, attribs, dp);
+    auto early = make(tag, attribs, dp);
     EXPECT_EQ(late->lookback(first_bar), window - 1) << tag;
     const auto short_run = run_from(*late, dp, first_bar);
     const auto long_run = run_from(*early, dp, 0);
@@ -107,21 +108,18 @@ unsigned first_valid(const std::string& xml, const DataPanel& dp, unsigned start
 }  // namespace
 
 TEST(Lookback, RollingModulesFullWindow) {
-    for (const char* tag : {"tsmean", "tsrank", "tsstddev", "tssum", "tsargmax", "tsargmin", "tsmax", "tsmin"})
+    for (const char* tag : {"tsmean", "decay", "tsrank", "tsstddev", "tssum", "tsargmax", "tsargmin", "tsmax", "tsmin", "tszscore"})
         for (unsigned d : {2u, 5u, 20u}) expect_oracle(tag, {{"days", days(d)}}, {0u, 13u});
 }
 
 TEST(Lookback, RollingLookbackIgnoresMinCount) {
     const DataPanel dp = make_panel();
-    for (const char* tag : {"tsrank", "tsstddev", "tssum", "tsargmax", "tsargmin", "tsmax", "tsmin", "tszscore"})
+    for (const char* tag : {"tsmean", "decay", "tsrank", "tsstddev", "tssum", "tsargmax", "tsargmin", "tsmax", "tsmin", "tszscore"})
         EXPECT_EQ(make(tag, {{"days", "20"}, {"min_count", "2"}}, dp)->lookback(0), 19u) << tag;
 }
 
-TEST(Lookback, DecayAndTsZscoreBoundaryIsTheFullWindow) {
-    for (unsigned d : {2u, 5u, 20u}) {
-        expect_full_window_at_lookback("decay", d);
-        expect_full_window_at_lookback("tszscore", d);
-    }
+TEST(Lookback, DecayPartialWindowBoundaryIsTheFullWindow) {
+    for (unsigned d : {2u, 5u, 20u}) expect_full_window_at_lookback("decay", d, {{"min_count", "1"}});
 }
 
 TEST(Lookback, DelayAndDelta) {

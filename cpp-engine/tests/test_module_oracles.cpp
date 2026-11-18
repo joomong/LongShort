@@ -148,7 +148,7 @@ Matrix oracle_tszscore(const Matrix& input, unsigned days, int ddof, int min_cou
 
             const int n_valid = static_cast<int>(vals.size());
             if (n_valid < min_count) {
-                out[t][n] = 0.0f;
+                out[t][n] = nanf();
                 continue;
             }
             if (!std::isfinite(cur)) {
@@ -365,6 +365,7 @@ TEST(ModuleOracle, TsMeanDays3MatchesReference)
 
     MTsMean mod;
     mod.days = IntParameter(3);
+    mod.min_count = IntParameter(1);  // the reference averages whatever finite values the window holds
     Matrix actual = run_module(mod, input);
 
     expect_matrix_near(actual, expected);
@@ -425,6 +426,7 @@ TEST(ModuleOracle, DecayDays3MatchesReference)
 
     MDecay mod;
     mod.days = IntParameter(3);
+    mod.min_count = IntParameter(1);  // the reference weights whatever finite values the window holds
     Matrix actual = run_module(mod, input);
 
     expect_matrix_near(actual, expected);
