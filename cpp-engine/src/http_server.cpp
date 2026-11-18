@@ -1805,6 +1805,9 @@ int run_http_server(int argc, char* argv[])
                 json["evictions"] = Json::UInt64(s.evictions);
                 json["rejected"] = Json::UInt64(s.rejected);
                 json["failures"] = Json::UInt64(s.failures);
+                json["overBudgetEvents"] = Json::UInt64(s.over_budget_events);
+                json["peakOptionalBytes"] = Json::UInt64(s.peak_optional_bytes);
+                json["peakLoadingReservedBytes"] = Json::UInt64(s.peak_loading_reserved_bytes);
             }
             callback(drogon::HttpResponse::newHttpJsonResponse(json));
         },
@@ -1902,6 +1905,13 @@ int run_http_server(int argc, char* argv[])
                         const Json::Value response = simulate_response(
                             *body, [&req] { return g_simulate_workers.stopping() || !req->connected(); });
                         callback(drogon::HttpResponse::newHttpJsonResponse(response));
+                    } catch (const FieldBudgetExceeded& error) {
+                        // The request's own optional inputs exceed the AFL cache budget (afl.cache_budget_gib).
+                        Json::Value json;
+                        json["error"] = error.what();
+                        auto response = drogon::HttpResponse::newHttpJsonResponse(json);
+                        response->setStatusCode(drogon::k503ServiceUnavailable);
+                        callback(response);
                     } catch (const std::exception& error) {
                         Json::Value json;
                         json["error"] = error.what();

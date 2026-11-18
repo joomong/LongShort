@@ -18,6 +18,7 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <sys/stat.h>
 
 namespace {
 unsigned unsigned_option(const YAML::Node& node, unsigned fallback, bool positive) {
@@ -328,10 +329,15 @@ struct Source {
     std::string path, column;
     bool wide = false, asof = false, lazy = false;
 };
+std::mutex& cold_read_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+// Disk reads are serialized; a caller that already holds cold_read_mutex() passes locked = true.
 template<class Number>
-std::vector<Number> read_field(const Source& source, const Coordinates& coordinates) {
-    static std::mutex cold_read_mutex;
-    const std::lock_guard<std::mutex> lock(cold_read_mutex);
+std::vector<Number> read_field(const Source& source, const Coordinates& coordinates, bool locked = false) {
+    std::unique_lock<std::mutex> lock(cold_read_mutex(), std::defer_lock);
+    if (!locked) lock.lock();
     const size_t T = coordinates.timestamps.size(), N = coordinates.symbols.size();
     std::vector<Number> output(T * N, std::numeric_limits<Number>::quiet_NaN());
     ParquetFile file(source.path, source.wide);
@@ -550,16 +556,24 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         if (source.lazy && !execution.count(name)) {
             auto& column = lazy[source.path];
             if (!column) {
-                column = std::make_shared<LazyColumn>([source, coordinates] { return read_field<float>(source, *coordinates); });
+                // A parent loaded for the process lifetime (e.g. by the alpha pool) counts as resident.
+                std::weak_ptr<FieldCache> cache = panel.field_cache;
+                column = std::make_shared<LazyColumn>([source, coordinates, cache] {
+                    auto values = read_field<float>(source, *coordinates);
+                    if (const auto owner = cache.lock()) owner->add_resident_bytes(values.size() * sizeof(float));
+                    return values;
+                });
                 column->select = [source, coordinates](const std::shared_ptr<const std::vector<std::string>>& symbols) {
                     return read_field<float>(source, {coordinates->timestamps, *symbols});
                 };
-                // The file's size and modification time stand for its version: a rewritten file is a new key.
-                std::error_code error;
-                const auto size = std::filesystem::file_size(source.path, error);
-                const auto modified = std::filesystem::last_write_time(source.path, error).time_since_epoch().count();
-                column->data_version = std::to_string(size) + "@" + std::to_string(modified);
-                column->canonical_field = source.path;
+                column->source_path = source.path;
+                column->read_locked = [source, coordinates](const std::shared_ptr<const std::vector<std::string>>& symbols,
+                                                            const std::string& resolved_path) {
+                    Source file = source;
+                    file.path = resolved_path;
+                    return read_field<float>(file, {coordinates->timestamps, *symbols}, true);
+                };
+                column->read_lock = &cold_read_mutex();
             }
             panel.lazy_columns.emplace(name, column);
         } else panel.arrays.emplace(name, read_field<float>(source, *coordinates));
@@ -722,6 +736,13 @@ std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector
 }
 
 namespace {
+// size, mtime_ns and inode of a resolved file: equal strings mean the same file contents as published.
+std::string file_version(const std::string& path) {
+    struct stat info {};
+    if (::stat(path.c_str(), &info) != 0) throw std::runtime_error("Cannot stat AFL file: " + path);
+    return std::to_string(info.st_size) + "@" + std::to_string(info.st_mtim.tv_sec) + "." +
+           std::to_string(info.st_mtim.tv_nsec) + "#" + std::to_string(info.st_ino);
+}
 template <class Value>
 std::vector<Value> project_columns(const std::vector<Value>& values, const std::vector<unsigned>& columns,
                                    unsigned T, unsigned N) {
@@ -761,25 +782,43 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
     const auto date_axis = std::make_shared<const std::string>(field_axis_key(panel->timestamps));
     const auto symbol_axis = std::make_shared<const std::string>(field_axis_key(*symbols));
     const auto cache = base.field_cache;
+    const auto run = std::make_shared<FieldRun>();  // this panel's own field bytes, against the budget
     const auto timestamps = std::make_shared<const std::vector<int64_t>>(panel->timestamps);
     for (const auto& [name, parent] : base.lazy_columns) {
         auto& child = projected[parent.get()];
         if (!child && parent->select)
             // A parent already loaded (and possibly changed through at()) is projected like any other column;
             // otherwise the run's symbols are read from the source through the field cache.
-            child = LazyColumn::referenced([parent = parent, symbols, timestamps, columns, T, N, cache, date_axis, symbol_axis] {
-                const auto read = [&] {
+            child = LazyColumn::referenced([parent = parent, symbols, timestamps, columns, T, N, cache, date_axis, symbol_axis, run] {
+                const auto with_axes = [&](std::vector<float> values) {
                     FieldBuffer buffer;
-                    buffer.values = parent->loaded() ? project_columns(parent->get(), *columns, T, N) : parent->select(symbols);
+                    buffer.values = std::move(values);
                     buffer.timestamps = *timestamps;
                     buffer.symbols = *symbols;
                     return buffer;
                 };
-                if (parent->loaded() || !cache) return std::shared_ptr<const FieldBuffer>(std::make_shared<FieldBuffer>(read()));
-                // The array plus one 64-column decode batch of doubles, as read_field reads them.
-                const size_t reserve = size_t{T} * symbols->size() * sizeof(float) + size_t{T} * 64 * sizeof(double) * 2;
-                return cache->acquire(FieldKey{parent->data_version, parent->canonical_field, *date_axis, *symbol_axis},
-                                      read, reserve);
+                if (parent->loaded() || !cache || !parent->read_locked) {
+                    auto buffer = with_axes(parent->loaded() ? project_columns(parent->get(), *columns, T, N) : parent->select(symbols));
+                    // A projection is this run's own copy: active in the cache while the run holds it, never idle.
+                    return cache ? cache->adopt(std::move(buffer), run)
+                                 : std::shared_ptr<const FieldBuffer>(std::make_shared<FieldBuffer>(std::move(buffer)));
+                }
+                // Version at read time: the resolved file (a swapped symlink is a new file) and its stat.
+                const std::string path = std::filesystem::canonical(parent->source_path).string();
+                const std::string version = file_version(path);
+                size_t symbol_bytes = 0;
+                for (const auto& symbol : *symbols) symbol_bytes += symbol.size();
+                // The buffer plus one 64-column decode batch of doubles, as read_field reads them.
+                const size_t reserve = size_t{T} * symbols->size() * sizeof(float) + size_t{T} * sizeof(int64_t) +
+                                       symbol_bytes + size_t{T} * 64 * sizeof(double) * 2;
+                return cache->acquire(FieldKey{version, path, *date_axis, *symbol_axis}, [&] {
+                    if (file_version(path) != version)
+                        throw std::runtime_error("AFL file changed before it was read, retry: " + path);
+                    auto buffer = with_axes(parent->read_locked(symbols, path));
+                    if (file_version(path) != version)
+                        throw std::runtime_error("AFL file changed while it was read, retry: " + path);
+                    return buffer;
+                }, reserve, run, parent->read_lock);
             });
         else if (!child)
             child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {
@@ -841,16 +880,20 @@ std::shared_ptr<const DataPanel> RunPanelCache::lease(const Entry& entry) {
         std::shared_ptr<const DataPanel> panel;
         std::shared_ptr<std::mutex> mutex;
         std::shared_ptr<std::size_t> users;
+        bool counted = false;
         ~Lease() {
+            if (!counted) return;
             std::lock_guard<std::mutex> lock(*mutex);
             if (--*users == 0) panel->release_fields();
         }
     };
+    // Allocated first; the user count goes up only once nothing else can fail.
+    std::shared_ptr<Lease> held(new Lease{entry.panel, entry.users_mutex, entry.users});
     {
         std::lock_guard<std::mutex> lock(*entry.users_mutex);
         ++*entry.users;
+        held->counted = true;
     }
-    std::shared_ptr<Lease> held(new Lease{entry.panel, entry.users_mutex, entry.users});
     return std::shared_ptr<const DataPanel>(held, held->panel.get());
 }
 

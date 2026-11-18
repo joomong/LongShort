@@ -4,12 +4,14 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// One optional input field (AFL) read for one run panel: data version, canonical field (its source file),
-// date axis and symbol axis. Axis strings are exact serializations, so equal keys mean equal coordinates.
+// One optional input field (AFL) read for one run panel: data version (file size and mtime_ns at read
+// time), canonical field (the resolved source file), date axis and symbol axis. Axis strings are exact
+// serializations, so equal keys mean equal coordinates.
 struct FieldKey {
     std::string data_version, canonical_field, date_axis, symbol_axis;
     bool operator<(const FieldKey& other) const;
@@ -20,30 +22,44 @@ struct FieldBuffer {
     std::vector<float> values;
     std::vector<int64_t> timestamps;
     std::vector<std::string> symbols;
-    std::size_t bytes() const { return values.size() * sizeof(float); }
+    // values (4 B each) + timestamps (8 B each) + symbol characters
+    std::size_t bytes() const;
 };
 
-// Thrown when a field cannot be held within the optional-input budget even after every idle field is gone.
+// Thrown when one request's own active fields would exceed the optional-input budget.
 struct FieldBudgetExceeded : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-struct FieldCacheStats {
-    std::size_t resident_bytes = 0;          // base inputs held for the process lifetime (reported only)
-    std::size_t active_bytes = 0;            // fields held by at least one run
-    std::size_t idle_bytes = 0;              // fields only the cache holds, evictable
-    std::size_t loading_reserved_bytes = 0;  // reservations of loads in flight (array + decode peak)
-    std::size_t budget_bytes = 0;            // optional-input budget: active + idle + loading_reserved <= budget
-    std::uint64_t loads = 0, evictions = 0, hits = 0, rejected = 0, failures = 0;
+// Bytes of fields one request (run panel) holds; read and written under the cache mutex only.
+struct FieldRun {
+    std::size_t bytes = 0;
 };
 
-// Optional-input field cache. The cache keeps its own reference to each loaded buffer; acquire hands out run
-// references. A field with run references is active and never evicted; when its last run reference goes it
-// becomes idle, and idle fields go least recently used first whenever active + idle + loading reservations
-// exceed the budget. Bytes return to the allocator when the last reference (run or cache) is dropped.
-// Concurrent first requests for one key share a single load; a failed load is removed and can be retried.
-// A request that cannot fit beside the active fields throws FieldBudgetExceeded; references the caller
-// already holds stay valid and are released by the caller.
+struct FieldCacheStats {
+    std::size_t resident_bytes = 0;          // base inputs and loaded parent AFL columns, process lifetime
+    std::size_t active_bytes = 0;            // fields held by at least one run (cached and anonymous)
+    std::size_t idle_bytes = 0;              // fields only the cache holds, evictable
+    std::size_t loading_reserved_bytes = 0;  // reservations of reads in progress (array + decode peak)
+    std::size_t budget_bytes = 0;
+    std::size_t peak_loading_reserved_bytes = 0;
+    std::size_t peak_optional_bytes = 0;     // highest active + idle + loading_reserved seen
+    std::uint64_t loads = 0, evictions = 0, hits = 0, rejected = 0, failures = 0;
+    std::uint64_t over_budget_events = 0;    // increases that left active + idle + reserved above the budget
+};
+
+namespace field_cache_testing {
+// Called at allocation sites ("pin", "entry", "publish", "adopt"); tests make it throw. Null in production.
+extern void (*fault)(const char* site);
+}
+
+// Optional-input field cache. The cache keeps its own reference to each loaded buffer; acquire hands out
+// run references. A field with run references is active and never evicted; when its last run reference goes
+// it becomes idle. The budget is soft: idle fields go least recently used first whenever active + idle +
+// loading reservations exceed it, but active fields of concurrent requests may exceed it for a while (counted
+// in over_budget_events). A request is refused only when its own active fields (FieldRun) would exceed the
+// budget. Bytes return to the allocator when the last reference goes. Concurrent first requests for a key
+// share one load; a failed load is removed, its waiters see the failure, and a later request retries.
 class FieldCache {
 public:
     using Loader = std::function<FieldBuffer()>;
@@ -52,15 +68,20 @@ public:
     FieldCache(const FieldCache&) = delete;
     FieldCache& operator=(const FieldCache&) = delete;
 
-    // reserve_bytes: bytes the load may need at its peak (new array + decode), held against the budget
-    // until the load finishes; 0 checks the budget with the actual size once read.
-    std::shared_ptr<const FieldBuffer> acquire(const FieldKey& key, const Loader& load, std::size_t reserve_bytes = 0);
+    // reserve_bytes: bytes the read may need at its peak, held against the budget while it runs.
+    // read_lock: taken before the reservation and held through load(), so queued reads hold no reservation.
+    std::shared_ptr<const FieldBuffer> acquire(const FieldKey& key, const Loader& load, std::size_t reserve_bytes = 0,
+                                               const std::shared_ptr<FieldRun>& run = {},
+                                               std::mutex* read_lock = nullptr);
+    // A private buffer counted as active until its run reference goes; never kept idle.
+    std::shared_ptr<const FieldBuffer> adopt(FieldBuffer buffer, const std::shared_ptr<FieldRun>& run = {});
     void set_budget(std::size_t bytes);
     void set_resident_bytes(std::size_t bytes);
+    void add_resident_bytes(std::size_t bytes);
     FieldCacheStats stats() const;
 
-private:
     struct State;
+private:
     std::shared_ptr<State> state_;
 };
 

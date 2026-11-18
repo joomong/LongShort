@@ -29,8 +29,12 @@ struct LazyColumn {
     // symbols straight from that source. Run panels use it instead of projecting the parent column while the
     // parent is not loaded; all selectors of one run panel share its symbol vector.
     std::function<std::vector<float>(const std::shared_ptr<const std::vector<std::string>>& symbols)> select;
-    // With select: the source's identity in the panel's FieldCache.
-    std::string data_version, canonical_field;
+    // With select, for the panel's FieldCache: the source file as configured, a reader of the given resolved
+    // file that expects `read_lock` (the loader's cold-read mutex) to be held, and that lock.
+    std::string source_path;
+    std::function<std::vector<float>(const std::shared_ptr<const std::vector<std::string>>& symbols,
+                                     const std::string& resolved_path)> read_locked;
+    std::mutex* read_lock = nullptr;
 private:
     LazyColumn() = default;
     std::function<std::shared_ptr<const FieldBuffer>()> acquire;
