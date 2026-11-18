@@ -464,9 +464,17 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         sources[field] = {resolved(config, (std::filesystem::path(config.base_groups) / (std::string(field) + ".parquet")).string()), "", true, true};
     if (!config.afl_catalog.empty()) {
         const auto catalog = YAML::LoadFile(resolved(config, config.afl_catalog));
+        // v3 catalogs (value_semantics: observations, alignment: exact) leave dates without an observation
+        // NaN; catalogs without an alignment keep the as-of read.
+        const std::string alignment = catalog["alignment"] ? catalog["alignment"].as<std::string>() : "asof";
+        if (alignment != "exact" && alignment != "asof")
+            throw std::runtime_error("afl catalog: unknown alignment '" + alignment + "'");
+        if (alignment == "exact" && (!catalog["value_semantics"] || catalog["value_semantics"].as<std::string>() != "observations"))
+            throw std::runtime_error("afl catalog: exact alignment requires value_semantics 'observations'");
         for (const auto& field : catalog["fields"])
             sources["AFL." + field.first.as<std::string>()] = {
-                resolved(config, (std::filesystem::path(config.afl_path) / field.second.as<std::string>()).string()), "", true, true, true};
+                resolved(config, (std::filesystem::path(config.afl_path) / field.second.as<std::string>()).string()), "", true,
+                alignment == "asof", true};
     }
     auto master = std::make_unique<ParquetFile>(sources.at("close").path);
     const int64_t start = config.start_date.empty() ? std::numeric_limits<int64_t>::min() : config_date_ms(config.start_date);
@@ -534,7 +542,12 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
         if (name == "close" || (!selected.empty() && !selected.count(name) && !execution.count(name))) continue;
         if (source.lazy && !execution.count(name)) {
             auto& column = lazy[source.path];
-            if (!column) column = std::make_shared<LazyColumn>([source, coordinates] { return read_field<float>(source, *coordinates); });
+            if (!column) {
+                column = std::make_shared<LazyColumn>([source, coordinates] { return read_field<float>(source, *coordinates); });
+                column->select = [source, coordinates](const std::vector<std::string>& symbols) {
+                    return read_field<float>(source, {coordinates->timestamps, symbols});
+                };
+            }
             panel.lazy_columns.emplace(name, column);
         } else panel.arrays.emplace(name, read_field<float>(source, *coordinates));
     }
@@ -700,7 +713,11 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
     std::unordered_map<const LazyColumn*, std::shared_ptr<LazyColumn>> projected;
     for (const auto& [name, parent] : base.lazy_columns) {
         auto& child = projected[parent.get()];
-        if (!child)
+        if (!child && parent->select)
+            child = std::make_shared<LazyColumn>([select = parent->select, symbols = panel->symbols] {
+                return select(symbols);
+            });
+        else if (!child)
             child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {
                 return project_columns(parent->get(), *columns, T, N);
             });

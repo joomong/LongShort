@@ -18,6 +18,9 @@ struct LazyColumn {
     const std::vector<float>& get() const;
     bool loaded() const { return ready.load(std::memory_order_acquire); }
     size_t loaded_bytes() const;
+    // Set before publication for columns read from a source file: reads the same timestamps for the given
+    // symbols straight from that source. Run panels use it instead of projecting the loaded parent column.
+    std::function<std::vector<float>(const std::vector<std::string>& symbols)> select;
 private:
     mutable std::once_flag once;
     mutable std::function<std::vector<float>()> loader;
@@ -77,7 +80,8 @@ std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector
                                         unsigned history_start, unsigned sim_end);
 
 // Compact panel for one run: same T and timestamps, so bar indexes stay absolute. Fields project `base`
-// on first read and `base` must outlive it. Moves keep kept sources on bars up to sim_end; a move before
+// on first read and `base` must outlive it; a lazy column with a source reader (AFL) is read from its
+// source for the run's symbols instead, so the parent column is never loaded for it. Moves keep kept sources on bars up to sim_end; a move before
 // history_start stays only to retire its source, without a destination.
 std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std::string& universe,
                                                 unsigned history_start, unsigned sim_end);
