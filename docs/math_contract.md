@@ -191,9 +191,30 @@ The simulation request selects `output`:
 | `signals` | Signal plot/range/distributions without unrelated portfolio or metric work |
 | `signalSeries` | Exact selected columns, requiring one concrete alpha and `signalPlotSymbols`; no unrelated portfolio/metrics/full T×N signal matrix |
 | `full` | Performance and signal payloads; the default |
+| `diagnostics` | Predictive diagnostics of the final signal (one concrete alpha, no `<meta>`); no portfolio/metrics or per-instrument panel. See Diagnostics Output |
 
 Selected-series calculations still evaluate the full cross section when the pipeline needs
 it. Meta weight estimation still performs its required member-return calculations.
+
+## Diagnostics Output
+
+`output="diagnostics"` with a `diagnostics` object. Required: `horizons` (distinct integers 1..252), `isEnd`.
+Optional (absent = not computed): `quantiles` (default 5), `topk` (default [1,10]), `null {n, minShift, seed}`,
+`groups` (`sector|industry`), `conditionOn` (a `<signal id>` of the same pipeline) with `conditionBuckets`,
+`autocorrLags`, `distributionQuantiles`. Computed in one `run_signal_rows` pass; ring buffer of max-horizon rows plus IS rank rows (float32) for the null.
+
+- Signal S[t] = final pipeline output; target cells: universe mask[t] (one-bar lagged, as above) and finite S[t].
+- Forward return F_h[t] = Π_{k=1..h}(1+returns[t+k]) − 1 (total returns); any non-finite term excludes the cell; t+h past simEnd excludes the day. Outcome only, never a pipeline input.
+- Day sample (t, h): target cells with finite F_h; fewer than 30 → NaN day. IC = Pearson, RankIC = Pearson of average-tie ranks.
+- Quantiles: p = rank/n within the sample, bucket ceil(p·Q); bucket means of F_h, spread = bucket Q − bucket 1 (NaN if either bucket is empty).
+- Windows: IS = isStart ≤ t and t+h ≤ isEnd (bar-based purge); OS = osStart ≤ t. IS summary per horizon for ic, rankic, spread: n, first/last timestamp,
+  mean, std (ddof 1), icir = mean/std (not annualized), t = icir·√n, hacT (Newey–West Bartlett, lag max(5,h)), positiveFraction. OS: n, mean.
+- coverage[t] = finite S / members; topk[t] = sum of the k largest |S| / Σ|S|; IS means in `isSummary`.
+- null (IS, h=1 RankIC): N IS sample days, shifts k ~ U{minShift..N−minShift} (mt19937_64, seed), signal rank rows circularly shifted on the day axis against return rank rows,
+  Pearson of per-row percentile ranks over the common cells. Reports actual, nullMean, nullStd, p = (#|null| ≥ |actual| + 1)/(n+1).
+- groups: per code (finite, ≥ 0) daily h=1 RankIC; IS mean, n, hacT and mean group size. condition: percentile buckets of the saved C[t] within the sample, h=1 RankIC and spread per bucket, IS summary.
+- distribution: IS daily quantiles of target S and missing fraction 1 − finite S / members, IS means. autocorr[L]: Pearson of percentile ranks of cells finite at t and t−L, IS mean.
+- Daily arrays run from the first reported bar to simEnd, NaN as null.
 
 ## Saved Result Provenance
 

@@ -91,6 +91,7 @@ add_library(engine STATIC
     src/meta.cpp
     src/alpha_storage.cpp
     src/pool_correlation.cpp
+    src/diagnostics.cpp
     src/modules/decay_kernel.cpp
 )
 
@@ -198,6 +199,7 @@ add_engine_test(test_meta_dir         tests/test_meta_dir.cpp)
 add_engine_test(test_alpha_pool       tests/test_alpha_pool.cpp)
 add_engine_test(test_meta_sets        tests/test_meta_sets.cpp)
 add_engine_test(test_meta_weights     tests/test_meta_weights.cpp)
+add_engine_test(test_diagnostics      tests/test_diagnostics.cpp)
 add_engine_test(test_unary_modules    tests/test_unary_modules.cpp)
 add_engine_test(test_expr_functions   tests/test_expr_functions.cpp)
 add_engine_test(test_lookback         tests/test_lookback.cpp)

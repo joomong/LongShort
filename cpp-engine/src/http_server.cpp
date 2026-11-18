@@ -23,6 +23,8 @@
 #include "meta.h"
 #include "alpha_storage.h"
 #include "modules/MetaSource.h"
+#include "modules/SignalCache.h"
+#include "diagnostics.h"
 #include "alpha_search.h"
 #include "ga_run_store.h"
 #include <thread>
@@ -696,6 +698,8 @@ struct RunOptions {
     std::shared_ptr<const DataPanel> panel;        // compact run panel, held for the whole request
     const std::vector<uint8_t>* universe_mask = nullptr; // the panel's mask
     std::string execution_price;
+    diagnostics::Options diagnostics;              // output == "diagnostics"
+    unsigned diagnostics_is_end_index = 0;         // last panel bar on or before diagnostics.isEnd
 };
 
 static RunOptions parse_run_options(const Json::Value& body) {
@@ -750,8 +754,23 @@ static RunOptions parse_run_options(const Json::Value& body) {
     }
     options.output = body.get("output", "full").asString();
     if (options.output != "performance" && options.output != "signals" &&
-        options.output != "signalSeries" && options.output != "full")
-        throw std::invalid_argument("output must be performance, signals, signalSeries or full");
+        options.output != "signalSeries" && options.output != "full" && options.output != "diagnostics")
+        throw std::invalid_argument("output must be performance, signals, signalSeries, diagnostics or full");
+    if (options.output == "diagnostics") {
+        options.diagnostics = diagnostics::parse_options(body.get("diagnostics", Json::Value()));
+        int64_t is_end_ms = 0;
+        if (!parse_iso_date_ms(options.diagnostics.is_end, &is_end_ms))
+            throw std::invalid_argument("Invalid diagnostics.isEnd; expected YYYY-MM-DD");
+        if (is_end_ms >= options.os_ms)
+            throw std::invalid_argument("diagnostics.isEnd must be earlier than osStart");
+        const auto after = static_cast<std::size_t>(std::upper_bound(
+            g_data.timestamps.begin(), g_data.timestamps.end(), is_end_ms + 86399999) - g_data.timestamps.begin());
+        const auto is_index = static_cast<std::size_t>(std::lower_bound(
+            g_data.timestamps.begin(), g_data.timestamps.end(), options.is_ms) - g_data.timestamps.begin());
+        if (after == 0 || after - 1 < std::max<std::size_t>(is_index, options.sim_start_index))
+            throw std::invalid_argument("diagnostics.isEnd must be on or after isStart and simStart");
+        options.diagnostics_is_end_index = static_cast<unsigned>(std::min<std::size_t>(after, options.sim_end_index) - 1);
+    }
     const unsigned requested_cells = parse_uint_option(body, "signalPlotMaxCells", 4000000);
     if (requested_cells == 0)
         throw std::invalid_argument("signalPlotMaxCells must be positive");
@@ -1127,6 +1146,56 @@ static Json::Value simulate_response(const Json::Value& body, const std::functio
     for (const auto& alpha : alphas) require_history(alpha, options);
     const bool single = alphas.size() == 1;
     const std::size_t first_reported = first_reported_bar(options);
+    if (options.output == "diagnostics") {
+        if (!single || combined_only) throw std::invalid_argument("Diagnostics output requires one concrete alpha XML");
+        if (!alphas[0].meta_sets.empty()) throw std::invalid_argument("Diagnostics output does not support <meta>");
+        if (panel.returns_total.size() != static_cast<std::size_t>(panel.T) * panel.N)
+            throw std::invalid_argument("Diagnostics output requires total returns (thin cache layout)");
+        const auto& d = options.diagnostics;
+        MSignalSave* condition = nullptr;
+        if (!d.condition_on.empty()) {
+            for (const auto& module : alphas[0].modules)
+                if (auto* save = dynamic_cast<MSignalSave*>(module.get()); save && save->label == d.condition_on)
+                    condition = save;
+            if (!condition)
+                throw std::invalid_argument("diagnostics.conditionOn: no <signal id=\"" + d.condition_on + "\"> in the alpha");
+        }
+        for (const auto& group : d.groups)
+            if (!panel.has_column(group))
+                throw std::invalid_argument("diagnostics.groups: data field '" + group + "' is not available");
+        auto config = simulator_config(options, false);
+        config.module_threads = shared_cache ? 1 : options.threads;
+        diagnostics::Layout layout;
+        layout.first = static_cast<unsigned>(first_reported);
+        layout.end = options.sim_end_index;
+        layout.is_end = options.diagnostics_is_end_index;
+        layout.os_start = static_cast<unsigned>(std::lower_bound(
+            g_data.timestamps.begin(), g_data.timestamps.end(), options.os_ms) - g_data.timestamps.begin());
+        layout.N = panel.N;
+        diagnostics::Accumulator accumulator(d, layout);
+        const bool masked = options.universe_mask && !options.universe_mask->empty();
+        std::vector<const float*> codes(d.groups.size());
+        Simulator(panel, config).run_signal_rows(alphas[0].pipeline, [&](unsigned di, const float* row, unsigned n) {
+            if (cancelled()) throw EvaluationCancelled();
+            if (di < first_reported) return;
+            for (std::size_t g = 0; g < d.groups.size(); ++g) codes[g] = panel.row(d.groups[g], di);
+            accumulator.observe(di, row, masked ? options.universe_mask->data() + static_cast<std::size_t>(di) * n : nullptr,
+                                panel.returns_total.data() + static_cast<std::size_t>(di) * n, codes,
+                                condition ? condition->cache.data() : nullptr);
+        });
+        Json::Value entry;
+        entry["id"] = 0;
+        entry["xml"] = alphas[0].source_xml;
+        entry["status"] = "completed";
+        entry["diagnostics"] = accumulator.finish(g_data.timestamps, options.threads);
+        Json::Value response;
+        response["context"] = run_context(options);
+        response["context"]["diagnosticsIsEnd"] = iso_date_of(g_data.timestamps[options.diagnostics_is_end_index]);
+        response["alphas"] = Json::Value(Json::arrayValue);
+        response["alphas"].append(std::move(entry));
+        response["combined"] = Json::nullValue;
+        return response;
+    }
     if (options.output == "signals" || options.output == "signalSeries") {
         if (!single || combined_only) throw std::invalid_argument("Signal output requires one concrete alpha XML");
         const auto held = bind_meta_sets(alphas[0], options, cache, cancelled);
