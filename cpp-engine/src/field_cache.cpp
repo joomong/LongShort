@@ -105,16 +105,6 @@ struct FieldCache::State {
             it = next;
         }
     }
-    std::size_t run_bytes(const std::shared_ptr<FieldRun>& run) const { return run ? run->bytes : 0; }
-    [[noreturn]] void refuse(const FieldKey* key, std::size_t bytes, const std::shared_ptr<FieldRun>& run) {
-        ++stats.rejected;
-        throw FieldBudgetExceeded(
-            "field cache: request would hold " + std::to_string(run_bytes(run) + bytes) + " bytes of optional inputs" +
-            (key ? " with '" + key->canonical_field + "'" : std::string()) + " (" + std::to_string(bytes) +
-            " more), over the budget of " + std::to_string(stats.budget_bytes) + " bytes; active " +
-            std::to_string(stats.active_bytes) + ", idle " + std::to_string(stats.idle_bytes) + ", reserved " +
-            std::to_string(stats.loading_reserved_bytes));
-    }
     // Takes a run reference on a published entry into a preallocated pin. With mutex held; allocates nothing.
     void arm(Pin& pin, std::map<FieldKey, Entry>::iterator it, const std::shared_ptr<State>& self,
              const std::shared_ptr<FieldRun>& run) noexcept {
@@ -176,13 +166,11 @@ std::shared_ptr<const FieldBuffer> FieldCache::acquire(const FieldKey& key, cons
             it = s.entries.find(key);  // published and kept while pending
             --it->second.pending;
         }
-        if (s.run_bytes(run) + it->second.bytes > s.stats.budget_bytes) s.refuse(&it->first, it->second.bytes, run);
         ++s.stats.hits;
         s.arm(*pin, it, state_, run);
         s.note_increase();
         return handle();
     }
-    if (s.run_bytes(run) + reserve_bytes > s.stats.budget_bytes) s.refuse(&key, reserve_bytes, run);
     fault_point("entry");
     const auto flight = std::make_shared<Flight>();     // a failure here has counted and published nothing
     it = s.entries.emplace(key, Entry{}).first;
@@ -216,7 +204,6 @@ std::shared_ptr<const FieldBuffer> FieldCache::acquire(const FieldKey& key, cons
         s.stats.loading_reserved_bytes -= reserve_bytes;
         reserved = false;
         const std::size_t bytes = published->bytes();
-        if (s.run_bytes(run) + bytes > s.stats.budget_bytes) s.refuse(&key, bytes, run);
         it->second.buffer = std::move(published);
         it->second.bytes = bytes;
         it->second.flight.reset();
@@ -245,7 +232,6 @@ std::shared_ptr<const FieldBuffer> FieldCache::adopt(FieldBuffer buffer, const s
     const auto owned = std::make_shared<const FieldBuffer>(std::move(buffer));
     std::lock_guard<std::mutex> lock(s.mutex);
     const std::size_t bytes = owned->bytes();
-    if (s.run_bytes(run) + bytes > s.stats.budget_bytes) s.refuse(nullptr, bytes, run);
     s.stats.active_bytes += bytes;
     if (run) run->bytes += bytes;
     pin->state = state_;
@@ -262,6 +248,10 @@ void FieldCache::set_budget(std::size_t bytes) {
     std::lock_guard<std::mutex> lock(state_->mutex);
     state_->stats.budget_bytes = bytes;
     state_->trim();
+}
+void FieldCache::record_rejection() {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    ++state_->stats.rejected;
 }
 void FieldCache::set_resident_bytes(std::size_t bytes) {
     std::lock_guard<std::mutex> lock(state_->mutex);

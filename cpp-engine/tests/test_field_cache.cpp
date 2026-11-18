@@ -313,33 +313,6 @@ TEST(FieldCache, TotalOptionalBudget) {
     EXPECT_LE(serial.stats().peak_optional_bytes, optional_budget_bytes);
 }
 
-TEST(FieldCache, ExcessRejected) {
-    FieldCache cache(2 * kBytes);
-    std::atomic<unsigned> calls{0};
-    const auto other = cache.acquire(key("o"), counting(calls, 2 * kFloats), 0, std::make_shared<FieldRun>());
-    const auto run = std::make_shared<FieldRun>();
-    const auto held = cache.acquire(key("x"), counting(calls, kFloats + 1), 0, run);  // another request's bytes do not count
-    bool over_budget_request_reported = false;
-    try {
-        (void)cache.acquire(key("y"), counting(calls, kFloats), kBytes, run);  // this request alone would exceed
-    } catch (const FieldBudgetExceeded& error) {
-        const std::string what = error.what();
-        over_budget_request_reported = what.find("budget") != std::string::npos && what.find("request") != std::string::npos &&
-                                       what.find("idle") != std::string::npos && what.find("reserved") != std::string::npos;
-    }
-    EXPECT_TRUE(over_budget_request_reported);
-    EXPECT_EQ(calls.load(), 2u);  // rejected before reading
-    // Without a reservation the size is known only after reading; it is still rejected and not kept.
-    EXPECT_THROW((void)cache.acquire(key("z"), counting(calls, kFloats), 0, run), FieldBudgetExceeded);
-    // A cached field that would put this request over is refused as well.
-    EXPECT_THROW((void)cache.acquire(key("o"), counting(calls, 0), 0, run), FieldBudgetExceeded);
-    const auto s = cache.stats();
-    EXPECT_EQ(s.rejected, 3u);
-    EXPECT_EQ(run->bytes, held->values.size() * sizeof(float));
-    EXPECT_EQ(s.loading_reserved_bytes, 0u);
-    EXPECT_EQ(s.active_bytes, other->bytes() + held->bytes());
-}
-
 // ---- Engine: run panels read AFL through the panel's FieldCache ----
 #include "fixtures/cache_fixture.h"
 #include "loader.h"
@@ -422,16 +395,89 @@ TEST(FieldCacheLifecycle, BudgetComesFromConfig) {
                  std::runtime_error);
 }
 
-TEST(FieldCacheLifecycle, OverBudgetRunFailsClearly) {
+TEST(FieldCache, ExcessRejected) {
+    // A request whose own inputs exceed the budget is refused before it runs, naming each field; nothing is read.
     AflCache afl;
     const auto parent = afl.load();
-    parent.field_cache->set_budget(1);
     const auto run = make_run_panel(parent, "", 0, parent.T);
-    EXPECT_THROW((void)run->row("AFL.ROE", 0), FieldBudgetExceeded);
-    parent.field_cache->set_budget(std::size_t{1} << 30);
-    EXPECT_FLOAT_EQ(run->at("AFL.ROE", 5, index_of(*run, "101")), 3.0f);  // retried after the failure
+    const size_t one = size_t{run->T} * run->N * sizeof(float) + size_t{run->T} * sizeof(int64_t) + 3 * run->N;
+    parent.field_cache->set_budget(one + one / 2);  // one field fits, two do not
+    EXPECT_NO_THROW(require_field_budget(*run, {"AFL.ROE", "AFL.ROE_alias", "close"}));  // an alias is the same input
+    bool over_budget_request_reported = false;
+    try {
+        require_field_budget(*run, {"AFL.ROE", "AFL.BP"});
+    } catch (const FieldBudgetExceeded& error) {
+        const std::string what = error.what();
+        over_budget_request_reported = what.find("AFL.ROE") != std::string::npos && what.find("AFL.BP") != std::string::npos &&
+                                       what.find("total") != std::string::npos && what.find("budget") != std::string::npos;
+    }
+    EXPECT_TRUE(over_budget_request_reported);
+    const auto s = parent.field_cache->stats();
+    EXPECT_EQ(s.loads, 0u);
+    EXPECT_EQ(s.rejected, 1u);
 }
 
+TEST(FieldCacheLifecycle, RunningNeverThrowsForTheBudget) {
+    AflCache afl;
+    const auto parent = afl.load();
+    parent.field_cache->set_budget(1);  // soft at run time: reported, not refused
+    const auto run = make_run_panel(parent, "", 0, parent.T);
+    EXPECT_FLOAT_EQ(run->at("AFL.ROE", 5, index_of(*run, "101")), 3.0f);
+    EXPECT_GT(parent.field_cache->stats().over_budget_events, 0u);
+    EXPECT_EQ(parent.field_cache->stats().rejected, 0u);
+}
+
+TEST(FieldCacheLifecycle, AdoptTrimsIdleAndCountsItsBytes) {
+    FieldCache cache(3 * kBytes);
+    std::atomic<unsigned> calls{0};
+    { (void)cache.acquire(key("x"), counting(calls, kFloats)); (void)cache.acquire(key("y"), counting(calls, kFloats)); }
+    EXPECT_EQ(cache.stats().idle_bytes, 2 * kBytes);
+    FieldBuffer buffer;
+    buffer.values.assign(kFloats, 1.0f);
+    buffer.timestamps = {1, 2};
+    const auto held = cache.adopt(std::move(buffer));
+    const auto s = cache.stats();
+    EXPECT_EQ(s.active_bytes, kBytes + 2 * sizeof(int64_t));
+    EXPECT_EQ(s.evictions, 1u);              // one idle field made room for the adopted copy
+    EXPECT_EQ(s.idle_bytes, kBytes);
+    EXPECT_GE(s.peak_optional_bytes, s.active_bytes);
+}
+
+TEST(FieldCacheLifecycle, FileChangedWhileReadingIsRetriedOnceThenFails) {
+    AflCache afl;
+    const auto parent = afl.load();
+    static AflCache* target;
+    static std::atomic<int> rewrites;
+    static std::atomic<int> limit;
+    target = &afl;
+    rewrites = 0;
+    limit = 1;
+    field_cache_testing::fault = [](const char* site) {
+        if (std::string(site) != "afl_read" || rewrites.load() >= limit.load()) return;
+        const int n = ++rewrites;
+        target->cache.write("afl/4.next.parquet", {"101", "102", "__index_level_0__"},
+            {doubles({1.0, 2.0, 100.0 + n}), doubles({4.0, kNaN, 6.0}), stamps({at(0), at(2), at(5)})});
+        std::filesystem::rename(target->cache.dir / "afl/4.next.parquet", target->cache.dir / "afl/4.parquet");
+    };
+    {
+        const auto run = make_run_panel(parent, "", 0, parent.T);
+        EXPECT_FLOAT_EQ(run->at("AFL.ROE", 5, index_of(*run, "101")), 101.0f);  // second read sees the new file
+    }
+    EXPECT_EQ(parent.field_cache->stats().failures, 1u);
+    limit = 1000;  // changes on every read: fails after the one retry, leaving nothing cached
+    parent.field_cache->set_budget(0);  // drop the cached ROE so the next run reads the file again
+    const auto before = parent.field_cache->stats();
+    {
+        const auto run = make_run_panel(parent, "", 0, parent.T);
+        EXPECT_THROW((void)run->row("AFL.ROE", 0), std::runtime_error);
+    }
+    const auto after = parent.field_cache->stats();
+    EXPECT_EQ(after.failures, before.failures + 2);  // the read and its one retry
+    EXPECT_EQ(after.idle_bytes, before.idle_bytes);
+    EXPECT_EQ(after.active_bytes, 0u);
+    EXPECT_EQ(after.loading_reserved_bytes, 0u);
+    field_cache_testing::fault = nullptr;
+}
 TEST(FieldCacheLifecycle, RewrittenFileSameKeyDifferentData) {
     AflCache afl;
     const auto parent = afl.load();
@@ -480,4 +526,138 @@ TEST(FieldCacheLifecycle, LoadedParentProjectionIsCountedActiveAndResident) {
     }
     EXPECT_EQ(parent.field_cache->stats().active_bytes, 0u);
     EXPECT_EQ(parent.field_cache->stats().idle_bytes, 0u);
+}
+// ---- Reviewer reproductions (Task 6 review 2), adapted to the static per-request budget ----
+#include <random>
+#include <sys/stat.h>
+#include <utime.h>
+#include <fcntl.h>
+
+// R1: two requests leasing the same run panel share one FieldRun, so the "per-request" hard limit counts
+// the union of fields all concurrent leases of the panel touched.
+TEST(FieldCacheReview, SharedPanelUnionRejectsSmallRequest) {
+    AflCache afl;
+    afl.cache.write("afl/6.parquet", {"101", "102", "__index_level_0__"},
+        {doubles({5.0, 5.0, 5.0}), doubles({1.0, 2.0, 3.0}), stamps({at(0), at(2), at(5)})});
+    std::ofstream(afl.cache.dir / "catalog.json") <<
+        R"({"schema_version":3,"value_semantics":"observations","alignment":"exact",)"
+        R"("fields":{"ROE":"4.parquet","BP":"5.parquet","EP":"6.parquet"}})";
+    const auto parent = afl.load();
+    RunPanelCache runs(parent);
+    size_t field_bytes = 0;
+    {
+        const auto probe = runs.get("", 0, parent.T);
+        read_all(*probe, "AFL.ROE");
+        field_bytes = parent.field_cache->stats().active_bytes;
+    }
+    ASSERT_GT(field_bytes, 0u);
+    const size_t decode = size_t{parent.T} * 64 * sizeof(double) * 2;
+    parent.field_cache->set_budget(2 * field_bytes + decode + 8);  // any request holding one or two fields fits
+    const auto a = runs.get("", 0, parent.T);   // request A holds ROE only
+    read_all(*a, "AFL.ROE");
+    const auto b = runs.get("", 0, parent.T);   // request B holds BP only
+    read_all(*b, "AFL.BP");
+    const auto c = runs.get("", 0, parent.T);   // request C holds EP only: one field, well within budget
+    bool rejected = false;
+    std::string what;
+    try { read_all(*c, "AFL.EP"); } catch (const FieldBudgetExceeded& e) { rejected = true; what = e.what(); }
+    std::cout << "[review] field_bytes=" << field_bytes << " budget=" << parent.field_cache->stats().budget_bytes
+              << " C rejected=" << rejected << " msg=" << what << std::endl;
+    EXPECT_FALSE(rejected) << "a request holding one field was refused because its panel is shared";
+}
+
+// R2: a waiter on the same key sees the loader's per-request refusal.
+TEST(FieldCacheReview, WaiterGetsOtherRequestsRefusal) {
+    FieldCache cache(3 * kBytes);
+    std::atomic<unsigned> calls{0};
+    const auto heavy = std::make_shared<FieldRun>();
+    const auto h1 = cache.acquire(key("h1"), counting(calls, kFloats), 0, heavy);
+    const auto h2 = cache.acquire(key("h2"), counting(calls, kFloats), 0, heavy);  // heavy holds 2 of 3
+    std::atomic<bool> started{false};
+    const auto big = [&] {
+        started = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        FieldBuffer buffer;
+        buffer.values.assign(kFloats + 10, 1.0f);  // 140 B, reserve passed as 0 (unknown size)
+        return buffer;
+    };
+    auto loader = std::async(std::launch::async, [&] {
+        try { (void)cache.acquire(key("x"), big, 0, heavy); return std::string("ok"); }
+        catch (const FieldBudgetExceeded&) { return std::string("refused"); } });
+    while (!started) std::this_thread::yield();
+    auto waiter = std::async(std::launch::async, [&] {
+        try { (void)cache.acquire(key("x"), big, 0, std::make_shared<FieldRun>()); return std::string("ok"); }
+        catch (const FieldBudgetExceeded& e) { return std::string("refused: ") + e.what(); } });
+    const auto l = loader.get(), w = waiter.get();
+    std::cout << "[review] loader=" << l << " waiter=" << w << std::endl;
+    EXPECT_EQ(l, "ok") << "running never refuses for the budget";
+    EXPECT_EQ(w, "ok") << "an empty request was refused because another request was over its budget";
+}
+
+// R3: 16-thread stress over RunPanelCache + FieldCache with fault injection, parent loading, budget churn.
+TEST(FieldCacheReview, Stress16) {
+    AflCache afl;
+    const auto parent = afl.load();
+    RunPanelCache runs(parent, 1);  // tiny panel cap: evictions of panels too
+    static std::atomic<unsigned> fault_counter{0};
+    field_cache_testing::fault = [](const char*) {
+        if (fault_counter.fetch_add(1) % 13 == 7) throw std::bad_alloc();
+    };
+    std::atomic<bool> stop{false};
+    std::atomic<unsigned> ok{0}, failed{0};
+    std::vector<std::thread> threads;
+    for (int w = 0; w < 16; ++w)
+        threads.emplace_back([&, w] {
+            std::mt19937 rng(w);
+            for (int i = 0; i < 300; ++i) {
+                try {
+                    const unsigned hs = rng() % 3;
+                    const auto run = runs.get("", hs, parent.T);
+                    const char* fields[] = {"AFL.ROE", "AFL.BP", "AFL.ROE_alias"};
+                    read_all(*run, fields[rng() % 3]);
+                    read_all(*run, fields[rng() % 3]);
+                    const float v = run->at("AFL.ROE", 5, index_of(*run, "101"));
+                    if (v != 3.0f) { ADD_FAILURE() << "wrong ROE " << v; }
+                    ++ok;
+                } catch (const std::bad_alloc&) { ++failed; }
+                  catch (const FieldBudgetExceeded&) { ++failed; }
+                if (w == 0 && i % 50 == 25) (void)parent.at("AFL.BP", 0, 0);  // parent loads mid-run
+                if (w == 1 && i % 20 == 10) parent.field_cache->set_budget((rng() % 2) ? 1 : (std::size_t{1} << 30));
+            }
+        });
+    for (auto& t : threads) t.join();
+    field_cache_testing::fault = nullptr;
+    parent.field_cache->set_budget(std::size_t{1} << 30);
+    const auto s = parent.field_cache->stats();
+    std::cout << "[review] ok=" << ok << " failed=" << failed << " loads=" << s.loads << " hits=" << s.hits
+              << " active=" << s.active_bytes << " idle=" << s.idle_bytes << " reserved=" << s.loading_reserved_bytes
+              << " rejected=" << s.rejected << " failures=" << s.failures << std::endl;
+    EXPECT_EQ(s.active_bytes, 0u);
+    EXPECT_EQ(s.loading_reserved_bytes, 0u);
+}
+
+// R4: rename-swap with preserved mtime and inode reuse (rsync -t style publication).
+TEST(FieldCacheReview, PreservedMtimeInodeReuse) {
+    AflCache afl;
+    const auto path = afl.cache.dir / "afl/4.parquet";
+    struct stat original {};
+    ::stat(path.c_str(), &original);
+    const auto parent = afl.load();
+    { const auto run = make_run_panel(parent, "", 0, parent.T); EXPECT_FLOAT_EQ(run->at("AFL.ROE", 5, index_of(*run, "101")), 3.0f); }
+    bool same_key = false;
+    for (int round = 0; round < 50 && !same_key; ++round) {
+        afl.cache.write("afl/4.next.parquet", {"101", "102", "__index_level_0__"},
+            {doubles({1.0, 2.0, 60.0 + round}), doubles({4.0, kNaN, 6.0}), stamps({at(0), at(2), at(5)})});
+        struct timespec times[2] = {original.st_atim, original.st_mtim};
+        ::utimensat(AT_FDCWD, (afl.cache.dir / "afl/4.next.parquet").c_str(), times, 0);
+        std::filesystem::rename(afl.cache.dir / "afl/4.next.parquet", path);
+        struct stat now {};
+        ::stat(path.c_str(), &now);
+        same_key = now.st_ino == original.st_ino && now.st_size == original.st_size;
+        const auto run = make_run_panel(parent, "", 0, parent.T);  // same mtime and size every round
+        const float v = run->at("AFL.ROE", 5, index_of(*run, "101"));
+        if (same_key) std::cout << "[review] inode reused at round " << round << ", served " << v << std::endl;
+        EXPECT_FLOAT_EQ(v, 60.0f + round);
+    }
+    std::cout << "[review] inode reuse observed=" << same_key << std::endl;
 }

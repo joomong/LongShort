@@ -863,8 +863,20 @@ static const MetaResolver g_meta_resolver = [](const std::string& name) {
     return pairs;
 };
 
+// A run-panel request whose own AFL inputs exceed afl.cache_budget_gib is refused here, before anything
+// is read (FieldBudgetExceeded: 503 on /api/simulate and saves, a candidate error in GA). The alpha pool
+// runs on the base panel, whose AFL columns are resident, and is not limited.
 static std::vector<CompiledAlpha> compile_request_xml(const std::string& xml, const RunOptions& options) {
-    return compile_xml(xml, options.panel.get(), options.universe_mask, &g_meta_resolver);
+    auto alphas = compile_xml(xml, options.panel.get(), options.universe_mask, &g_meta_resolver);
+    if (options.panel && options.panel.get() != &g_data) {
+        std::vector<std::string> fields;
+        for (const auto& alpha : alphas) {
+            auto more = data_fields(alpha);
+            fields.insert(fields.end(), more.begin(), more.end());
+        }
+        require_field_budget(*options.panel, fields);
+    }
+    return alphas;
 }
 
 // Rejects an alpha whose signal is not valid in time for the first IS bar, whose position comes from
@@ -1418,6 +1430,8 @@ static void run_alpha_request(std::function<void(const drogon::HttpResponsePtr&)
                 response = work();
             } catch (const AlphaRequestError& error) {
                 response = json_error_response(error.status, error.what());
+            } catch (const FieldBudgetExceeded& error) {
+                response = json_error_response(drogon::k503ServiceUnavailable, error.what());
             } catch (const std::exception& error) {
                 response = json_error_response(drogon::k500InternalServerError, error.what());
             }
@@ -1552,6 +1566,9 @@ static drogon::HttpResponsePtr save_alpha(const Json::Value& body) {
                 compiled = compile_request_xml(item["xml"].asString(), options);
                 if (compiled.size() != 1)
                     throw std::invalid_argument("must compile to exactly one alpha");
+            } catch (const FieldBudgetExceeded& error) {
+                throw AlphaRequestError(drogon::k503ServiceUnavailable,
+                                        "Row " + std::to_string(item["id"].asUInt64()) + " xml: " + error.what());
             } catch (const std::exception& error) {
                 throw invalid("Row " + std::to_string(item["id"].asUInt64()) + " xml: " + error.what());
             }

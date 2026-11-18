@@ -1375,6 +1375,18 @@ static MetaSet compile_meta_set(const std::map<std::string, std::string>& attrib
 
 // Saved signals keep their own first valid bar, a load resumes from it. <event> reads saved
 // signals, so from there on the running bar is the maximum so far.
+std::vector<std::string> data_fields(const CompiledAlpha& alpha) {
+    std::vector<std::string> fields;
+    for (const auto& module : alpha.modules)
+        if (const auto* data = dynamic_cast<const MData*>(module.get())) fields.push_back(data->column_name);
+    for (const auto& set : alpha.meta_sets)
+        for (const auto& member : set.members) {
+            auto more = data_fields(member);
+            fields.insert(fields.end(), more.begin(), more.end());
+        }
+    return fields;
+}
+
 unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start) {
     std::map<const MSignalSave*, unsigned> saved_by_module;
     unsigned running = start, result = start;

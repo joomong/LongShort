@@ -26,12 +26,12 @@ struct FieldBuffer {
     std::size_t bytes() const;
 };
 
-// Thrown when one request's own active fields would exceed the optional-input budget.
+// Thrown (by require_field_budget, before a request runs) when one request's own inputs exceed the budget.
 struct FieldBudgetExceeded : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-// Bytes of fields one request (run panel) holds; read and written under the cache mutex only.
+// Bytes of fields one run panel holds (accounting only); read and written under the cache mutex only.
 struct FieldRun {
     std::size_t bytes = 0;
 };
@@ -49,17 +49,19 @@ struct FieldCacheStats {
 };
 
 namespace field_cache_testing {
-// Called at allocation sites ("pin", "entry", "publish", "adopt"); tests make it throw. Null in production.
+// Called at allocation sites ("pin", "entry", "publish", "adopt") and between an AFL file read and its
+// version check ("afl_read"); tests make it throw or change the file. Null in production.
 extern void (*fault)(const char* site);
 }
 
 // Optional-input field cache. The cache keeps its own reference to each loaded buffer; acquire hands out
 // run references. A field with run references is active and never evicted; when its last run reference goes
-// it becomes idle. The budget is soft: idle fields go least recently used first whenever active + idle +
-// loading reservations exceed it, but active fields of concurrent requests may exceed it for a while (counted
-// in over_budget_events). A request is refused only when its own active fields (FieldRun) would exceed the
-// budget. Bytes return to the allocator when the last reference goes. Concurrent first requests for a key
-// share one load; a failed load is removed, its waiters see the failure, and a later request retries.
+// it becomes idle. The budget is soft here: idle fields go least recently used first whenever active + idle +
+// loading reservations exceed it, and active fields may exceed it for a while (over_budget_events, peaks);
+// acquire and adopt never throw for the budget. A request whose own inputs exceed the budget is refused
+// before it runs (require_field_budget). Bytes return to the allocator when the last reference goes.
+// Concurrent first requests for a key share one load; a failed load is removed, its waiters see the failure,
+// and a later request retries.
 class FieldCache {
 public:
     using Loader = std::function<FieldBuffer()>;
@@ -78,6 +80,7 @@ public:
     void set_budget(std::size_t bytes);
     void set_resident_bytes(std::size_t bytes);
     void add_resident_bytes(std::size_t bytes);
+    void record_rejection();  // a request refused before running
     FieldCacheStats stats() const;
 
     struct State;

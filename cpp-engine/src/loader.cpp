@@ -736,13 +736,18 @@ std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector
 }
 
 namespace {
-// size, mtime_ns and inode of a resolved file: equal strings mean the same file contents as published.
+// size, mtime_ns, ctime_ns, device and inode: a rename, utimensat or rewrite changes ctime even when mtime
+// is preserved and the inode number is reused.
 std::string file_version(const std::string& path) {
     struct stat info {};
     if (::stat(path.c_str(), &info) != 0) throw std::runtime_error("Cannot stat AFL file: " + path);
     return std::to_string(info.st_size) + "@" + std::to_string(info.st_mtim.tv_sec) + "." +
-           std::to_string(info.st_mtim.tv_nsec) + "#" + std::to_string(info.st_ino);
+           std::to_string(info.st_mtim.tv_nsec) + "c" + std::to_string(info.st_ctim.tv_sec) + "." +
+           std::to_string(info.st_ctim.tv_nsec) + "#" + std::to_string(info.st_dev) + ":" + std::to_string(info.st_ino);
 }
+struct FileChangedWhileReading : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 template <class Value>
 std::vector<Value> project_columns(const std::vector<Value>& values, const std::vector<unsigned>& columns,
                                    unsigned T, unsigned N) {
@@ -782,6 +787,7 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
     const auto date_axis = std::make_shared<const std::string>(field_axis_key(panel->timestamps));
     const auto symbol_axis = std::make_shared<const std::string>(field_axis_key(*symbols));
     const auto cache = base.field_cache;
+    panel->field_cache = cache;
     const auto run = std::make_shared<FieldRun>();  // this panel's own field bytes, against the budget
     const auto timestamps = std::make_shared<const std::vector<int64_t>>(panel->timestamps);
     for (const auto& [name, parent] : base.lazy_columns) {
@@ -803,22 +809,31 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
                     return cache ? cache->adopt(std::move(buffer), run)
                                  : std::shared_ptr<const FieldBuffer>(std::make_shared<FieldBuffer>(std::move(buffer)));
                 }
-                // Version at read time: the resolved file (a swapped symlink is a new file) and its stat.
-                const std::string path = std::filesystem::canonical(parent->source_path).string();
-                const std::string version = file_version(path);
                 size_t symbol_bytes = 0;
                 for (const auto& symbol : *symbols) symbol_bytes += symbol.size();
                 // The buffer plus one 64-column decode batch of doubles, as read_field reads them.
                 const size_t reserve = size_t{T} * symbols->size() * sizeof(float) + size_t{T} * sizeof(int64_t) +
                                        symbol_bytes + size_t{T} * 64 * sizeof(double) * 2;
-                return cache->acquire(FieldKey{version, path, *date_axis, *symbol_axis}, [&] {
-                    if (file_version(path) != version)
-                        throw std::runtime_error("AFL file changed before it was read, retry: " + path);
-                    auto buffer = with_axes(parent->read_locked(symbols, path));
-                    if (file_version(path) != version)
-                        throw std::runtime_error("AFL file changed while it was read, retry: " + path);
-                    return buffer;
-                }, reserve, run, parent->read_lock);
+                // A file changed under a read is read once more under its new version, by each requester on its
+                // own (waiters of the failed read retry too); a second change is an error.
+                for (int attempt = 0;; ++attempt) {
+                    // Version at read time: the resolved file (a swapped symlink is a new file) and its stat.
+                    const std::string path = std::filesystem::canonical(parent->source_path).string();
+                    const std::string version = file_version(path);
+                    try {
+                        return cache->acquire(FieldKey{version, path, *date_axis, *symbol_axis}, [&] {
+                            if (file_version(path) != version)
+                                throw FileChangedWhileReading("AFL file changed before it was read: " + path);
+                            auto buffer = with_axes(parent->read_locked(symbols, path));
+                            if (auto hook = field_cache_testing::fault) hook("afl_read");
+                            if (file_version(path) != version)
+                                throw FileChangedWhileReading("AFL file changed while it was read: " + path);
+                            return buffer;
+                        }, reserve, run, parent->read_lock);
+                    } catch (const FileChangedWhileReading& error) {
+                        if (attempt) throw std::runtime_error(std::string(error.what()) + " (read twice)");
+                    }
+                }
             });
         else if (!child)
             child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {
@@ -842,6 +857,30 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
         panel->move_events.push_back(move);
     }
     return panel;
+}
+
+void require_field_budget(const DataPanel& run_panel, const std::vector<std::string>& fields) {
+    if (!run_panel.field_cache) return;
+    size_t symbol_bytes = 0;
+    for (const auto& symbol : run_panel.symbols) symbol_bytes += symbol.size();
+    // What one input buffer of this panel holds (FieldBuffer::bytes): values plus its coordinates.
+    const size_t each = size_t{run_panel.T} * run_panel.N * sizeof(float) + size_t{run_panel.T} * sizeof(int64_t) + symbol_bytes;
+    std::unordered_set<const LazyColumn*> seen;
+    std::vector<std::string> counted;
+    for (const auto& field : fields) {
+        const auto found = run_panel.lazy_columns.find(field);
+        if (found == run_panel.lazy_columns.end() || !found->second->referenced_column()) continue;
+        if (seen.insert(found->second.get()).second) counted.push_back(field);
+    }
+    const size_t total = counted.size() * each;
+    const size_t budget = run_panel.field_cache->stats().budget_bytes;
+    if (total <= budget) return;
+    run_panel.field_cache->record_rejection();
+    std::string list;
+    for (const auto& field : counted) list += (list.empty() ? "" : ", ") + field + "=" + std::to_string(each);
+    throw FieldBudgetExceeded("AFL inputs of this request need " + std::to_string(total) + " bytes in total (" + list +
+                              "), over the field cache budget of " + std::to_string(budget) +
+                              " bytes (afl.cache_budget_gib)");
 }
 
 std::shared_ptr<const DataPanel> RunPanelCache::get(const std::string& universe, unsigned history_start,

@@ -25,6 +25,7 @@ struct LazyColumn {
     size_t loaded_bytes() const;
     // Drops the reference of a run column; the next get() takes it again. Callers guarantee no reader.
     void release() const;
+    bool referenced_column() const { return static_cast<bool>(acquire); }
     // Set before publication for columns read from a source file: reads the same timestamps for the given
     // symbols straight from that source. Run panels use it instead of projecting the parent column while the
     // parent is not loaded; all selectors of one run panel share its symbol vector.
@@ -108,6 +109,10 @@ std::vector<unsigned> run_panel_columns(const DataPanel& base, const std::vector
 // history_start stays only to retire its source, without a destination.
 std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std::string& universe,
                                                 unsigned history_start, unsigned sim_end);
+
+// Refuses (FieldBudgetExceeded) a request whose own optional inputs among `fields` would exceed the panel's
+// field-cache budget, before anything is read: each distinct AFL input costs T x N floats plus its coordinates.
+void require_field_budget(const DataPanel& run_panel, const std::vector<std::string>& fields);
 
 // LRU of run panels by (universe, history_start, sim_end), capped by the bytes they retain now (mask,
 // returns_total, loaded columns), measured at each lookup because columns load lazily. Least recently

@@ -89,6 +89,10 @@ using MetaResolver = std::function<std::vector<std::pair<std::string, std::strin
 // Precondition: call before prefetch or bind, which release <meta> members.
 unsigned first_valid_bar(const CompiledAlpha& alpha, unsigned start);
 
+// Panel fields the alpha's <data> inputs read, its <meta> members' included; may repeat.
+// Precondition: call before prefetch or bind, which release <meta> members.
+std::vector<std::string> data_fields(const CompiledAlpha& alpha);
+
 // Compile a single pipeline into a CompiledAlpha.
 CompiledAlpha compile_pipeline(const Pipeline& ops, const DataPanel* panel,
                                const std::vector<uint8_t>* universe = nullptr,
