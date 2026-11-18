@@ -62,7 +62,7 @@ unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 
 
 | 태그 | 동작 | lookback(first_bar) |
 |---|---|---|
-| `<tsfill days="n"/>` (`TsFill.h`, `MTsFill`) | 유효 입력은 즉시 출력, NaN이면 마지막 유효 입력 이후 n bar까지 그 값, 이후·최초 유효 이전은 NaN. 상태는 종목별 마지막 값·bar | `days`. 첫 bar부터 유한값을 내지만 긴 이력 실행과 같아지는 시점이 `first_bar + days` |
+| `<tsfill days="n"/>` (`TsFill.h`, `MTsFill`) | 유한 입력은 즉시 출력, 비유한(NaN·±inf)이면 마지막 유효 입력 이후 n bar까지 그 값, 이후·최초 유한값 이전은 NaN. 상태는 종목별 마지막 값·bar | `days`. 첫 bar부터 유한값을 내지만 긴 이력 실행과 같아지는 시점이 `first_bar + days` |
 | `<tshold days="n"/>` (`TsHold.h`, `MTsHold`) | 패널 bar 0 기준 n bar 블록의 첫 입력을 NaN 포함 그대로 유지(옛 tsfill 코드) | 다음 블록 시작까지 `(n − first_bar % n) % n` |
 
 ## 저장 신호 입력 (signal_N)

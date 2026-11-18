@@ -497,10 +497,10 @@ TEST(TsModules, TsFillMatchesOracle) {
         auto out = run_module(m, h);
         for (unsigned t = 0; t < kT; ++t)
             for (unsigned n = 0; n < kN; ++n) {
-                // Most recent non-NaN input at most `days` bars back.
+                // Most recent finite input at most `days` bars back.
                 float want = kNaN;
                 for (unsigned lag = 0; lag <= days && lag <= t; ++lag)
-                    if (!std::isnan(h[t - lag][n])) { want = h[t - lag][n]; break; }
+                    if (std::isfinite(h[t - lag][n])) { want = h[t - lag][n]; break; }
                 if (std::isnan(want)) EXPECT_TRUE(std::isnan(out[t][n])) << days << " " << t << " " << n;
                 else EXPECT_EQ(std::memcmp(&out[t][n], &want, sizeof(float)), 0) << days << " " << t << " " << n;
             }
@@ -844,4 +844,16 @@ TEST(TsFill, Prefix) {
             full_run_overlap.push_back(full[t][n]);
         }
     EXPECT_TRUE(equal_nan(delayed_prefix_overlap, full_run_overlap));
+}
+
+TEST(TsFill, InfIsMissing) {
+    // The <data> tag already maps +-inf to NaN, so the module is driven directly.
+    auto run = [](Hist x, unsigned days) {
+        MTsFill m; m.days = IntParameter((int)days);
+        std::vector<float> c;
+        for (const auto& row : run_module(m, x)) c.push_back(row[0]);
+        return c;
+    };
+    EXPECT_TRUE(equal_nan(run({{5}, {kInf}, {kNaN}}, 1), {5, 5, NAN}));
+    EXPECT_TRUE(equal_nan(run({{-kInf}, {4}, {-kInf}}, 1), {NAN, 4, 4}));
 }

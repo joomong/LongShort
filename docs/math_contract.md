@@ -317,8 +317,8 @@ signal values, plot sampling and tooltip values remain raw.
   - `<tssum days=20 min_count=days>`: sum of the finite window values; `NaN` if fewer than `min_count`; a `NaN` today does not force `NaN`
   - `<tsstddev days=20 ddof=1 min_count=days>`: std of the finite window values, divisor `n−ddof` (rolling double sums, variance clamped at 0); `NaN` if `n < min_count` or `n−ddof <= 0`; a window whose finite values are all equal is exactly `0`
   - `<tsargmax|tsargmin days=20 min_count=days>`: lag (0..days−1) of the max/min finite window value, ties → most recent; `NaN` if fewer than `min_count` finite values (monotonic deque, amortized O(1))
-  - `<tsfill days=20>` (bounded forward fill): a non-NaN `x[t]` is output as is; a `NaN` `x[t]` outputs the last non-NaN input
-    `x[s]` while `t − s <= days`, otherwise `NaN`; `NaN` before the first non-NaN input (`0` is a value and is held).
+  - `<tsfill days=20>` (bounded forward fill): a finite `x[t]` is output as is; a non-finite `x[t]` (`NaN`, `±inf`) outputs the last
+    finite input `x[s]` while `t − s <= days`, otherwise `NaN`; `NaN` before the first finite input (`0` is a value and is held).
     Example days=2: `[5,6,NaN,NaN,NaN,7]` → `[5,6,6,6,NaN,7]`. State per instrument: last value and its bar; lookback `days`
     (a later start matches a full run from `history start + days`)
   - `<tshold days=20>` (sample-and-hold, the former `tsfill` code moved unchanged): blocks `[k·days, (k+1)·days)` of the panel bar index (anchored at panel
