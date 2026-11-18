@@ -34,6 +34,7 @@
 #include "modules/TsStdDev.h"
 #include "modules/TsArgExtreme.h"
 #include "modules/TsFill.h"
+#include "modules/TsHold.h"
 #include "modules/Winsorize.h"
 #include "modules/Normalize.h"
 #include "modules/Hump.h"
@@ -1056,6 +1057,14 @@ ModuleRegistry& ModuleRegistry::default_registry() {
             auto m = std::make_unique<MTsFill>();
             const int max_days = panel_time_limit(panel);
             m->days = IntParameter(get_bounded_int(a, "tsfill", "days", 20, 1, max_days));
+            return m;
+        });
+
+        r.register_module("tshold", [](const auto& a, const auto* panel) {
+            module_attributes::validate_keys(a, {"days"}, "tshold");
+            auto m = std::make_unique<MTsHold>();
+            const int max_days = panel_time_limit(panel);
+            m->days = IntParameter(get_bounded_int(a, "tshold", "days", 20, 1, max_days));
             return m;
         });
 

@@ -58,6 +58,13 @@ XML에서 `<mysignal factor="2" days="10"/>`으로 사용한다. `REGISTER_MODUL
 unsigned lookback(unsigned) const override { return (int)days > 1 ? (int)days - 1 : 0; }
 ```
 
+내장 값 유지 모듈 두 개의 lookback 예(정의는 `math_contract.md`):
+
+| 태그 | 동작 | lookback(first_bar) |
+|---|---|---|
+| `<tsfill days="n"/>` (`TsFill.h`, `MTsFill`) | 유효 입력은 즉시 출력, NaN이면 마지막 유효 입력 이후 n bar까지 그 값, 이후·최초 유효 이전은 NaN. 상태는 종목별 마지막 값·bar | `days`. 첫 bar부터 유한값을 내지만 긴 이력 실행과 같아지는 시점이 `first_bar + days` |
+| `<tshold days="n"/>` (`TsHold.h`, `MTsHold`) | 패널 bar 0 기준 n bar 블록의 첫 입력을 NaN 포함 그대로 유지(옛 tsfill 코드) | 다음 블록 시작까지 `(n − first_bar % n) % n` |
+
 ## 저장 신호 입력 (signal_N)
 
 모듈이 앞에서 `<signal id>`로 저장한 신호 여러 개를 받으려면 `SignalInputs`를 함께 상속한다. 컴파일러가 `signal_1`, `signal_2`, … 속성을 해석해 같은 bar의 저장 행을 넘겨준다. 출력은 저장 행만으로 정하며 현재 chain 값은 덮어쓴다.

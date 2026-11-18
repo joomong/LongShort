@@ -137,10 +137,10 @@ TEST(ComputeRange, FirstFiniteSignalIsHistoryStartPlusLookback) {
     const std::vector<std::string> ops = {
         "<tsmean days=\"5\"/>", "<tssum days=\"20\"/>", "<tsstddev days=\"7\"/>", "<tsrank days=\"9\"/>",
         "<tsdelta days=\"3\"/>", "<delay days=\"4\"/>", "<tsmax days=\"6\"/>", "<tsmin days=\"6\"/>",
-        "<tsargmax days=\"8\"/>", "<tsargmin days=\"8\"/>", "<tsfill days=\"10\"/>", "<tsfill days=\"23\"/>",
+        "<tsargmax days=\"8\"/>", "<tsargmin days=\"8\"/>", "<tshold days=\"10\"/>", "<tshold days=\"23\"/>",
         "<ffd d=\"0.5\" thres=\"0.01\"/>", "<tsewma span=\"5\" min_count=\"18\"/>",
         "<pcaresid train=\"100\" refit=\"50\" k=\"2\"/>", "<pcaresid group=\"sector\" train=\"60\" refit=\"33\" k=\"1\"/>",
-        "<tsmean days=\"5\"/><rank/><tsdelta days=\"2\"/>", "<tsmean days=\"3\"/><tsfill days=\"7\"/><zscore/>",
+        "<tsmean days=\"5\"/><rank/><tsdelta days=\"2\"/>", "<tsmean days=\"3\"/><tshold days=\"7\"/><zscore/>",
         "<ffd d=\"0.5\" thres=\"0.01\"/><pcaresid train=\"40\" refit=\"17\" k=\"1\"/><rank/>"};
     for (const auto& op : ops)
         for (unsigned sim_start : {37u, 101u, 128u}) {
@@ -154,8 +154,8 @@ TEST(ComputeRange, FirstFiniteSignalIsHistoryStartPlusLookback) {
     // Hand-computed boundaries, independent of the lookback code.
     EXPECT_EQ(first_finite(run_xml(dp, kClose + "<tsmean days=\"5\"/>", 37).out.signals), 40u);       // 36 + 4
     EXPECT_EQ(first_finite(run_xml(dp, kClose + "<delay days=\"4\"/>", 37).out.signals), 40u);        // 36 + 4
-    EXPECT_EQ(first_finite(run_xml(dp, kClose + "<tsfill days=\"10\"/>", 37).out.signals), 40u);      // next multiple of 10
-    EXPECT_EQ(first_finite(run_xml(dp, kClose + "<tsfill days=\"10\"/>", 41).out.signals), 40u);      // 40 is itself a sample bar
+    EXPECT_EQ(first_finite(run_xml(dp, kClose + "<tshold days=\"10\"/>", 37).out.signals), 40u);      // next multiple of 10
+    EXPECT_EQ(first_finite(run_xml(dp, kClose + "<tshold days=\"10\"/>", 41).out.signals), 40u);      // 40 is itself a sample bar
     EXPECT_EQ(first_finite(run_xml(dp, kClose + "<pcaresid train=\"100\" refit=\"50\" k=\"2\"/>", 37).out.signals),
               150u);  // 36 + 100 = 136, next multiple of 50
     EXPECT_EQ(first_finite(run_xml(dp, kClose + "<pcaresid train=\"100\" refit=\"50\" k=\"2\"/>", 51).out.signals),
@@ -182,7 +182,7 @@ TEST(ComputeRange, LaterSimStartMatchesEarlierAfterWarmup) {
         "<tsmean days=\"5\"/>", "<tssum days=\"20\"/>", "<tsstddev days=\"7\"/>", "<tsrank days=\"9\"/>",
         "<tsdelta days=\"3\"/>", "<delay days=\"4\"/>", "<tsmax days=\"6\"/>", "<tsargmin days=\"8\"/>",
         "<decay days=\"5\"/>", "<tszscore days=\"5\"/>",
-        "<tsfill days=\"7\"/>", "<ffd d=\"0.5\" thres=\"0.01\"/>",
+        "<tshold days=\"7\"/>", "<tsfill days=\"7\"/>", "<ffd d=\"0.5\" thres=\"0.01\"/>",
         // Fits coincide: from 59 the fits at 120, 150, ... and from 94 the fits at 150, ...
         "<pcaresid train=\"40\" refit=\"30\" k=\"2\"/>",
         "<tsmean days=\"5\"/><rank/><tsdelta days=\"2\"/>", "<delay days=\"1\"/><tsmean days=\"5\"/><rank/>"};
@@ -225,7 +225,7 @@ TEST(ComputeRange, IndependenceWithNaNAndMaskHoles) {
     const std::vector<std::string> rolling = {
         "<tsmean days=\"5\"/>", "<tssum days=\"20\"/>", "<tsstddev days=\"7\"/>", "<tsrank days=\"9\"/>",
         "<tsdelta days=\"3\"/>", "<delay days=\"4\"/>", "<tsmax days=\"6\"/>", "<tsargmin days=\"8\"/>",
-        "<decay days=\"5\"/>", "<tszscore days=\"5\"/>", "<tsfill days=\"7\"/>",
+        "<decay days=\"5\"/>", "<tszscore days=\"5\"/>", "<tshold days=\"7\"/>", "<tsfill days=\"7\"/>",
         "<pcaresid train=\"40\" refit=\"30\" k=\"2\"/>"};
     const auto compare = [](const DataPanel& dp, const std::string& xml, const std::map<unsigned, unsigned>& restart,
                             unsigned carve_bars) -> unsigned {

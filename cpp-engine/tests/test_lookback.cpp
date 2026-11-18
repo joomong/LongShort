@@ -134,13 +134,55 @@ TEST(Lookback, Ffd) {
     EXPECT_GT(make("ffd", {{"d", "0.24"}, {"thres", "0.001"}}, dp)->lookback(0), 5u);
 }
 
-TEST(Lookback, TsFillWaitsForTheNextRefresh) {
-    for (unsigned d : {1u, 3u, 7u, 20u}) expect_oracle("tsfill", {{"days", days(d)}}, {0u, 2u, 7u, 20u, 21u});
+TEST(Lookback, TsHoldWaitsForTheNextRefresh) {
+    for (unsigned d : {1u, 3u, 7u, 20u}) expect_oracle("tshold", {{"days", days(d)}}, {0u, 2u, 7u, 20u, 21u});
     const DataPanel dp = make_panel();
-    auto m = make("tsfill", {{"days", "7"}}, dp);
+    auto m = make("tshold", {{"days", "7"}}, dp);
     EXPECT_EQ(m->lookback(0), 0u);
     EXPECT_EQ(m->lookback(7), 0u);
     EXPECT_EQ(m->lookback(8), 6u);
+}
+
+// tsfill outputs finite values from its first bar, so its lookback is where a run from first_bar equals a run
+// from bar 0: a value finite at first_bar - 1 is held through first_bar - 1 + days, which a late run cannot see.
+TEST(Lookback, TsFillMatchesLongerHistoryAfterDays) {
+    const DataPanel dp = make_panel();
+    const unsigned first_bar = 50;
+    for (unsigned d : {1u, 3u, 7u, 20u}) {
+        auto late = make("tsfill", {{"days", days(d)}}, dp);
+        auto early = make("tsfill", {{"days", days(d)}}, dp);
+        EXPECT_EQ(late->lookback(first_bar), d);
+        EXPECT_EQ(late->lookback(0), d);
+        // Instrument 0 is finite at first_bar - 1 and NaN from first_bar for 2*d bars; the others are finite.
+        std::vector<std::vector<float>> in(kT, std::vector<float>(kN));
+        const auto& close = dp.arrays.at("close");
+        for (unsigned t = 0; t < kT; ++t)
+            for (unsigned i = 0; i < kN; ++i) {
+                in[t][i] = close[size_t(t) * kN + i];
+                if (i == 0 && t >= first_bar && t < first_bar + 2 * d) in[t][i] = std::numeric_limits<float>::quiet_NaN();
+            }
+        auto run = [&](Module& m, unsigned from) {
+            m.numAssets = kN;
+            m.init();
+            std::vector<std::vector<float>> out(kT, std::vector<float>(kN, std::numeric_limits<float>::quiet_NaN()));
+            for (unsigned t = from; t < kT; ++t) {
+                out[t] = in[t];
+                SignalVector sv{out[t].data(), kN};
+                m.calculate(t, sv);
+            }
+            return out;
+        };
+        const auto short_run = run(*late, first_bar);
+        const auto long_run = run(*early, 0);
+        const unsigned valid = first_bar + d;
+        EXPECT_TRUE(std::isnan(short_run[valid - 1][0])) << d;
+        EXPECT_TRUE(std::isfinite(long_run[valid - 1][0])) << d;
+        for (unsigned t = valid; t < kT; ++t)
+            for (unsigned i = 0; i < kN; ++i) {
+                EXPECT_EQ(std::isnan(short_run[t][i]), std::isnan(long_run[t][i])) << d << " " << t << " " << i;
+                if (!std::isnan(long_run[t][i])) EXPECT_EQ(short_run[t][i], long_run[t][i]) << d << " " << t;
+            }
+    }
 }
 
 TEST(Lookback, PcaResidRoundsUpToARefitBar) {
@@ -185,8 +227,10 @@ TEST(FirstValidBar, ChainAddsAndUsesTheRunningBar) {
     const std::string d = "<data expr=\"close\"/>";
     EXPECT_EQ(first_valid(d, dp, 9), 9u);
     EXPECT_EQ(first_valid("<data expr=\"close\" delay=\"1\"/><tsmean days=\"5\"/><rank/>", dp, 9), 14u);
-    // tsfill is aligned to the bar its input becomes valid: 9 + 4 = 13 -> 14.
-    EXPECT_EQ(first_valid(d + "<tsmean days=\"5\"/><tsfill days=\"7\"/>", dp, 9), 14u);
+    // tshold is aligned to the bar its input becomes valid: 9 + 4 = 13 -> 14.
+    EXPECT_EQ(first_valid(d + "<tsmean days=\"5\"/><tshold days=\"7\"/>", dp, 9), 14u);
+    // tsfill adds its days: 9 + 4 + 7.
+    EXPECT_EQ(first_valid(d + "<tsmean days=\"5\"/><tsfill days=\"7\"/>", dp, 9), 20u);
     EXPECT_EQ(first_valid(d + "<pcaresid train=\"20\" refit=\"7\"/>", dp, 9), 35u);
 }
 
@@ -235,7 +279,7 @@ TEST(FirstValidBar, MetaIsTheLongestMemberPlusTheEstimationWindow) {
     EXPECT_EQ(first("<meta expr=\"s\"/><rank/><tsmean days=\"3\"/>", 10), 17u);
     // Members are walked at the running bar.
     const MetaResolver fill = [](const std::string&) {
-        return std::vector<std::pair<std::string, std::string>>{{"f.xml", "<data expr=\"close\"/><tsfill days=\"7\"/>"}};
+        return std::vector<std::pair<std::string, std::string>>{{"f.xml", "<data expr=\"close\"/><tshold days=\"7\"/>"}};
     };
     auto alphas = compile_xml("<meta expr=\"s\"/>", &dp, nullptr, &fill);
     EXPECT_EQ(first_valid_bar(alphas[0], 8), 14u);

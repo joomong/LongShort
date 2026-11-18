@@ -1,26 +1,31 @@
 #pragma once
 
-// MTsFill: sample-and-hold. At panel bars di % days == 0 take x as is (NaN included),
-// otherwise output the held value and ignore x. O(1) per instrument.
+// MTsFill: bounded forward fill. A finite input is output as is; a NaN input outputs the last finite
+// input while at most `days` bars have passed since it, otherwise NaN (also before the first finite input).
+// State per instrument: last value and its bar. O(1) per instrument.
 struct MTsFill : public Module {
-    unsigned lookback(unsigned first_bar) const override
-    {
-        const unsigned d = static_cast<unsigned>((int)days);
-        return d > 0 ? (d - first_bar % d) % d : 0;
-    }
+    unsigned lookback(unsigned) const override { return static_cast<unsigned>((int)days); }
     void init()
     {
-        held.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
+        last_value.assign(numAssets, std::numeric_limits<float>::quiet_NaN());
+        last_valid_bar.assign(numAssets, kNone);
     }
     void calculate(unsigned di, SignalVector &output)
     {
-        const bool refresh = di % static_cast<unsigned>((int)days) == 0;
+        const unsigned d = static_cast<unsigned>((int)days);
         for (unsigned ii = 0; ii < numAssets; ++ii) {
-            if (refresh) held[ii] = output[ii];
-            output[ii] = held[ii];
+            const float x = output[ii];
+            if (!std::isnan(x)) {
+                last_value[ii] = x;
+                last_valid_bar[ii] = di;
+            } else if (last_valid_bar[ii] != kNone && di - last_valid_bar[ii] <= d) {
+                output[ii] = last_value[ii];
+            }
         }
     }
 
-    std::vector<float> held;
+    static constexpr unsigned kNone = std::numeric_limits<unsigned>::max();
+    std::vector<float> last_value;
+    std::vector<unsigned> last_valid_bar;
     IntParameter days{20};
 };

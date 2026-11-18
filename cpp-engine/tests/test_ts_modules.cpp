@@ -1,4 +1,4 @@
-// Oracle tests for the time-series modules tsdelta, tssum, tsstddev, tsargmax, tsargmin, tsfill,
+// Oracle tests for the time-series modules tsdelta, tssum, tsstddev, tsargmax, tsargmin, tshold, tsfill,
 // tsmax, tsmin, tsewma, and the min_count rule of tsmean and decay.
 // Expectations are recomputed by brute force from the stored input history.
 #include <gtest/gtest.h>
@@ -23,6 +23,7 @@
 #include "modules/TsStdDev.h"
 #include "modules/TsArgExtreme.h"
 #include "modules/TsFill.h"
+#include "modules/TsHold.h"
 #include "modules/TsEwma.h"
 #include "modules/TsMean.h"
 #include "modules/Decay.h"
@@ -460,10 +461,10 @@ TEST(TsModules, TsEwmaConstantInputStateIsExact) {
         }
 }
 
-TEST(TsModules, TsFillMatchesOracle) {
+TEST(TsModules, TsHoldMatchesOracle) {
     auto h = make_history(kT, kN, 8);
     for (unsigned days : kDays) {
-        MTsFill m; m.days = IntParameter((int)days);
+        MTsHold m; m.days = IntParameter((int)days);
         auto out = run_module(m, h);
         for (unsigned t = 0; t < kT; ++t)
             for (unsigned n = 0; n < kN; ++n) {
@@ -473,11 +474,11 @@ TEST(TsModules, TsFillMatchesOracle) {
             }
         if (days == 1)
             for (unsigned t = 0; t < kT; ++t)
-                for (unsigned n = 0; n < kN; ++n) expect_same(out[t][n], h[t][n], 0.0, "tsfill identity", t, n);
+                for (unsigned n = 0; n < kN; ++n) expect_same(out[t][n], h[t][n], 0.0, "tshold identity", t, n);
     }
     // Explicit block behaviour, days=3: refresh bars 0, 3, 6.
     Hist x = {{1.0f}, {2.0f}, {kNaN}, {kNaN}, {5.0f}, {6.0f}, {7.0f}};
-    MTsFill m; m.days = IntParameter(3);
+    MTsHold m; m.days = IntParameter(3);
     auto out = run_module(m, x);
     EXPECT_EQ(out[1][0], 1.0f);  // finite input inside a block is ignored
     EXPECT_EQ(out[2][0], 1.0f);  // NaN input inside a block is ignored
@@ -485,6 +486,25 @@ TEST(TsModules, TsFillMatchesOracle) {
     EXPECT_TRUE(std::isnan(out[4][0]));  // ... stays NaN for the block despite finite inputs
     EXPECT_TRUE(std::isnan(out[5][0]));
     EXPECT_EQ(out[6][0], 7.0f);
+}
+
+TEST(TsModules, TsFillMatchesOracle) {
+    auto h = make_history(kT, kN, 9);
+    for (unsigned days : kDays) {
+        MTsFill m; m.days = IntParameter((int)days);
+        EXPECT_EQ(m.lookback(0), days);
+        EXPECT_EQ(m.lookback(17), days);
+        auto out = run_module(m, h);
+        for (unsigned t = 0; t < kT; ++t)
+            for (unsigned n = 0; n < kN; ++n) {
+                // Most recent non-NaN input at most `days` bars back.
+                float want = kNaN;
+                for (unsigned lag = 0; lag <= days && lag <= t; ++lag)
+                    if (!std::isnan(h[t - lag][n])) { want = h[t - lag][n]; break; }
+                if (std::isnan(want)) EXPECT_TRUE(std::isnan(out[t][n])) << days << " " << t << " " << n;
+                else EXPECT_EQ(std::memcmp(&out[t][n], &want, sizeof(float)), 0) << days << " " << t << " " << n;
+            }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -570,14 +590,19 @@ TEST(TsModulesXml, DefaultsAndExplicitAttributes) {
     m5 = compile_one<MTsArgMin>(d + R"(<tsargmin days="6" min_count="6"/>)", dp); ASSERT_TRUE(m5);
     EXPECT_EQ((int)m5->days, 6); EXPECT_EQ((int)m5->min_count, 6);
 
-    auto* m6 = compile_one<MTsFill>(d + "<tsfill/>", dp); ASSERT_TRUE(m6); EXPECT_EQ((int)m6->days, 20);
-    m6 = compile_one<MTsFill>(d + R"(<tsfill days="3"/>)", dp); ASSERT_TRUE(m6); EXPECT_EQ((int)m6->days, 3);
+    auto* m6 = compile_one<MTsHold>(d + "<tshold/>", dp); ASSERT_TRUE(m6); EXPECT_EQ((int)m6->days, 20);
+    m6 = compile_one<MTsHold>(d + R"(<tshold days="3"/>)", dp); ASSERT_TRUE(m6); EXPECT_EQ((int)m6->days, 3);
+    auto* m7 = compile_one<MTsFill>(d + "<tsfill/>", dp); ASSERT_TRUE(m7); EXPECT_EQ((int)m7->days, 20);
+    m7 = compile_one<MTsFill>(d + R"(<tsfill days="3"/>)", dp); ASSERT_TRUE(m7); EXPECT_EQ((int)m7->days, 3);
+    // tsfill and tshold are different modules.
+    EXPECT_EQ(compile_one<MTsHold>(d + "<tsfill/>", dp), nullptr);
+    EXPECT_EQ(compile_one<MTsFill>(d + "<tshold/>", dp), nullptr);
 }
 
 TEST(TsModulesXml, Errors) {
     auto dp = make_panel(60);
     const std::string d = R"(<data expr="close"/>)";
-    for (const char* tag : {"tsdelta", "tssum", "tsstddev", "tsargmax", "tsargmin", "tsfill"}) {
+    for (const char* tag : {"tsdelta", "tssum", "tsstddev", "tsargmax", "tsargmin", "tsfill", "tshold"}) {
         expect_error(d + "<" + tag + R"( foo="1"/>)", dp, "foo");
         expect_error(d + "<" + tag + R"( days="0"/>)", dp, "days");
         expect_error(d + "<" + tag + R"( days="61"/>)", dp, "days");
@@ -590,6 +615,7 @@ TEST(TsModulesXml, Errors) {
     expect_error(d + R"(<tsstddev days="5" ddof="5"/>)", dp, "ddof");
     expect_error(d + R"(<tsstddev days="5" ddof="-1"/>)", dp, "ddof");
     expect_error(d + R"(<tsfill min_count="2"/>)", dp, "min_count");
+    expect_error(d + R"(<tshold min_count="2"/>)", dp, "min_count");
     expect_error(d + R"(<tsdelta min_count="2"/>)", dp, "min_count");
     // No module here has a required attribute; a required one elsewhere still errors through the
     // same compile path (power needs exp).
@@ -599,7 +625,7 @@ TEST(TsModulesXml, Errors) {
 TEST(TsModulesXml, PipeExpansion) {
     auto dp = make_panel();
     const std::string d = R"(<data expr="close"/>)";
-    for (const char* tag : {"tsdelta", "tssum", "tsstddev", "tsargmax", "tsargmin", "tsfill"}) {
+    for (const char* tag : {"tsdelta", "tssum", "tsstddev", "tsargmax", "tsargmin", "tsfill", "tshold"}) {
         auto alphas = compile_xml(d + "<" + tag + R"( days="3|7"/>)", &dp);
         EXPECT_EQ(alphas.size(), 2u) << tag;
     }
@@ -674,15 +700,15 @@ std::vector<std::vector<float>> collect(const DataPanel& dp, const std::string& 
 }
 }  // namespace
 
-TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsFillHoldsBlocks) {
+TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsHoldHoldsBlocks) {
     auto dp = make_panel(60, 5, true);
     const std::string base = R"(<data expr="close" delay="1"/>)";
     auto sum = collect(dp, base + R"(<tssum days="5"/>)");
     auto mean = collect(dp, base + R"(<tsmean days="5"/>)");
-    auto fill = collect(dp, base + R"(<tsfill days="3"/>)");
+    auto fill = collect(dp, base + R"(<tshold days="3"/>)");
     auto raw = collect(dp, base);
     // Blocks stay anchored at panel index 0 regardless of simStart.
-    auto fill7 = collect(dp, base + R"(<tsfill days="3"/>)", 7);
+    auto fill7 = collect(dp, base + R"(<tshold days="3"/>)", 7);
     ASSERT_EQ(fill7.size(), fill.size());
     for (unsigned t = 9; t < dp.T; ++t)  // simStart 7 computes from bar 6; delay 1 samples first on bar 9
         for (unsigned n = 0; n < dp.N; ++n)
@@ -702,7 +728,7 @@ TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsFillHoldsBlocks) {
                 EXPECT_NEAR(sum[t][n], 5.0 * mean[t][n], 1e-6 * std::fabs(sum[t][n])) << t << " " << n;
             }
             // Hold of the delayed close on blocks of 3 bars from panel index 0.
-            expect_same(fill[t][n], raw[t - t % 3][n], 0.0, "tsfill", t, n);
+            expect_same(fill[t][n], raw[t - t % 3][n], 0.0, "tshold", t, n);
         }
     EXPECT_GT(complete, 100u);
     // Gap n=4, close NaN for t in [20,30) -> signal NaN for t in [21,31). Refresh bars 21 and 30 are NaN,
@@ -711,4 +737,111 @@ TEST(TsModulesPipeline, TsSumIsFiveTimesTsMeanAndTsFillHoldsBlocks) {
     for (unsigned t = 21; t < 33; ++t) EXPECT_TRUE(std::isnan(fill[t][4])) << t;
     EXPECT_TRUE(std::isfinite(raw[31][4]));
     EXPECT_TRUE(std::isfinite(fill[33][4]));
+}
+
+// ---------------------------------------------------------------------------
+// tshold (legacy block sample-and-hold) and tsfill (bounded forward fill) through the XML tags,
+// run from panel bar 0 on a one-instrument panel.
+// ---------------------------------------------------------------------------
+namespace {
+DataPanel panel_from(const Hist& h) {
+    DataPanel dp;
+    dp.T = (unsigned)h.size(); dp.N = (unsigned)h[0].size();
+    dp.timestamps.resize(dp.T);
+    for (unsigned t = 0; t < dp.T; ++t) dp.timestamps[t] = 1704067200000LL + (int64_t)t * 86400000LL;
+    for (unsigned n = 0; n < dp.N; ++n) dp.symbols.push_back("SYM" + std::to_string(n));
+    for (const char* col : {"open", "high", "low", "close", "volume"}) {
+        auto& arr = dp.arrays[col];
+        arr.resize(size_t(dp.T) * dp.N);
+        for (unsigned t = 0; t < dp.T; ++t)
+            for (unsigned n = 0; n < dp.N; ++n) arr[size_t(t) * dp.N + n] = 100.0f;
+    }
+    // The tested input is its own field, so prices stay valid for the simulator.
+    auto& x = dp.arrays["x"];
+    x.resize(size_t(dp.T) * dp.N);
+    for (unsigned t = 0; t < dp.T; ++t)
+        for (unsigned n = 0; n < dp.N; ++n) x[size_t(t) * dp.N + n] = h[t][n];
+    return dp;
+}
+
+Hist run_tag(const std::string& tag, const Hist& h, unsigned days, unsigned sim_start = 0) {
+    const DataPanel dp = panel_from(h);
+    const std::string xml = R"(<data expr="x" delay="0"/><)" + tag + R"( days=")" + std::to_string(days) + R"("/>)";
+    try {
+        return collect(dp, xml, sim_start);
+    } catch (const std::exception& e) {
+        ADD_FAILURE() << xml << ": " << e.what();
+        return {};
+    }
+}
+
+std::vector<float> column(const Hist& h, unsigned n = 0) {
+    std::vector<float> c;
+    for (const auto& row : h) c.push_back(row.empty() ? kNaN : row[n]);
+    return c;
+}
+
+std::vector<float> run_1(const std::string& tag, std::vector<float> x, unsigned days) {
+    Hist h;
+    for (float v : x) h.push_back({v});
+    Hist out = run_tag(tag, h, days);
+    return out.empty() ? std::vector<float>{} : column(out);
+}
+std::vector<float> run_tshold(std::vector<float> x, unsigned days) { return run_1("tshold", std::move(x), days); }
+std::vector<float> run_tsfill(std::vector<float> x, unsigned days) { return run_1("tsfill", std::move(x), days); }
+
+// Same length, NaN at the same places, finite values bit-identical.
+bool equal_nan(const std::vector<float>& a, const std::vector<float>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::isnan(a[i]) != std::isnan(b[i])) return false;
+        if (!std::isnan(a[i]) && std::memcmp(&a[i], &b[i], sizeof(float)) != 0) return false;
+    }
+    return true;
+}
+}  // namespace
+
+TEST(TsHold, LegacyOracle) {
+    EXPECT_TRUE(equal_nan(run_tshold({5, 7, 9}, 2), {5, 5, 9}));
+}
+
+TEST(TsFill, Refresh) {
+    EXPECT_TRUE(equal_nan(run_tsfill({5, 6, NAN, NAN, 7}, 2), {5, 6, 6, 6, 7}));
+}
+
+TEST(TsFill, Expiry) {
+    EXPECT_TRUE(equal_nan(run_tsfill({5, 6, NAN, NAN, NAN, 7}, 2), {5, 6, 6, 6, NAN, 7}));
+}
+
+TEST(TsFill, LeadingNaN) {
+    EXPECT_TRUE(equal_nan(run_tsfill({NAN, NAN, 5}, 2), {NAN, NAN, 5}));
+}
+
+TEST(TsFill, Zero) {
+    EXPECT_TRUE(equal_nan(run_tsfill({0, NAN, NAN}, 1), {0, 0, NAN}));
+}
+
+TEST(TsFill, Prefix) {
+    // NaN runs of every length around days=5, leading NaN, an all-NaN column.
+    const unsigned T = 140, N = 8, days = 5, sim_start = 61;  // history start 60
+    std::mt19937 rng(21);
+    std::uniform_real_distribution<float> u(-5.0f, 5.0f);
+    std::uniform_int_distribution<int> gap(0, 9);
+    Hist h(T, std::vector<float>(N, kNaN));
+    for (unsigned n = 1; n < N; ++n)
+        for (unsigned t = 3 * n; t < T;) {
+            h[t][n] = u(rng);
+            t += 1 + (unsigned)gap(rng);
+        }
+    const Hist full = run_tag("tsfill", h, days);
+    const Hist delayed = run_tag("tsfill", h, days, sim_start);
+    ASSERT_EQ(full.size(), T);
+    ASSERT_EQ(delayed.size(), T);
+    std::vector<float> delayed_prefix_overlap, full_run_overlap;
+    for (unsigned t = sim_start - 1 + days; t < T; ++t)
+        for (unsigned n = 0; n < N; ++n) {
+            delayed_prefix_overlap.push_back(delayed[t][n]);
+            full_run_overlap.push_back(full[t][n]);
+        }
+    EXPECT_TRUE(equal_nan(delayed_prefix_overlap, full_run_overlap));
 }
