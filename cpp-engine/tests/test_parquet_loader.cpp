@@ -118,6 +118,22 @@ struct V3Cache {
 const std::string engine_ids = "universe:\n  symbols: ['10', '2', '99']\n";
 }
 
+// Every float compared byte for byte, NaN payloads and signs included.
+bool equal_values_and_nan_positions(const std::vector<float>& a, const std::vector<float>& b) {
+    return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
+}
+
+TEST(RunPanelAfl, ComparatorRejectsDifferentNanRepresentations) {
+    const float quiet = std::numeric_limits<float>::quiet_NaN();
+    float payload;
+    const uint32_t bits = 0x7fc00001u;
+    std::memcpy(&payload, &bits, sizeof(float));
+    ASSERT_TRUE(std::isnan(payload));
+    EXPECT_FALSE(equal_values_and_nan_positions({quiet}, {payload}));
+    EXPECT_FALSE(equal_values_and_nan_positions({quiet}, {-quiet}));
+    EXPECT_TRUE(equal_values_and_nan_positions({quiet, 1.0f}, {quiet, 1.0f}));
+}
+
 TEST(V3Loader, ColumnOrder) {
     V3Cache v3;
     const auto parent = v3.load(engine_ids);
@@ -166,12 +182,6 @@ TEST(V3Loader, ReferenceEquality) {
     EXPECT_FALSE(parent.lazy_columns.at("AFL.ROE")->loaded());  // read from the source, not the parent panel
     for (unsigned t = 0; t < run->T; ++t)
         for (unsigned k = 0; k < run->N; ++k) reference.push_back(parent.at("AFL.ROE", t, index_of(parent, run->symbols[k])));
-    auto equal_values_and_nan_positions = [](const std::vector<float>& a, const std::vector<float>& b) {
-        if (a.size() != b.size()) return false;
-        for (size_t i = 0; i < a.size(); ++i)
-            if (std::isnan(a[i]) != std::isnan(b[i]) || (!std::isnan(a[i]) && std::memcmp(&a[i], &b[i], sizeof(float)))) return false;
-        return true;
-    };
     EXPECT_TRUE(equal_values_and_nan_positions(selected, reference));
     EXPECT_GT(std::count_if(selected.begin(), selected.end(), [](float v) { return std::isnan(v); }), 0);
     EXPECT_GT(std::count_if(selected.begin(), selected.end(), [](float v) { return v == 0.0f; }), 0);

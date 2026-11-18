@@ -544,8 +544,8 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
             auto& column = lazy[source.path];
             if (!column) {
                 column = std::make_shared<LazyColumn>([source, coordinates] { return read_field<float>(source, *coordinates); });
-                column->select = [source, coordinates](const std::vector<std::string>& symbols) {
-                    return read_field<float>(source, {coordinates->timestamps, symbols});
+                column->select = [source, coordinates](const std::shared_ptr<const std::vector<std::string>>& symbols) {
+                    return read_field<float>(source, {coordinates->timestamps, *symbols});
                 };
             }
             panel.lazy_columns.emplace(name, column);
@@ -711,11 +711,13 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
         }));
     }
     std::unordered_map<const LazyColumn*, std::shared_ptr<LazyColumn>> projected;
+    const auto symbols = std::make_shared<const std::vector<std::string>>(panel->symbols);
     for (const auto& [name, parent] : base.lazy_columns) {
         auto& child = projected[parent.get()];
         if (!child && parent->select)
-            child = std::make_shared<LazyColumn>([select = parent->select, symbols = panel->symbols] {
-                return select(symbols);
+            // A parent already loaded (and possibly changed through at()) is projected like any other column.
+            child = std::make_shared<LazyColumn>([parent = parent, symbols, columns, T, N] {
+                return parent->loaded() ? project_columns(parent->get(), *columns, T, N) : parent->select(symbols);
             });
         else if (!child)
             child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {

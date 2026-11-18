@@ -19,8 +19,9 @@ struct LazyColumn {
     bool loaded() const { return ready.load(std::memory_order_acquire); }
     size_t loaded_bytes() const;
     // Set before publication for columns read from a source file: reads the same timestamps for the given
-    // symbols straight from that source. Run panels use it instead of projecting the loaded parent column.
-    std::function<std::vector<float>(const std::vector<std::string>& symbols)> select;
+    // symbols straight from that source. Run panels use it instead of projecting the parent column while the
+    // parent is not loaded; all selectors of one run panel share its symbol vector.
+    std::function<std::vector<float>(const std::shared_ptr<const std::vector<std::string>>& symbols)> select;
 private:
     mutable std::once_flag once;
     mutable std::function<std::vector<float>()> loader;

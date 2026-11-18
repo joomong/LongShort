@@ -310,6 +310,47 @@ TEST(RunPanel, ProjectsEveryFieldLazilyAndKeepsAliases) {
     EXPECT_EQ(compact->row("close", 1)[0], 4.0f);
 }
 
+TEST(RunPanelAfl, LoadedParentIsProjectedNotReadAgain) {
+    int selects = 0;
+    DataPanel dp;
+    dp.T = 2; dp.N = 3;
+    dp.timestamps = {0, 86400000};
+    dp.symbols = {"A", "B", "C"};
+    dp.lazy_columns["x"] = std::make_shared<LazyColumn>([] { return std::vector<float>{10, 20, 30, 40, 50, 60}; });
+    dp.lazy_columns["x"]->select = [&selects](const std::shared_ptr<const std::vector<std::string>>&) {
+        ++selects;
+        return std::vector<float>{-1, -1, -1, -1};
+    };
+    dp.universe_mask = {1, 0, 0, 0, 0, 1};
+    dp.default_universe = "U";
+    dp.at("x", 1, 2) = 99.0f;  // loads the parent and changes it
+    const auto compact = make_run_panel(dp, "U", 0, 2);
+    EXPECT_EQ(compact->row("x", 1)[1], 99.0f);
+    EXPECT_EQ(compact->row("x", 0)[0], 10.0f);
+    EXPECT_EQ(selects, 0);
+}
+
+TEST(RunPanelAfl, SelectorsShareOneSymbolVector) {
+    DataPanel dp;
+    dp.T = 1; dp.N = 2;
+    dp.timestamps = {0};
+    dp.symbols = {"A", "B"};
+    std::vector<const void*> seen;
+    for (const char* name : {"x", "y", "z"}) {
+        dp.lazy_columns[name] = std::make_shared<LazyColumn>([] { return std::vector<float>{1, 2}; });
+        dp.lazy_columns[name]->select = [&seen](const std::shared_ptr<const std::vector<std::string>>& symbols) {
+            seen.push_back(symbols.get());
+            EXPECT_EQ(*symbols, (std::vector<std::string>{"A", "B"}));
+            return std::vector<float>{1, 2};
+        };
+    }
+    const auto compact = make_run_panel(dp, "", 0, 1);
+    for (const char* name : {"x", "y", "z"}) (void)compact->row(name, 0);
+    ASSERT_EQ(seen.size(), 3u);
+    EXPECT_EQ(seen[0], seen[1]);
+    EXPECT_EQ(seen[1], seen[2]);
+}
+
 TEST(RunPanelCache, EvictsLeastRecentByBytes) {
     const DataPanel dp = make_panel(true);
     const size_t one = make_run_panel(dp, "", 10, 100)->universe_mask.size() * 9;  // mask + returns, same K
