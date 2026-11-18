@@ -11,18 +11,32 @@
 #include <unordered_map>
 #include <vector>
 
+#include "field_cache.h"
+
 struct BacktestConfig;
 
 struct LazyColumn {
     explicit LazyColumn(std::function<std::vector<float>()> source) : loader(std::move(source)) {}
+    // A run column: get() takes a reference (a FieldCache run reference or a private buffer) and keeps it
+    // until release(). Its bytes belong to the FieldCache, so loaded_bytes() reports 0.
+    static std::shared_ptr<LazyColumn> referenced(std::function<std::shared_ptr<const FieldBuffer>()> acquire);
     const std::vector<float>& get() const;
-    bool loaded() const { return ready.load(std::memory_order_acquire); }
+    bool loaded() const;
     size_t loaded_bytes() const;
+    // Drops the reference of a run column; the next get() takes it again. Callers guarantee no reader.
+    void release() const;
     // Set before publication for columns read from a source file: reads the same timestamps for the given
     // symbols straight from that source. Run panels use it instead of projecting the parent column while the
     // parent is not loaded; all selectors of one run panel share its symbol vector.
     std::function<std::vector<float>(const std::shared_ptr<const std::vector<std::string>>& symbols)> select;
+    // With select: the source's identity in the panel's FieldCache.
+    std::string data_version, canonical_field;
 private:
+    LazyColumn() = default;
+    std::function<std::shared_ptr<const FieldBuffer>()> acquire;
+    mutable std::mutex reference_mutex;
+    mutable std::shared_ptr<const FieldBuffer> reference;
+    mutable std::atomic<const std::vector<float>*> referenced_values{nullptr};
     mutable std::once_flag once;
     mutable std::function<std::vector<float>()> loader;
     mutable std::vector<float> values;
@@ -37,6 +51,10 @@ struct DataPanel {
     std::unordered_map<std::string, std::vector<float>> arrays;
     // Populated before publication; each shared column loads exactly once. Aliases share values.
     std::unordered_map<std::string, std::shared_ptr<LazyColumn>> lazy_columns;
+    // Optional-input (AFL) arrays of run panels; set by the loader when the config has AFL fields.
+    std::shared_ptr<FieldCache> field_cache;
+    // Drops the field references a run panel holds (see RunPanelCache).
+    void release_fields() const;
     std::vector<uint8_t> universe_mask; // T*N; row t = membership known at the previous bar close; empty means all
     // Selectable named sets (universe.names): universe_mask holds default_universe, the others
     // live here. universe_names is empty when the config has a single universe.
@@ -91,6 +109,8 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
 // returns_total, loaded columns), measured at each lookup because columns load lazily. Least recently
 // used panels go until the total fits; the most recently used always stays. A panel held by a running
 // request stays alive through its shared_ptr, so eviction does not free its bytes until the request ends.
+// AFL arrays are not counted here: each returned pointer is a run reference, and when the last one for a
+// panel goes the panel drops its FieldCache references, so they turn idle there.
 // Concurrent first requests may each build a panel; the first one stored is shared afterwards.
 class RunPanelCache {
 public:
@@ -103,7 +123,10 @@ private:
         std::string universe;
         unsigned history_start, sim_end;
         std::shared_ptr<const DataPanel> panel;
+        std::shared_ptr<std::mutex> users_mutex = std::make_shared<std::mutex>();
+        std::shared_ptr<std::size_t> users = std::make_shared<std::size_t>(0);
     };
+    static std::shared_ptr<const DataPanel> lease(const Entry& entry);
     void evict();  // with mutex_ held
     const DataPanel& base_;
     const std::size_t max_bytes_;

@@ -18,6 +18,7 @@ struct BacktestConfig {
     std::string base_groups;
     std::string afl_path;
     std::string afl_catalog;
+    std::size_t afl_cache_budget_bytes = std::size_t{16} << 30;  // afl.cache_budget_gib: run-panel AFL arrays
     UniverseConfig universe;
     std::string config_dir;
     std::string start_date;

@@ -63,7 +63,13 @@ BacktestConfig BacktestConfig::from_yaml(const std::string& yaml_path) {
     cfg.base_groups = base["groups"] ? base["groups"].as<std::string>()
         : (std::filesystem::path(cfg.base_cache) / "groups").string();
     if (const auto afl = root["afl"]; afl && !afl.IsNull()) {
-        require_known_keys(afl, "afl.", {"path", "catalog"});
+        require_known_keys(afl, "afl.", {"path", "catalog", "cache_budget_gib"});
+        if (afl["cache_budget_gib"] && !afl["cache_budget_gib"].IsNull()) {
+            const double gib = afl["cache_budget_gib"].as<double>();
+            if (!std::isfinite(gib) || gib <= 0 || gib > 1024)
+                throw std::runtime_error("afl.cache_budget_gib must be a positive number of GiB up to 1024");
+            cfg.afl_cache_budget_bytes = static_cast<std::size_t>(gib * double(std::size_t{1} << 30));
+        }
         cfg.afl_path = afl["path"] ? afl["path"].as<std::string>()
             : (std::filesystem::path(cfg.base_cache) / "AflData").string();
         cfg.afl_catalog = afl["catalog"] ? afl["catalog"].as<std::string>()
@@ -484,6 +490,7 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     const auto last = std::upper_bound(master->calendar.begin(), master->calendar.end(), end);
     if (first == master->calendar.end() || first >= last) throw std::runtime_error("No close observations in the configured period");
     DataPanel panel;
+    if (!config.afl_catalog.empty()) panel.field_cache = std::make_shared<FieldCache>(config.afl_cache_budget_bytes);
     panel.timestamps.assign(first, last);
     panel.T = static_cast<unsigned>(panel.timestamps.size());
     auto membership = config.universe.name.empty() && config.universe.names.empty()
@@ -547,6 +554,12 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
                 column->select = [source, coordinates](const std::shared_ptr<const std::vector<std::string>>& symbols) {
                     return read_field<float>(source, {coordinates->timestamps, *symbols});
                 };
+                // The file's size and modification time stand for its version: a rewritten file is a new key.
+                std::error_code error;
+                const auto size = std::filesystem::file_size(source.path, error);
+                const auto modified = std::filesystem::last_write_time(source.path, error).time_since_epoch().count();
+                column->data_version = std::to_string(size) + "@" + std::to_string(modified);
+                column->canonical_field = source.path;
             }
             panel.lazy_columns.emplace(name, column);
         } else panel.arrays.emplace(name, read_field<float>(source, *coordinates));
@@ -586,12 +599,27 @@ DataPanel load_config(const BacktestConfig& config, const std::vector<std::strin
     std::stable_sort(panel.move_events.begin(), panel.move_events.end(), [](const auto& a, const auto& b) {
         return a.bar != b.bar ? a.bar < b.bar : a.source < b.source;
     });
+    if (panel.field_cache) {
+        size_t resident = panel.loaded_bytes() + panel.returns_total.size() * sizeof(double) +
+                          panel.universe_mask.size() + panel.timestamps.size() * sizeof(int64_t);
+        for (const auto& mask : panel.universe_masks) resident += mask.second.size();
+        panel.field_cache->set_resident_bytes(resident);
+    }
     return panel;
 }
 }
 
 
 const std::vector<float>& LazyColumn::get() const {
+    if (acquire) {
+        if (const auto* held = referenced_values.load(std::memory_order_acquire)) return *held;
+        std::lock_guard<std::mutex> lock(reference_mutex);
+        if (!reference) {
+            reference = acquire();  // a failure leaves it empty, so the next get() retries
+            referenced_values.store(&reference->values, std::memory_order_release);
+        }
+        return reference->values;
+    }
     std::call_once(once, [this] {
         auto loaded_values = loader(); // exceptions leave once_flag retryable
         values = std::move(loaded_values);
@@ -600,7 +628,24 @@ const std::vector<float>& LazyColumn::get() const {
     });
     return values;
 }
-size_t LazyColumn::loaded_bytes() const { return loaded() ? values.size() * sizeof(float) : 0; }
+std::shared_ptr<LazyColumn> LazyColumn::referenced(std::function<std::shared_ptr<const FieldBuffer>()> acquire) {
+    std::shared_ptr<LazyColumn> column(new LazyColumn());
+    column->acquire = std::move(acquire);
+    return column;
+}
+bool LazyColumn::loaded() const {
+    return acquire ? referenced_values.load(std::memory_order_acquire) != nullptr : ready.load(std::memory_order_acquire);
+}
+size_t LazyColumn::loaded_bytes() const { return !acquire && loaded() ? values.size() * sizeof(float) : 0; }
+void LazyColumn::release() const {
+    if (!acquire) return;
+    std::lock_guard<std::mutex> lock(reference_mutex);
+    referenced_values.store(nullptr, std::memory_order_release);
+    reference.reset();
+}
+void DataPanel::release_fields() const {
+    for (const auto& field : lazy_columns) field.second->release();
+}
 
 const float& DataPanel::at(const std::string& col, unsigned t, unsigned n) const {
     if (t >= T || n >= N) throw std::out_of_range("DataPanel coordinate out of range");
@@ -712,12 +757,29 @@ std::shared_ptr<const DataPanel> make_run_panel(const DataPanel& base, const std
     }
     std::unordered_map<const LazyColumn*, std::shared_ptr<LazyColumn>> projected;
     const auto symbols = std::make_shared<const std::vector<std::string>>(panel->symbols);
+    // Field-cache axes of this panel, built once and shared by its AFL columns.
+    const auto date_axis = std::make_shared<const std::string>(field_axis_key(panel->timestamps));
+    const auto symbol_axis = std::make_shared<const std::string>(field_axis_key(*symbols));
+    const auto cache = base.field_cache;
+    const auto timestamps = std::make_shared<const std::vector<int64_t>>(panel->timestamps);
     for (const auto& [name, parent] : base.lazy_columns) {
         auto& child = projected[parent.get()];
         if (!child && parent->select)
-            // A parent already loaded (and possibly changed through at()) is projected like any other column.
-            child = std::make_shared<LazyColumn>([parent = parent, symbols, columns, T, N] {
-                return parent->loaded() ? project_columns(parent->get(), *columns, T, N) : parent->select(symbols);
+            // A parent already loaded (and possibly changed through at()) is projected like any other column;
+            // otherwise the run's symbols are read from the source through the field cache.
+            child = LazyColumn::referenced([parent = parent, symbols, timestamps, columns, T, N, cache, date_axis, symbol_axis] {
+                const auto read = [&] {
+                    FieldBuffer buffer;
+                    buffer.values = parent->loaded() ? project_columns(parent->get(), *columns, T, N) : parent->select(symbols);
+                    buffer.timestamps = *timestamps;
+                    buffer.symbols = *symbols;
+                    return buffer;
+                };
+                if (parent->loaded() || !cache) return std::shared_ptr<const FieldBuffer>(std::make_shared<FieldBuffer>(read()));
+                // The array plus one 64-column decode batch of doubles, as read_field reads them.
+                const size_t reserve = size_t{T} * symbols->size() * sizeof(float) + size_t{T} * 64 * sizeof(double) * 2;
+                return cache->acquire(FieldKey{parent->data_version, parent->canonical_field, *date_axis, *symbol_axis},
+                                      read, reserve);
             });
         else if (!child)
             child = std::make_shared<LazyColumn>([parent = parent, columns, T, N] {
@@ -756,7 +818,7 @@ std::shared_ptr<const DataPanel> RunPanelCache::get(const std::string& universe,
         if (found != entries_.end()) {
             entries_.splice(entries_.begin(), entries_, found);
             evict();
-            return entries_.front().panel;
+            return lease(entries_.front());
         }
     }
     auto panel = make_run_panel(base_, universe, history_start, sim_end);
@@ -765,11 +827,31 @@ std::shared_ptr<const DataPanel> RunPanelCache::get(const std::string& universe,
     if (found != entries_.end()) {
         entries_.splice(entries_.begin(), entries_, found);
         evict();
-        return entries_.front().panel;
+        return lease(entries_.front());
     }
     entries_.push_front(Entry{universe, history_start, sim_end, std::move(panel)});
     evict();
-    return entries_.front().panel;
+    return lease(entries_.front());
+}
+
+// A run reference to the entry's panel. When the last one goes, the panel drops its field references, so
+// cached AFL arrays turn idle; a later lease takes them again from the field cache.
+std::shared_ptr<const DataPanel> RunPanelCache::lease(const Entry& entry) {
+    struct Lease {
+        std::shared_ptr<const DataPanel> panel;
+        std::shared_ptr<std::mutex> mutex;
+        std::shared_ptr<std::size_t> users;
+        ~Lease() {
+            std::lock_guard<std::mutex> lock(*mutex);
+            if (--*users == 0) panel->release_fields();
+        }
+    };
+    {
+        std::lock_guard<std::mutex> lock(*entry.users_mutex);
+        ++*entry.users;
+    }
+    std::shared_ptr<Lease> held(new Lease{entry.panel, entry.users_mutex, entry.users});
+    return std::shared_ptr<const DataPanel>(held, held->panel.get());
 }
 
 void RunPanelCache::evict() {

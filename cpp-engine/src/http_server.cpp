@@ -1787,6 +1787,29 @@ int run_http_server(int argc, char* argv[])
         },
         {drogon::Get});
 
+    // GET /api/field-cache — optional-input (AFL) field cache counters; empty object without AFL
+    drogon::app().registerHandler(
+        "/api/field-cache",
+        [](const drogon::HttpRequestPtr &,
+           std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+            Json::Value json(Json::objectValue);
+            if (g_data.field_cache) {
+                const auto s = g_data.field_cache->stats();
+                json["residentBytes"] = Json::UInt64(s.resident_bytes);
+                json["activeBytes"] = Json::UInt64(s.active_bytes);
+                json["idleBytes"] = Json::UInt64(s.idle_bytes);
+                json["loadingReservedBytes"] = Json::UInt64(s.loading_reserved_bytes);
+                json["budgetBytes"] = Json::UInt64(s.budget_bytes);
+                json["loads"] = Json::UInt64(s.loads);
+                json["hits"] = Json::UInt64(s.hits);
+                json["evictions"] = Json::UInt64(s.evictions);
+                json["rejected"] = Json::UInt64(s.rejected);
+                json["failures"] = Json::UInt64(s.failures);
+            }
+            callback(drogon::HttpResponse::newHttpJsonResponse(json));
+        },
+        {drogon::Get});
+
     // GET /api/config
     drogon::app().registerHandler(
         "/api/config",
